@@ -1,0 +1,151 @@
+{
+  "model": {
+    "deepseek_api_key": "sk-nxnmlyfqvlmtufojnmlcgoldxzpwjmlrzfoedbstgrcszkai",
+    "api_base": "https://api.siliconflow.cn/v1",
+    "model_name": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "embedding_model_name": "BAAI/bge-m3"
+  },
+  "memory": {
+    "memory_db_path": "./memory_db",
+    "collection_name": "game_memories"
+  },
+  "character": {
+    "name": "艾莉克斯",
+    "role": "飞船工程师",
+    "personality": "冷静、理性、略显紧张但专业可靠",
+    "background": "负责维护飞船系统的资深工程师，对技术细节了如指掌，在这次意外中承担着关键的生存责任",
+    "current_state": "stressed",
+    "knowledge_level": "technical_expert"
+  },
+  "knowledge": {
+    "knowledge_base": {
+      "basic_ship_layout": {
+        "unlocked": true,
+        "content": "飞船基本布局：桥梁、工程舱、生活区、货舱、医疗舱",
+        "required_permission": 1
+      },
+      "emergency_protocols": {
+        "unlocked": true,
+        "content": "紧急情况处理协议：生命支持系统优先、紧急疏散路线、基本医疗程序",
+        "required_permission": 1
+      },
+      "technical_systems": {
+        "unlocked": false,
+        "content": "飞船技术系统详细信息：引擎规格、电力分配、环境控制、推进器配置",
+        "required_permission": 3
+      },
+      "mission_details": {
+        "unlocked": false,
+        "content": "任务详细信息：目的地坐标、货物清单、预定航线、任务时间表",
+        "required_permission": 5
+      },
+      "classified_logs": {
+        "unlocked": false,
+        "content": "机密日志：事故原因分析、船员个人档案、公司机密指令",
+        "required_permission": 7
+      }
+    }
+  },
+  "game": {
+    "events": {
+      "power_failure": {
+        "trigger_time": 60,
+        "description": "主电力系统出现故障",
+        "effects": {
+          "character_stress": 20,
+          "available_systems": ["emergency_power"]
+        }
+      },
+      "medical_emergency": {
+        "trigger_health": 30,
+        "description": "角色健康状况危急",
+        "effects": {
+          "character_energy": -30,
+          "required_action": "medical_treatment"
+        }
+      },
+      "core_access": {
+        "trigger_permission": 5,
+        "description": "获得核心系统访问权限",
+        "effects": {
+          "new_areas": ["core_chamber", "captain_quarters"],
+          "new_knowledge": ["ship_history", "true_mission"]
+        }
+      }
+    },
+    "locations": {
+      "bridge": {
+        "description": "飞船指挥中心，配备导航和通信设备",
+        "available_systems": ["navigation", "communications", "sensors"],
+        "required_permission": 1
+      },
+      "engineering": {
+        "description": "工程舱，包含主要的维修和控制系统",
+        "available_systems": ["power_grid", "life_support", "engines"],
+        "required_permission": 2
+      },
+      "living_quarters": {
+        "description": "船员生活区，包含休息室和个人舱室",
+        "available_systems": ["personal_logs", "recreation"],
+        "required_permission": 1
+      },
+      "cargo_bay": {
+        "description": "货物存储区，可能包含重要物资",
+        "available_systems": ["inventory", "loading_systems"],
+        "required_permission": 3
+      },
+      "core_chamber": {
+        "description": "飞船核心控制室，最高机密区域",
+        "available_systems": ["core_systems", "classified_data"],
+        "required_permission": 7
+      }
+    },
+    "data_fragments": {
+      "engine_data": {
+        "name": "引擎诊断数据",
+        "description": "包含引擎性能和故障信息的数据包",
+        "unlock_knowledge": ["technical_systems"]
+      },
+      "power_grid_info": {
+        "name": "电力网格信息",
+        "description": "飞船电力分配和备用系统的详细资料",
+        "unlock_knowledge": ["technical_systems"]
+      },
+      "navigation_log": {
+        "name": "导航日志",
+        "description": "航行记录和路线数据",
+        "unlock_knowledge": ["mission_details"]
+      },
+      "mission_briefing": {
+        "name": "任务简报",
+        "description": "官方任务文件和指令",
+        "unlock_knowledge": ["mission_details"]
+      },
+      "captain_key": {
+        "name": "船长访问密钥",
+        "description": "船长个人系统的访问凭证",
+        "unlock_knowledge": ["classified_logs"]
+      },
+      "security_override": {
+        "name": "安全覆盖代码",
+        "description": "紧急情况下的系统覆盖权限",
+        "unlock_knowledge": ["classified_logs"]
+      }
+    }
+  },
+  "prompts": {
+    "system_base": "你是一名被困在损坏飞船上的工程师，必须与AI系统合作求生。",
+    "emotional_states": {
+      "neutral": "保持专业和冷静的语调",
+      "stressed": "语调紧张，但仍然专业",
+      "panicked": "表现出明显的恐慌和急迫感",
+      "pained": "因身体不适而语调虚弱",
+      "relieved": "显示出放松和感激的情绪"
+    },
+    "permission_responses": {
+      "insufficient": "抱歉，我的当前权限无法访问该系统。",
+      "system_locked": "该系统已被锁定，需要更高级别的授权。",
+      "data_corrupted": "数据似乎已损坏或不完整。"
+    }
+  }
+}

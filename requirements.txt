@@ -1,0 +1,27 @@
+# LLM and API calls
+requests>=2.31.0
+openai>=1.0.0
+
+# Embedding models and vector database
+sentence-transformers>=2.2.2
+chromadb>=0.4.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# Data processing and tools
+numpy>=1.24.0
+pandas>=2.0.0
+json5>=0.9.0
+pyyaml>=6.0
+
+# Network graph and knowledge graph
+networkx>=3.1
+matplotlib>=3.7.0
+
+# Logging and configuration
+loguru>=0.7.0
+python-dotenv>=1.0.0
+
+# Type checking and development tools
+typing-extensions>=4.5.0
+pydantic>=2.0.0
