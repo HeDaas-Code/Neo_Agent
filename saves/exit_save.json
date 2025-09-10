@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-09-09T19:13:19.653826",
+  "game_state": {
+    "permission_level": 1,
+    "data_fragments": [],
+    "current_location": "bridge",
+    "time_elapsed": 0,
+    "events_triggered": [],
+    "character_health": 100.0,
+    "character_stress": 0.0
+  },
+  "character_state": {
+    "name": "艾莉克斯",
+    "health": 100.0,
+    "stress": 0.0,
+    "energy": 100.0,
+    "mood": "neutral",
+    "location": "bridge",
+    "permissions": []
+  }
+}

@@ -479,9 +479,28 @@ class CharacterController:
     
     def has_knowledge(self, knowledge_id: str) -> bool:
         """检查角色是否拥有指定知识"""
-        # 这里应该与KnowledgeGraph集成，简化实现
-        basic_knowledge = ["basic_ship_layout", "emergency_protocols"]
-        return knowledge_id in basic_knowledge
+        # 从配置文件读取知识状态
+        try:
+            config_dir = Path("e:\\项目（已开同步）\\Project\\config")
+            knowledge_config_path = config_dir / "knowledge.json"
+            
+            if knowledge_config_path.exists():
+                with open(knowledge_config_path, 'r', encoding='utf-8') as f:
+                    knowledge_data = json.load(f)
+                knowledge_base = knowledge_data.get('knowledge_base', {})
+                
+                if knowledge_id in knowledge_base:
+                    return knowledge_base[knowledge_id].get('unlocked', False)
+            
+            # 后备方案：硬编码的基础知识
+            basic_knowledge = ["basic_ship_layout", "emergency_protocols"]
+            return knowledge_id in basic_knowledge
+            
+        except Exception as e:
+            logger.warning(f"读取知识配置失败: {e}，使用默认配置")
+            # 后备方案：硬编码的基础知识
+            basic_knowledge = ["basic_ship_layout", "emergency_protocols"]
+            return knowledge_id in basic_knowledge
 
 
 class KnowledgeGraph:
