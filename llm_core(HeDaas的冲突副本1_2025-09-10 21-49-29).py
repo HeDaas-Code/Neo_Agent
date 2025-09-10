@@ -1050,6 +1050,10 @@ class LLMCore:
                 'type': mem['metadata'].get('type', 'unknown')
             } for mem in recent_memories]
             
+            # 识别游戏要素
+            game_elements = self._identify_game_elements(user_input)
+            scene_status['identified_elements'] = game_elements
+            
             # 计算综合置信度
             confidence_score = await self._calculate_cognition_confidence(
                 scene_status, character_profile, interaction_history, user_input

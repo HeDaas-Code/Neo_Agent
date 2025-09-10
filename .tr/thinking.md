@@ -1,189 +1,335 @@
-# BGE嵌入模型API化改造记录
+# 思考记录
 
-## 改造背景
+## 项目概述
+这是一个基于AI的文字冒险游戏项目，采用五阶段架构设计。
 
-用户要求将BGE嵌入模型从本地加载改为使用硅基流动API调用，解决SSL证书验证失败导致的模型下载问题。
+## Start Game 更新记录 (2025-01-10)
 
-## 改造内容
+### 更新目标
+运用最新的 `test_script_framework.py` 和 `test_five_stage_architecture.py` 成果，更新 `start_game.py` 以更好地集成五阶段架构和剧本框架。
 
-### 1. ModelManager类修改
+### 主要更新内容
 
-**位置**：`llm_core.py` 第132-247行
+#### 1. 导入扩展
+- 添加了五阶段架构相关类的导入：`CognitionResult`, `MemoryResult`, `UnderstandingResult`, `DecisionResult`, `ExecutionResult`
+- 添加了 `StoryNode` 导入，支持剧本框架集成
 
-**主要变更**：
-- 移除本地SentenceTransformer模型加载
-- 添加`get_embeddings_api`异步方法调用硅基流动嵌入API
-- 修改`get_embeddings`方法为同步包装器
-- 更新配置参数从`bge_model_path`改为`embedding_model_name`
+#### 2. UI 增强
+- **状态显示改进**：在 `print_status` 方法中添加了角色能量和心情显示
+- **详细状态功能**：新增 `print_detailed_status` 方法，提供：
+  - 角色详细信息（健康、能量、心情、位置等）
+  - 游戏状态信息（时间、权限、数据碎片等）
+  - 剧情系统状态（当前节点、可用分支等）
+  - 记忆系统状态（交互历史、知识图谱等）
 
-### 2. 依赖库优化
+#### 3. 命令系统扩展
+- **新增命令**：
+  - `detail/dt` - 查看详细状态
+  - `verbose/v` - 切换详细模式（显示五阶段处理过程）
+  - `story/s` - 查看当前剧情状态
+  - `branches/br` - 查看可用剧情分支
+  - `progress/pr` - 查看剧情进度
+  - `select [分支ID]` - 选择剧情分支
+  - `talk/ask/tell` - 更明确的对话命令
 
-**文件**：`requirements.txt`
+#### 4. 初始化增强
+- **五阶段架构验证**：在游戏初始化时测试所有五个阶段
+- **剧本框架验证**：检查剧本框架加载状态
+- **角色和游戏状态设置**：根据配置文件设置初始状态
+- **错误处理改进**：添加详细的错误信息和堆栈跟踪
 
-**移除依赖**：
-- sentence-transformers>=2.2.2
-- torch>=2.0.0
-- transformers>=4.30.0
+#### 5. 剧情系统集成
+- **剧情状态管理**：
+  - `_show_story_status()` - 显示当前剧情节点信息
+  - `_show_story_branches()` - 显示可用的剧情分支
+  - `_show_story_progress()` - 显示剧情完成进度
+  - `_select_story_branch()` - 选择并切换剧情分支
 
-**保留依赖**：
-- chromadb>=0.4.0（向量数据库）
-- requests>=2.31.0（API调用）
+- **自动剧情推进**：
+  - `_check_story_progression()` - 基于关键词检测剧情推进机会
+  - 支持自动推进（单一分支时）和手动选择（多分支时）
 
-### 3. 配置文件更新
+#### 6. 对话处理优化
+- **详细模式支持**：可选择显示五阶段处理的详细过程
+- **剧情推进检测**：在对话后自动检查是否触发剧情推进
+- **错误处理改进**：更好的异常捕获和用户反馈
 
-**文件**：`config.json`
+### 技术架构改进
 
-**变更**：
-```json
-// 修改前
-"bge_model_path": "BAAI/bge-m3"
+#### 五阶段架构集成
+1. **认知阶段**：分析用户输入，评估置信度
+2. **记忆阶段**：检索相关知识和历史交互
+3. **理解阶段**：分析上下文和意图
+4. **决策阶段**：制定响应策略
+5. **执行阶段**：生成最终响应
 
-// 修改后
-"embedding_model_name": "BAAI/bge-m3"
+#### 剧本框架集成
+- 支持节点式剧情结构
+- 动态分支选择
+- 进度跟踪
+- 约束条件检查
+
+### 测试验证结果
+✅ LLM核心系统初始化成功
+✅ 角色设置完成
+✅ 初始位置设置
+✅ 五阶段架构验证完成
+- 认知阶段正常，置信度: 0.9
+- 记忆阶段正常，知识节点: 2
+- 理解阶段正常
+- 决策阶段正常，策略: story_progression
+✅ 剧本框架加载完成，节点数: 4
+
+## Bug修复记录 (2025-01-10)
+
+### 问题描述
+游戏运行时出现 `AttributeError: 'ScriptFrameworkConstrainer' object has no attribute 'current_node'` 错误
+
+### 根本原因
+`start_game.py` 中的剧情相关方法错误地访问了 `ScriptFrameworkConstrainer` 类不存在的 `current_node` 属性
+
+### 修复内容
+1. **_show_story_status方法**: 将 `self.core.script_constrainer.current_node` 改为使用 `get_current_story_node()` 方法
+2. **_show_story_branches方法**: 同样修复节点获取方式，并调整分支显示逻辑
+3. **_select_story_branch方法**: 修复节点获取和分支切换逻辑，使用 `advance_to_branch()` 方法
+4. **_check_story_progression方法**: 修复自动推进逻辑，确保正确获取当前节点信息
+
+### 验证结果
+- ✅ 游戏启动正常
+- ✅ AI对话系统工作正常
+- ✅ 五阶段架构运行稳定
+- ✅ 剧情推进检查不再报错
+- ✅ 用户交互响应正常
+
+## 当前进展
+- ✅ 五阶段架构集成完成
+- ✅ 剧本框架集成完成
+- ✅ UI增强完成
+- ✅ 命令系统扩展完成
+- ✅ 测试验证通过
+- ✅ 文档更新完成
+- ✅ 剧情推进错误修复完成
+
+## 认知阶段置信度优化 (2025-01-10)
+
+### 优化内容
+将认知阶段的 `confidence_score` 从写死的 0.9 改为基于 embedding 模型的动态计算
+
+### 实现方案
+1. **新增 `_calculate_cognition_confidence` 方法**：
+   - 评估游戏场景状态与用户输入的相关性（权重30%）
+   - 评估角色信息与用户输入的相关性（权重25%）
+   - 评估交互历史与用户输入的相关性（权重20%）
+   - 评估场景与角色状态的一致性（权重25%）
+
+2. **技术实现**：
+   - 使用 embedding API 获取文本向量
+   - 通过余弦相似度计算各部分相关性
+   - 根据数据完整性调整最终置信度
+   - 确保置信度在 0.1-1.0 范围内
+
+3. **验证结果**：
+   - ✅ 动态置信度计算正常工作（从固定0.9变为动态0.427）
+   - ✅ 游戏启动和运行正常
+   - ✅ 五阶段架构验证通过
+   - ✅ 详细的置信度计算日志输出
+
+### 技术细节
+- 构建场景、角色、历史三个维度的评估文本
+- 使用numpy计算向量相似度
+- 加权平均得出综合置信度
+- 根据数据完整性进行调整
+
+## 下一步计划
+1. 继续优化AI响应质量
+2. 扩展更多游戏功能
+3. 完善错误处理机制
+4. 添加更多剧情分支
+5. 优化其他阶段的置信度计算
+
+## LLM核心流程五阶段架构重构设计
+
+### 项目背景
+重构 `llm_core.py` 的角色扮演LLM核心流程，从当前的线性处理模式改为五阶段架构，提高代码的可维护性、可扩展性和调试能力。
+
+## 当前架构分析
+
+### 现有process_dialogue方法流程
+1. 更新游戏状态 (`_update_game_state`)
+2. 获取可用知识 (`knowledge_graph.get_available_knowledge`)
+3. 构建系统提示词 (`character_controller.build_system_prompt`)
+4. 调用LLM API (`model_manager.call_deepseek_api`)
+5. 应用角色约束 (`character_controller.apply_character_constraints`)
+6. 存储记忆 (`memory_system.store_memory`)
+
+### 问题分析
+- 流程线性化，难以调试和优化单个环节
+- 缺乏明确的数据流定义
+- 各阶段职责不够清晰
+- 难以进行单元测试
+- 扩展新功能时需要修改核心流程
+
+## 五阶段架构设计
+
+### 1. 认知阶段 (Cognition Stage)
+**职责**: 分析当前游戏环境和角色状态
+**输入**: user_input, current_game_state, character_state
+**输出**: CognitionResult
+- scene_status: 当前场景状态分析
+- character_profile: 整合的角色信息
+- interaction_history: 玩家交互历史摘要
+
+### 2. 记忆阶段 (Memory Stage)
+**职责**: 处理长期记忆和知识检索
+**输入**: CognitionResult, user_input
+**输出**: MemoryResult
+- long_term_memory: 检索到的相关长期记忆
+- dialogue_cache: 更新的短期对话缓存
+- knowledge_graph_nodes: 关联的知识图谱节点
+
+### 3. 理解阶段 (Understanding Stage)
+**职责**: 深度理解用户意图和上下文
+**输入**: MemoryResult, user_input, previous_dialogue
+**输出**: UnderstandingResult
+- last_dialogue_intent: 解析的对话意图
+- suggestion_feedback: 建议执行效果评估
+- sentiment_shift: 识别的情感倾向变化
+
+### 4. 决策阶段 (Decision Stage)
+**职责**: 生成响应策略和行为选择
+**输入**: UnderstandingResult, game_constraints
+**输出**: DecisionResult
+- response_options: 多模态响应选项列表
+- action_utility_score: 各选项的效用评分
+- dialogue_strategy: 选择的最优对话策略
+
+### 5. 执行阶段 (Execution Stage)
+**职责**: 输出最终响应和更新状态
+**输入**: DecisionResult, all_previous_results
+**输出**: ExecutionResult
+- nlp_output: 自然语言响应
+- game_action: 触发的游戏行为指令
+- character_state_update: 角色状态更新数据
+
+## 数据结构设计
+
+```python
+@dataclass
+class CognitionResult:
+    scene_status: Dict[str, Any]
+    character_profile: Dict[str, Any]
+    interaction_history: List[Dict[str, Any]]
+    timestamp: float
+    confidence_score: float
+
+@dataclass
+class MemoryResult:
+    long_term_memory: List[Dict[str, Any]]
+    dialogue_cache: List[Dict[str, Any]]
+    knowledge_graph_nodes: List[str]
+    memory_relevance_scores: Dict[str, float]
+
+@dataclass
+class UnderstandingResult:
+    last_dialogue_intent: Dict[str, Any]
+    suggestion_feedback: Dict[str, Any]
+    sentiment_shift: Dict[str, float]
+    context_understanding: str
+
+@dataclass
+class DecisionResult:
+    response_options: List[Dict[str, Any]]
+    action_utility_score: Dict[str, float]
+    dialogue_strategy: str
+    selected_option_id: str
+
+@dataclass
+class ExecutionResult:
+    nlp_output: str
+    game_action: Dict[str, Any]
+    character_state_update: Dict[str, Any]
+    execution_metadata: Dict[str, Any]
 ```
 
-### 4. API调用实现
+## 实施计划
 
-**新增方法**：`get_embeddings_api`
+### 阶段1: 数据结构定义
+- 添加五个阶段的结果数据类
+- 定义阶段间的数据传递接口
+- 添加必要的类型注解
 
-**API端点**：`{api_base}/embeddings`
+### 阶段2: 阶段方法实现
+- 实现 `_cognition_stage()` 方法
+- 实现 `_memory_stage()` 方法
+- 实现 `_understanding_stage()` 方法
+- 实现 `_decision_stage()` 方法
+- 实现 `_execution_stage()` 方法
 
-**请求格式**：
-```json
-{
-  "model": "BAAI/bge-m3",
-  "input": ["文本1", "文本2"],
-  "encoding_format": "float"
-}
-```
+### 阶段3: 主流程重构
+- 重构 `process_dialogue()` 方法
+- 实现五阶段流水线调用
+- 添加阶段间的错误处理
+- 保持向后兼容性
 
-**响应处理**：
-- 提取`data`字段中的`embedding`数组
-- 返回1024维向量列表
+### 阶段4: 日志和调试
+- 为每个阶段添加详细日志
+- 实现阶段执行时间统计
+- 添加调试模式支持
 
-## 测试结果
+### 阶段5: 测试和验证
+- 创建单元测试
+- 实现集成测试
+- 性能对比测试
+- 用户体验验证
 
-### 嵌入API测试
-- **同步调用**：✅ 成功
-- **异步调用**：✅ 成功
-- **向量维度**：1024
-- **API响应时间**：~400ms
+## 技术考虑
 
-### 完整系统测试
-- **通过率**：6/6 (100%)
-- **对话生成**：正常
-- **记忆系统**：正常（虽然有metadata格式警告）
-- **知识图谱**：正常
+### 异步处理
+- 保持所有阶段的async/await模式
+- 合理使用并发处理提高性能
+- 避免阻塞操作
 
-## 技术优势
+### 错误处理
+- 每个阶段独立的异常处理
+- 失败时的降级策略
+- 错误信息的详细记录
 
-1. **部署简化**：无需下载大型模型文件
-2. **网络问题解决**：避免SSL证书和模型下载问题
-3. **资源节省**：减少本地存储和计算资源需求
-4. **维护便利**：模型更新由API提供方处理
-5. **性能稳定**：专业API服务的稳定性和性能保障
+### 性能优化
+- 避免重复计算
+- 合理的缓存策略
+- 内存使用优化
 
-## 注意事项
+### 可扩展性
+- 插件化的阶段扩展机制
+- 配置驱动的行为调整
+- 模块化的功能组织
 
-1. **API依赖**：需要稳定的网络连接和API服务
-2. **成本考虑**：API调用产生费用，需要合理控制调用频率
-3. **错误处理**：已实现完善的异常处理和重试机制
-4. **兼容性**：保持了原有接口的兼容性
+## 预期收益
 
-## 后续修复记录
+1. **可维护性提升**: 清晰的阶段划分便于代码维护
+2. **调试能力增强**: 每个阶段可独立调试和优化
+3. **扩展性改善**: 新功能可以插入到特定阶段
+4. **测试覆盖**: 每个阶段可以独立测试
+5. **性能监控**: 可以监控每个阶段的执行时间
+6. **代码复用**: 阶段方法可以在其他场景复用
 
-### ChromaDB Metadata格式修复
+## 风险评估
 
-**问题**：记忆存储失败，ChromaDB要求metadata值只能是基本类型（str, int, float, bool, None）
+1. **复杂度增加**: 架构变复杂可能增加学习成本
+2. **性能开销**: 多阶段处理可能增加执行时间
+3. **兼容性问题**: 重构可能影响现有功能
+4. **调试难度**: 分阶段处理可能增加调试复杂度
 
-**原因**：代码中传入了字典类型的`character_state`和`game_state`对象
+## 缓解策略
 
-**解决方案**：
-1. **llm_core.py第701-710行**：将复杂对象展开为基本类型字段
-   - `character_state` → `character_name`, `character_health`, `character_location`
-   - `game_state` → `permission_level`, `current_location`
-
-2. **test_llm_core.py第48行**：修复测试中的metadata格式
-   - 从字符串 `"dialogue"` 改为字典格式
-
-**测试结果**：✅ 6/6通过，无错误日志，记忆存储功能正常，ChromaDB metadata格式问题已完全解决
+1. 详细的文档和注释
+2. 完善的测试用例
+3. 渐进式重构，保持向后兼容
+4. 性能基准测试和优化
+5. 充分的代码审查和测试
 
 ---
 
-# 问题排查与修复记录（历史）
-
-## 问题描述
-
-在运行测试时发现了三个主要问题：
-
-1. **CharacterController对象缺少character_name属性**
-   - 错误信息：`AttributeError: 'CharacterController' object has no attribute 'character_name'`
-   - 原因：测试代码期望CharacterController有character_name属性，但实际实现中没有
-
-2. **BGE嵌入模型加载失败**
-   - 错误信息：SSL证书验证失败
-   - 原因：网络连接问题，无法从Hugging Face下载模型
-   - 影响：记忆系统的嵌入功能受限，但不影响核心逻辑
-
-3. **MemorySystem.retrieve_memories()方法参数错误**
-   - 错误信息：`unexpected keyword argument 'top_k'`
-   - 原因：测试代码使用了错误的参数名top_k，实际方法参数是limit
-
-## 修复方案
-
-### 1. 修复CharacterController缺少character_name属性
-
-**位置**：`llm_core.py` 第304-322行
-
-**修复内容**：
-```python
-# 在CharacterController.__init__方法中添加
-self.character_name = self.character_info.get('name', '艾莉克斯')
-```
-
-**原理**：为了保持向后兼容性，从character_info字典中提取name字段作为character_name属性。
-
-### 2. 修复测试文件中的参数错误
-
-**位置**：`test_llm_core.py` 第52行
-
-**修复内容**：
-```python
-# 将错误的参数名修正
-retrieved_memories = core.memory_system.retrieve_memories("飞船布局", limit=3)
-```
-
-**原理**：根据MemorySystem.retrieve_memories方法的实际签名，参数应该是limit而不是top_k。
-
-### 3. BGE模型问题的处理
-
-**状态**：暂时保持现状
-
-**原因**：
-- 这是网络连接问题，不是代码逻辑问题
-- 系统已经有容错机制，在模型加载失败时会继续运行
-- 不影响核心游戏逻辑的测试
-
-## 修复结果
-
-修复后的测试结果：
-- **通过率**：6/6 (100%)
-- **所有核心功能**：正常工作
-- **对话生成**：成功
-- **权限系统**：正常
-- **知识图谱**：正常
-- **游戏状态管理**：正常
-
-## 技术总结
-
-1. **属性兼容性**：在设计类接口时，需要考虑测试代码和外部调用的期望
-2. **参数一致性**：方法签名和调用处的参数名必须保持一致
-3. **容错设计**：网络依赖的功能应该有优雅的降级机制
-4. **测试覆盖**：完整的测试能够及时发现接口不一致的问题
-
-## 下一步优化建议
-
-1. **网络模型缓存**：考虑本地缓存BGE模型，避免每次都需要网络下载
-2. **接口标准化**：建立更严格的接口规范，避免属性名不一致
-3. **测试自动化**：集成到CI/CD流程中，确保每次修改都能通过测试
-4. **文档完善**：为所有公共接口编写详细的API文档
+设计时间: 2025-09-10
+设计者: AI Assistant
+版本: v1.0

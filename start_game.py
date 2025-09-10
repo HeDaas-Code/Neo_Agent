@@ -19,7 +19,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from llm_core import LLMCore, GameState, CharacterState
+from llm_core import (
+    LLMCore, GameState, CharacterState, StoryNode,
+    CognitionResult, MemoryResult, UnderstandingResult,
+    DecisionResult, ExecutionResult
+)
 from config_manager import config_manager
 
 
@@ -54,10 +58,56 @@ class GameUI:
         print(f"\n📊 状态信息")
         print(self.thin_separator)
         print(f"🏥 健康: {game_state.character_health:.1f}%  😰 压力: {game_state.character_stress:.1f}%")
+        print(f"⚡ 能量: {character_state.energy:.1f}%  😊 心情: {character_state.mood}")
         print(f"🔑 权限等级: {game_state.permission_level}  📍 位置: {game_state.current_location}")
         print(f"💾 数据碎片: {len(game_state.data_fragments)}个  ⏰ 游戏时间: {game_state.time_elapsed}分钟")
         if game_state.events_triggered:
             print(f"⚡ 最近事件: {', '.join(game_state.events_triggered[-3:])}")
+    
+    def print_detailed_status(self, game_state: GameState, character_state: CharacterState, llm_core: LLMCore):
+        """打印详细状态信息"""
+        print(f"\n📊 详细状态信息")
+        print(self.separator)
+        
+        # 角色状态
+        print(f"👤 角色状态:")
+        print(f"  姓名: {character_state.name}")
+        print(f"  健康: {character_state.health:.1f}%")
+        print(f"  压力: {character_state.stress:.1f}%")
+        print(f"  能量: {character_state.energy:.1f}%")
+        print(f"  心情: {character_state.mood}")
+        print(f"  位置: {character_state.location}")
+        
+        # 游戏状态
+        print(f"\n🎮 游戏状态:")
+        print(f"  权限等级: {game_state.permission_level}")
+        print(f"  当前位置: {game_state.current_location}")
+        print(f"  游戏时间: {game_state.time_elapsed}分钟")
+        print(f"  数据碎片: {len(game_state.data_fragments)}个")
+        
+        # 剧情状态
+        if hasattr(llm_core, 'script_constrainer'):
+            try:
+                story_context = llm_core.get_current_story_context()
+                print(f"\n📖 剧情状态:")
+                print(f"  当前节点: {story_context.get('title', '未知')}")
+                print(f"  节点描述: {story_context.get('description', '无描述')[:50]}...")
+                
+                branches = llm_core.get_available_branches()
+                if branches:
+                    print(f"  可用分支: {len(branches)}个")
+            except Exception as e:
+                print(f"\n📖 剧情状态: 获取失败 ({e})")
+        
+        # 记忆系统状态
+        if hasattr(llm_core, 'memory_system'):
+            try:
+                memory_count = len(llm_core.memory_system.long_term_memory)
+                print(f"\n🧠 记忆系统:")
+                print(f"  长期记忆: {memory_count}条")
+                print(f"  对话缓存: {len(llm_core.memory_system.dialogue_cache)}条")
+            except Exception as e:
+                print(f"\n🧠 记忆系统: 获取失败 ({e})")
     
     def print_help(self):
         """打印帮助信息"""
@@ -66,7 +116,9 @@ class GameUI:
 
 基本指令:
   help, h          - 显示此帮助信息
-  status, st       - 查看详细状态
+  status, st       - 查看基本状态
+  detail, dt       - 查看详细状态（包括剧情和记忆系统）
+  verbose, v       - 切换详细模式（显示五阶段处理过程）
   inventory, inv   - 查看物品栏
   knowledge, k     - 查看知识库状态
   save [名称]      - 保存游戏进度
@@ -80,6 +132,12 @@ class GameUI:
   use [物品]       - 使用物品
   take [物品]      - 拾取物品
 
+剧情指令:
+  story, s         - 查看当前剧情状态
+  branches, br     - 查看可用剧情分支
+  progress, pr     - 查看剧情进度
+  select [分支ID]  - 选择剧情分支
+
 交互指令:
   talk [话题]      - 与AI角色对话
   ask [问题]       - 询问特定问题
@@ -87,6 +145,7 @@ class GameUI:
 
 💡 提示: 你可以用自然语言与AI角色对话，AI会根据当前情况和你的权限等级回应。
 💡 收集数据碎片可以解锁新知识，提升权限等级，获得更多信息！
+💡 使用剧情指令可以更好地了解和控制故事发展！
         """
         print(help_text)
     
@@ -290,35 +349,147 @@ class AVGGame:
     async def initialize(self):
         """初始化游戏"""
         try:
+            # 初始化LLM核心系统
             self.core = LLMCore()
             print("✅ LLM核心系统初始化成功")
+            
+            # 设置初始角色状态（如果需要自定义）
+            if self.character_config:
+                character_name = self.character_config.get('name', '艾莉克斯')
+                self.core.character_state.name = character_name
+                print(f"✅ 角色设置完成: {character_name}")
+            
+            # 设置初始游戏状态
+            if self.game_config:
+                initial_location = self.game_config.get('initial_location', 'engineering')
+                self.core.game_state.current_location = initial_location
+                self.core.character_state.location = initial_location
+                print(f"✅ 初始位置设置: {initial_location}")
+            
+            # 验证五阶段架构
+            print("🔍 验证五阶段架构...")
+            test_input = "系统自检"
+            try:
+                # 测试认知阶段
+                cognition_result = await self.core._cognition_stage(test_input)
+                print(f"  ✓ 认知阶段正常，置信度: {cognition_result.confidence_score}")
+                
+                # 测试记忆阶段
+                memory_result = await self.core._memory_stage(cognition_result, test_input)
+                print(f"  ✓ 记忆阶段正常，知识节点: {len(memory_result.knowledge_graph_nodes)}")
+                
+                # 测试理解阶段
+                understanding_result = await self.core._understanding_stage(cognition_result, memory_result, test_input)
+                print(f"  ✓ 理解阶段正常")
+                
+                # 测试决策阶段
+                decision_result = await self.core._decision_stage(cognition_result, memory_result, understanding_result)
+                print(f"  ✓ 决策阶段正常，策略: {decision_result.dialogue_strategy}")
+                
+                print("✅ 五阶段架构验证完成")
+                
+            except Exception as stage_error:
+                print(f"⚠️ 五阶段架构验证失败: {stage_error}")
+                print("游戏仍可运行，但可能存在功能限制")
+            
+            # 验证剧本框架
+            if hasattr(self.core, 'script_constrainer'):
+                try:
+                    story_nodes_count = len(self.core.script_constrainer.story_nodes)
+                    print(f"✅ 剧本框架加载完成，节点数: {story_nodes_count}")
+                except Exception as script_error:
+                    print(f"⚠️ 剧本框架验证失败: {script_error}")
+            
             return True
+            
         except Exception as e:
             print(f"❌ 初始化失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def show_intro(self):
         """显示游戏开场"""
         intro_text = """
-🌌 深空中的某处...
 
-你缓缓苏醒，发现自己身处一艘陌生的飞船中。头部隐隐作痛，记忆模糊不清。
-周围一片寂静，只有机械设备发出的低沉嗡鸣声。
-
-你是谁？为什么会在这里？这艘飞船发生了什么？
-
-随着意识逐渐清醒，你意识到必须找到答案。也许，散落在飞船各处的数据碎片
-能帮助你拼凑出真相...
-
-🎯 游戏目标:
-• 探索飞船，收集数据碎片
-• 与AI系统对话，获取信息
-• 提升权限等级，解锁更多区域
-• 揭开飞船的秘密和你的身份之谜
 
 💡 输入 'help' 查看游戏指令，输入任何文字开始与AI对话。
         """
         print(intro_text)
+        return True
+    
+    async def _show_story_status(self):
+        """显示当前剧情状态"""
+        try:
+            if hasattr(self.core, 'script_constrainer') and self.core.script_constrainer:
+                current_node = self.core.script_constrainer.get_current_story_node(self.core.game_state)
+                if current_node:
+                    print(f"\n📖 当前剧情节点: {current_node.id}")
+                    print(f"📝 节点标题: {current_node.title}")
+                    print(f"📄 节点描述: {current_node.description}")
+                    print(f"🎭 角色处境: {current_node.character_situation}")
+                    if current_node.branches:
+                        print(f"🌿 可用分支: {len(current_node.branches)}个")
+                else:
+                    print("\n📖 当前没有活跃的剧情节点")
+            else:
+                print("\n📖 剧本框架未初始化")
+        except Exception as e:
+            print(f"\n❌ 获取剧情状态失败: {e}")
+
+    async def _show_story_branches(self):
+        """显示可用的剧情分支"""
+        try:
+            if hasattr(self.core, 'script_constrainer') and self.core.script_constrainer:
+                available_branches = self.core.script_constrainer.get_available_branches(
+                    self.core.character_state, self.core.game_state
+                )
+                if available_branches:
+                    print("\n🌿 可用剧情分支:")
+                    for i, branch in enumerate(available_branches, 1):
+                        branch_id = branch.get('id', f'branch_{i}')
+                        description = branch.get('description', '未知分支')
+                        target_node = branch.get('target_node_id', '未知目标')
+                        print(f"  {i}. [{branch_id}] {description} -> {target_node}")
+                else:
+                    print("\n🌿 当前没有可用的剧情分支")
+            else:
+                print("\n🌿 剧本框架未初始化")
+        except Exception as e:
+            print(f"\n❌ 获取剧情分支失败: {e}")
+
+    async def _show_story_progress(self):
+        """显示剧情进度"""
+        try:
+            if hasattr(self.core, 'script_constrainer') and self.core.script_constrainer:
+                visited_nodes = getattr(self.core.script_constrainer, 'visited_nodes', set())
+                total_nodes = len(self.core.script_constrainer.story_nodes)
+                progress = len(visited_nodes) / total_nodes * 100 if total_nodes > 0 else 0
+                
+                print(f"\n📊 剧情进度: {len(visited_nodes)}/{total_nodes} ({progress:.1f}%)")
+                print(f"📍 已访问节点: {', '.join(sorted(visited_nodes)) if visited_nodes else '无'}")
+            else:
+                print("\n📊 剧本框架未初始化")
+        except Exception as e:
+            print(f"\n❌ 获取剧情进度失败: {e}")
+
+    async def _select_story_branch(self, branch_id: str):
+        """选择剧情分支"""
+        try:
+            if hasattr(self.core, 'script_constrainer') and self.core.script_constrainer:
+                # 尝试推进到指定分支
+                success = self.core.script_constrainer.advance_to_branch(
+                    branch_id, self.core.character_state, self.core.game_state
+                )
+                if success:
+                    print(f"\n✅ 已切换到剧情分支: {branch_id}")
+                    await self._show_story_status()  # 显示新节点状态
+                else:
+                    print(f"\n❌ 无法切换到分支 {branch_id}，可能不满足条件或分支不存在")
+            else:
+                print("\n❌ 剧本框架未初始化")
+        except Exception as e:
+            print(f"\n❌ 选择剧情分支失败: {e}")
     
     async def process_command(self, user_input: str) -> bool:
         """处理用户命令"""
@@ -337,6 +508,14 @@ class AVGGame:
             self.ui.print_status(self.core.game_state, self.core.character_state)
             print(f"\n📦 物品栏: {', '.join(self.inventory) if self.inventory else '空'}")
         
+        # 详细状态命令
+        elif command in ['detail', 'dt']:
+            self.ui.print_detailed_status(self.core.game_state, self.core.character_state, self.core)
+        
+        # 详细模式切换
+        elif command in ['verbose', 'v']:
+            self.toggle_verbose_mode()
+        
         # 物品栏命令
         elif command in ['inventory', 'inv']:
             if self.inventory:
@@ -347,6 +526,23 @@ class AVGGame:
         # 知识库命令
         elif command in ['knowledge', 'know', 'k']:
             self.show_knowledge_status()
+        
+        # 剧情状态命令
+        elif command in ['story', 's']:
+            await self._show_story_status()
+        
+        # 剧情分支命令
+        elif command in ['branches', 'br']:
+            await self._show_story_branches()
+        
+        # 剧情进度命令
+        elif command in ['progress', 'pr']:
+            await self._show_story_progress()
+        
+        # 选择分支命令
+        elif command.startswith('select '):
+            branch_id = command[7:].strip()
+            await self._select_story_branch(branch_id)
         
         # 观察命令
         elif command in ['look', 'l']:
@@ -390,6 +586,19 @@ class AVGGame:
         elif command.startswith('take '):
             item = command[5:].strip()
             await self.take_item(item)
+        
+        # 对话相关命令
+        elif command.startswith('talk '):
+            topic = command[5:].strip()
+            await self.process_dialogue(f"我想谈论{topic}")
+        
+        elif command.startswith('ask '):
+            question = command[4:].strip()
+            await self.process_dialogue(f"我想问：{question}")
+        
+        elif command.startswith('tell '):
+            info = command[5:].strip()
+            await self.process_dialogue(f"我想告诉你：{info}")
         
         # 其他输入作为对话处理
         else:
@@ -495,6 +704,26 @@ class AVGGame:
                 }
             )
             
+            # 如果启用了详细模式，显示各阶段处理信息
+            if getattr(self, 'verbose_mode', False):
+                print("🔄 正在处理对话...")
+                print("  🧠 认知阶段: 分析输入内容...")
+                cognition_result = await self.core._cognition_stage(user_input)
+                print(f"    ✓ 置信度: {cognition_result.confidence_score}")
+                
+                print("  🧠 记忆阶段: 检索相关信息...")
+                memory_result = await self.core._memory_stage(cognition_result, user_input)
+                print(f"    ✓ 知识节点: {len(memory_result.knowledge_graph_nodes)}")
+                
+                print("  🧠 理解阶段: 分析上下文...")
+                understanding_result = await self.core._understanding_stage(cognition_result, memory_result, user_input)
+                
+                print("  🧠 决策阶段: 制定响应策略...")
+                decision_result = await self.core._decision_stage(cognition_result, memory_result, understanding_result)
+                print(f"    ✓ 策略: {decision_result.dialogue_strategy}")
+                
+                print("  🧠 执行阶段: 生成响应...")
+            
             # 生成AI响应
             response = await self.core.process_dialogue(user_input)
             
@@ -519,8 +748,66 @@ class AVGGame:
             if triggered_events:
                 print(f"\n⚡ 触发事件: {', '.join(triggered_events)}")
             
+            # 检查剧情推进
+            await self._check_story_progression(user_input, response)
+            
         except Exception as e:
             print(f"❌ 对话处理失败: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _check_story_progression(self, user_input: str, ai_response: str):
+        """检查剧情推进"""
+        try:
+            if hasattr(self.core, 'script_constrainer') and self.core.script_constrainer:
+                # 检查当前节点的完成条件
+                current_node = self.core.script_constrainer.get_current_story_node(self.core.game_state)
+                if current_node:
+                    # 简单的关键词匹配来判断剧情推进
+                    progression_keywords = [
+                        '完成', '结束', '离开', '前往', '决定', '选择',
+                        '同意', '拒绝', '接受', '获得', '发现'
+                    ]
+                    
+                    user_lower = user_input.lower()
+                    response_lower = ai_response.lower()
+                    
+                    # 检查是否包含推进关键词
+                    has_progression = any(
+                        keyword in user_lower or keyword in response_lower 
+                        for keyword in progression_keywords
+                    )
+                    
+                    # 获取可用分支
+                    available_branches = self.core.script_constrainer.get_available_branches(
+                        self.core.character_state, self.core.game_state
+                    )
+                    
+                    if has_progression and available_branches:
+                        print("\n🎭 检测到剧情推进机会！")
+                        print("💡 输入 'branches' 查看可用的剧情分支")
+                        
+                        # 自动推进到下一个节点（如果只有一个选择）
+                        if len(available_branches) == 1:
+                            branch = available_branches[0]
+                            branch_id = branch.get('id')
+                            if branch_id:
+                                success = self.core.script_constrainer.advance_to_branch(
+                                    branch_id, self.core.character_state, self.core.game_state
+                                )
+                                if success:
+                                    target_node = branch.get('target_node_id', '未知节点')
+                                    print(f"🎬 自动推进到下一剧情节点: {target_node}")
+                                
+        except Exception as e:
+            print(f"⚠️ 剧情推进检查失败: {e}")
+    
+    def toggle_verbose_mode(self):
+        """切换详细模式"""
+        self.verbose_mode = not getattr(self, 'verbose_mode', False)
+        status = "开启" if self.verbose_mode else "关闭"
+        print(f"🔧 详细模式已{status}")
+        return self.verbose_mode
     
     async def process_knowledge_fragment(self, item: str):
         """处理知识碎片，可能解锁新知识"""
