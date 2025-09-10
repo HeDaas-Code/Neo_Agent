@@ -13,7 +13,9 @@
 
 import asyncio
 import json
+import os
 from llm_core import LLMCore
+from config_manager import config_manager
 
 
 def test_basic_initialization():
@@ -219,18 +221,25 @@ async def run_all_tests():
 
 
 if __name__ == "__main__":
-    # 检查配置文件
+    # 检查配置管理器
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
-            config = json.load(f)
-        print("配置文件加载成功")
-    except FileNotFoundError:
-        print("错误: 找不到config.json文件")
-        print("请确保配置文件存在并包含正确的API密钥")
-        exit(1)
-    except json.JSONDecodeError as e:
-        print(f"错误: 配置文件格式错误 - {e}")
+        # 测试配置管理器是否正常工作
+        test_config = config_manager.get('model.model_name')
+        print("配置管理器加载成功")
+    except Exception as e:
+        print(f"错误: 配置管理器初始化失败 - {e}")
+        print("请确保config目录存在并包含正确的配置文件")
         exit(1)
     
     # 运行测试
-    asyncio.run(run_all_tests())
+    success = asyncio.run(run_all_tests())
+    
+    if not success:
+        print("\n建议检查项目：")
+        print("1. 确保所有配置文件存在且格式正确")
+        print("2. 检查API密钥是否正确配置")
+        print("3. 确保所有依赖包已安装")
+        print("4. 检查网络连接是否正常")
+        exit(1)
+    
+    print("\n✅ 测试完成，系统运行正常！")

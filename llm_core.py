@@ -21,6 +21,7 @@ import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from config_manager import get_config, config_manager
 
 try:
     import requests
@@ -349,7 +350,7 @@ class CharacterController:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.character_config = config.get('character', {})
-        self.prompt_templates = config.get('prompts', {})
+#        self.prompt_templates = config.get('prompts', {})
         
         # 默认角色设定
         self.default_character = {
@@ -614,9 +615,14 @@ class GameStateManager:
 class LLMCore:
     """LLM驱动核心主控制器"""
     
-    def __init__(self, config_path: str = 'config.json'):
-        # 加载配置
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: str = None):
+        # 加载配置 - 使用新的ConfigManager
+        if config_path and config_path != 'config.json':
+            # 如果指定了非默认路径，仍使用旧方式加载
+            self.config = self._load_config(config_path)
+        else:
+            # 使用新的配置管理器
+            self.config = get_config()
         
         # 初始化各个组件
         self.model_manager = ModelManager(self.config.get('model', {}))
@@ -632,7 +638,7 @@ class LLMCore:
         )
         self.game_state = GameState()
         
-        logger.info("LLM驱动核心初始化完成")
+        logger.info("LLM驱动核心初始化完成 - 使用新配置系统")
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """加载配置文件"""

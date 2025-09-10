@@ -1,0 +1,29 @@
+{
+  "knowledge_base": {
+    "basic_ship_layout": {
+      "unlocked": true,
+      "content": "飞船基本布局：桥梁、工程舱、生活区、货舱、医疗舱",
+      "required_permission": 1
+    },
+    "emergency_protocols": {
+      "unlocked": true,
+      "content": "紧急情况处理协议：生命支持系统优先、紧急疏散路线、基本医疗程序",
+      "required_permission": 1
+    },
+    "technical_systems": {
+      "unlocked": true,
+      "content": "飞船技术系统详细信息：引擎规格、电力分配、环境控制、推进器配置",
+      "required_permission": 3
+    },
+    "mission_details": {
+      "unlocked": true,
+      "content": "任务详细信息：目的地坐标、货物清单、预定航线、任务时间表",
+      "required_permission": 5
+    },
+    "classified_logs": {
+      "unlocked": true,
+      "content": "机密日志：事故原因分析、船员个人档案、公司机密指令",
+      "required_permission": 5
+    }
+  }
+}

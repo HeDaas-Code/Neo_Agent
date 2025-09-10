@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "description": "LLM驱动AVG游戏配置文件索引",
+  "config_files": {
+    "model": {
+      "path": "./config/model.json",
+      "description": "模型配置：API密钥、模型名称、嵌入模型等",
+      "required": true
+    },
+    "character": {
+      "path": "./config/character.json",
+      "description": "角色配置：角色信息、性格、背景等",
+      "required": true
+    },
+    "knowledge": {
+      "path": "./config/knowledge.json",
+      "description": "知识库配置：知识节点、内容、权限等",
+      "required": true
+    },
+    "game": {
+      "path": "./config/game.json",
+      "description": "游戏逻辑配置：事件、位置、数据片段等",
+      "required": true
+    },
+    "memory": {
+      "path": "./config/memory.json",
+      "description": "内存数据库配置：数据库路径、集合名称等",
+      "required": true
+    }
+  },
+  "environment_variables": {
+    "DEEPSEEK_API_KEY": {
+      "description": "DeepSeek API密钥，可覆盖model.json中的配置",
+      "required": false
+    }
+  }
+}

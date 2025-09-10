@@ -2,11 +2,8 @@
 requests>=2.31.0
 openai>=1.0.0
 
-# Embedding models and vector database
-sentence-transformers>=2.2.2
+# Vector database (embedding via API)
 chromadb>=0.4.0
-torch>=2.0.0
-transformers>=4.30.0
 
 # Data processing and tools
 numpy>=1.24.0

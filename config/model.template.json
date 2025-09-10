@@ -1,0 +1,6 @@
+{
+  "deepseek_api_key": "your-deepseek-api-key-here",
+  "api_base": "https://api.siliconflow.cn/v1",
+  "model_name": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+  "embedding_model_name": "BAAI/bge-m3"
+}
