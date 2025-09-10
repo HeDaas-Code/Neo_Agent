@@ -6,7 +6,7 @@
 ## Start Game 更新记录 (2025-01-10)
 
 ### 更新目标
-运用最新的 `test_script_framework.py` 和 `test_five_stage_architecture.py` 成果，更新 `start_game.py` 以更好地集成五阶段架构和剧本框架。
+运用最新的 `test_script_framework.py` 和 `test_five_stage_architecture.py` 成果，更新 `game_controller.py` 以更好地集成五阶段架构和剧本框架。
 
 ### 主要更新内容
 
@@ -86,7 +86,7 @@
 游戏运行时出现 `AttributeError: 'ScriptFrameworkConstrainer' object has no attribute 'current_node'` 错误
 
 ### 根本原因
-`start_game.py` 中的剧情相关方法错误地访问了 `ScriptFrameworkConstrainer` 类不存在的 `current_node` 属性
+`game_controller.py` 中的剧情相关方法错误地访问了 `ScriptFrameworkConstrainer` 类不存在的 `current_node` 属性
 
 ### 修复内容
 1. **_show_story_status方法**: 将 `self.core.script_constrainer.current_node` 改为使用 `get_current_story_node()` 方法
