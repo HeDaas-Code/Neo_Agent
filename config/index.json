@@ -26,6 +26,11 @@
       "path": "./config/memory.json",
       "description": "内存数据库配置：数据库路径、集合名称等",
       "required": true
+    },
+    "script": {
+      "path": "./config/script.json",
+      "description": "剧本框架配置：剧情节点、分支逻辑、故事流程等",
+      "required": true
     }
   },
   "environment_variables": {

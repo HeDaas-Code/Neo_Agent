@@ -66,6 +66,21 @@ class CharacterState:
 
 
 @dataclass
+class StoryNode:
+    """剧情节点数据类"""
+    id: str
+    title: str
+    description: str
+    character_situation: str
+    context_background: str
+    branches: List[Dict[str, Any]] = None
+    
+    def __post_init__(self):
+        if self.branches is None:
+            self.branches = []
+
+
+@dataclass
 class GameState:
     """游戏状态数据类"""
     permission_level: int = 1
@@ -75,6 +90,7 @@ class GameState:
     events_triggered: List[str] = None
     character_health: float = 100.0
     character_stress: float = 0.0
+    current_story_node: str = "intro_awakening"
     
     def __post_init__(self):
         if self.data_fragments is None:
@@ -370,7 +386,8 @@ class CharacterController:
     
     def build_system_prompt(self, character_state: CharacterState, 
                           game_state: GameState, 
-                          available_knowledge: List[str]) -> str:
+                          available_knowledge: List[str],
+                          script_constrainer: Optional['ScriptFrameworkConstrainer'] = None) -> str:
         """构建系统提示词"""
         
         # 基础角色设定
@@ -393,6 +410,15 @@ class CharacterController:
 - 已收集数据碎片：{len(game_state.data_fragments)}个
 - 游戏时间：{game_state.time_elapsed}分钟
 """
+        
+        # 添加剧情信息
+        story_prompt = ""
+        if script_constrainer:
+            try:
+                story_prompt = script_constrainer.build_story_prompt(character_state, game_state)
+            except Exception as e:
+                logger.error(f"构建剧情提示词时出错: {e}")
+                story_prompt = "\n当前剧情：剧情信息暂时不可用\n"
         
         # 认知框架约束
         cognitive_constraints = """
@@ -428,7 +454,7 @@ class CharacterController:
 6. 保持对话的连贯性和真实感
 """
         
-        return base_prompt + cognitive_constraints + knowledge_prompt + behavior_guide
+        return base_prompt + story_prompt + cognitive_constraints + knowledge_prompt + behavior_guide
     
     def apply_character_constraints(self, response: str, 
                                   character_state: CharacterState) -> str:
@@ -501,6 +527,234 @@ class CharacterController:
             # 后备方案：硬编码的基础知识
             basic_knowledge = ["basic_ship_layout", "emergency_protocols"]
             return knowledge_id in basic_knowledge
+
+
+class ScriptFrameworkConstrainer:
+    """剧本框架约束器 - 管理剧情节点和分支逻辑"""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.script_config = config.get('script', {})
+        self.story_nodes = {}
+        self.current_node_id = self.script_config.get('current_node_id', 'intro_awakening')
+        self.branch_rules = self.script_config.get('branch_rules', {})
+        
+        # 加载剧情节点
+        self._load_story_nodes()
+        
+        logger.info(f"剧本框架约束器初始化完成，当前节点: {self.current_node_id}")
+    
+    def _load_story_nodes(self):
+        """加载剧情节点数据"""
+        nodes_data = self.script_config.get('story_nodes', {})
+        
+        for node_id, node_data in nodes_data.items():
+            try:
+                story_node = StoryNode(
+                    id=node_data.get('id', node_id),  # 使用node_id作为fallback
+                    title=node_data['title'],
+                    description=node_data['description'],
+                    character_situation=node_data['character_situation'],
+                    context_background=node_data['context_background'],
+                    branches=node_data.get('branches', [])
+                )
+                self.story_nodes[node_id] = story_node
+            except KeyError as e:
+                logger.error(f"剧情节点 {node_id} 数据不完整，缺少字段: {e}")
+            except Exception as e:
+                logger.error(f"加载剧情节点 {node_id} 时出现错误: {e}")
+        
+        logger.info(f"已加载 {len(self.story_nodes)} 个剧情节点")
+        if self.story_nodes:
+            logger.info(f"可用节点: {list(self.story_nodes.keys())}")
+        else:
+            logger.warning("没有加载到任何剧情节点，请检查配置文件")
+    
+    def get_current_story_node(self, game_state: GameState) -> Optional[StoryNode]:
+        """获取当前剧情节点"""
+        node_id = game_state.current_story_node or self.current_node_id
+        
+        if node_id in self.story_nodes:
+            return self.story_nodes[node_id]
+        else:
+            logger.warning(f"剧情节点 {node_id} 不存在，回退到默认节点")
+            # 回退到第一个可用节点
+            if self.story_nodes:
+                return list(self.story_nodes.values())[0]
+            return None
+    
+    def build_story_prompt(self, character_state: CharacterState, 
+                          game_state: GameState) -> str:
+        """构建剧情提示词"""
+        current_node = self.get_current_story_node(game_state)
+        
+        if not current_node:
+            return "\n当前剧情：暂无剧情信息可用\n"
+        
+        # 检查可用分支
+        available_branches = self.get_available_branches(character_state, game_state)
+        
+        story_prompt = f"""
+
+=== 当前剧情信息 ===
+剧情节点：{current_node.title}
+
+剧情描述：
+{current_node.description}
+
+角色处境：
+{current_node.character_situation}
+
+背景信息：
+{current_node.context_background}
+"""
+        
+        if available_branches:
+            story_prompt += "\n可能的剧情发展方向：\n"
+            for i, branch in enumerate(available_branches, 1):
+                story_prompt += f"{i}. {branch.get('description', '未知选项')}\n"
+        
+        story_prompt += "\n=== 剧情信息结束 ===\n"
+        
+        return story_prompt
+    
+    def get_available_branches(self, character_state: CharacterState, 
+                              game_state: GameState) -> List[Dict[str, Any]]:
+        """获取当前可用的剧情分支"""
+        current_node = self.get_current_story_node(game_state)
+        
+        if not current_node or not current_node.branches:
+            return []
+        
+        available_branches = []
+        
+        for branch in current_node.branches:
+            if self._check_branch_conditions(branch, character_state, game_state):
+                available_branches.append(branch)
+        
+        return available_branches
+    
+    def _check_branch_conditions(self, branch: Dict[str, Any], 
+                                character_state: CharacterState, 
+                                game_state: GameState) -> bool:
+        """检查分支条件是否满足"""
+        conditions = branch.get('conditions', {})
+        
+        if not conditions:
+            return True  # 无条件限制
+        
+        try:
+            # 检查角色状态条件
+            if 'character_state' in conditions:
+                char_conditions = conditions['character_state']
+                
+                for attr, limits in char_conditions.items():
+                    char_value = getattr(character_state, attr, None)
+                    if char_value is None:
+                        continue
+                    
+                    if 'min' in limits and char_value < limits['min']:
+                        return False
+                    if 'max' in limits and char_value > limits['max']:
+                        return False
+                    if 'equals' in limits and char_value != limits['equals']:
+                        return False
+            
+            # 检查游戏状态条件
+            if 'game_state' in conditions:
+                game_conditions = conditions['game_state']
+                
+                for attr, limits in game_conditions.items():
+                    game_value = getattr(game_state, attr, None)
+                    if game_value is None:
+                        continue
+                    
+                    if 'min' in limits and game_value < limits['min']:
+                        return False
+                    if 'max' in limits and game_value > limits['max']:
+                        return False
+                    if 'equals' in limits and game_value != limits['equals']:
+                        return False
+            
+            # 检查知识条件（需要与KnowledgeGraph集成）
+            if 'knowledge' in conditions:
+                knowledge_conditions = conditions['knowledge']
+                required_knowledge = knowledge_conditions.get('required', [])
+                
+                # 这里需要与KnowledgeGraph或CharacterController集成
+                # 暂时返回True，后续完善
+                pass
+            
+            # 检查事件条件
+            if 'events' in conditions:
+                event_conditions = conditions['events']
+                
+                if 'triggered' in event_conditions:
+                    required_events = event_conditions['triggered']
+                    if not all(event in game_state.events_triggered for event in required_events):
+                        return False
+                
+                if 'not_triggered' in event_conditions:
+                    forbidden_events = event_conditions['not_triggered']
+                    if any(event in game_state.events_triggered for event in forbidden_events):
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"检查分支条件时出错: {e}")
+            return False
+    
+    def advance_to_branch(self, branch_id: str, character_state: CharacterState, 
+                         game_state: GameState) -> bool:
+        """推进到指定分支"""
+        current_node = self.get_current_story_node(game_state)
+        
+        if not current_node:
+            logger.error("无法推进剧情：当前节点不存在")
+            return False
+        
+        # 查找指定分支
+        target_branch = None
+        for branch in current_node.branches:
+            if branch.get('id') == branch_id:
+                target_branch = branch
+                break
+        
+        if not target_branch:
+            logger.error(f"分支 {branch_id} 不存在")
+            return False
+        
+        # 检查分支条件
+        if not self._check_branch_conditions(target_branch, character_state, game_state):
+            logger.warning(f"分支 {branch_id} 条件不满足")
+            return False
+        
+        # 推进到目标节点
+        target_node_id = target_branch.get('target_node_id')
+        if target_node_id and target_node_id in self.story_nodes:
+            game_state.current_story_node = target_node_id
+            logger.info(f"剧情推进到节点: {target_node_id}")
+            return True
+        else:
+            logger.error(f"目标节点 {target_node_id} 不存在")
+            return False
+    
+    def reset_story(self, game_state: GameState):
+        """重置剧情到初始状态"""
+        game_state.current_story_node = self.current_node_id
+        logger.info(f"剧情已重置到初始节点: {self.current_node_id}")
+    
+    def get_story_progress(self, game_state: GameState) -> Dict[str, Any]:
+        """获取剧情进度信息"""
+        current_node = self.get_current_story_node(game_state)
+        
+        return {
+            'current_node_id': game_state.current_story_node,
+            'current_node_title': current_node.title if current_node else '未知',
+            'total_nodes': len(self.story_nodes),
+            'available_branches': len(self.get_available_branches(None, game_state))
+        }
 
 
 class KnowledgeGraph:
@@ -649,6 +903,7 @@ class LLMCore:
         self.character_controller = CharacterController(self.config.get('character', {}))
         self.knowledge_graph = KnowledgeGraph(self.config.get('knowledge', {}))
         self.game_state_manager = GameStateManager(self.config.get('game', {}))
+        self.script_constrainer = ScriptFrameworkConstrainer(self.config)
         
         # 初始化游戏状态
         self.character_state = CharacterState(
@@ -703,7 +958,7 @@ class LLMCore:
             
             # 3. 构建系统提示词
             system_prompt = self.character_controller.build_system_prompt(
-                self.character_state, self.game_state, available_knowledge
+                self.character_state, self.game_state, available_knowledge, self.script_constrainer
             )
             
             # 4. 构建消息
@@ -829,6 +1084,154 @@ class LLMCore:
                 'success': False,
                 'fragment': fragment_name,
                 'message': f"处理失败: {str(e)}"
+            }
+    
+    def get_available_branches(self) -> List[Dict[str, Any]]:
+        """获取当前可用的剧情分支"""
+        try:
+            return self.script_constrainer.get_available_branches(
+                self.character_state, self.game_state
+            )
+        except Exception as e:
+            logger.error(f"获取可用分支失败: {e}")
+            return []
+    
+    def select_branch(self, branch_id: str) -> Dict[str, Any]:
+        """选择剧情分支"""
+        try:
+            success = self.script_constrainer.advance_to_branch(
+                branch_id, self.character_state, self.game_state
+            )
+            
+            if success:
+                # 存储分支选择记忆
+                self.memory_system.store_memory(
+                    f"选择了剧情分支: {branch_id}",
+                    {
+                        'type': 'branch_selection',
+                        'branch_id': branch_id,
+                        'timestamp': int(time.time()),
+                        'story_node': self.game_state.current_story_node
+                    }
+                )
+                
+                return {
+                    'success': True,
+                    'branch_id': branch_id,
+                    'new_node': self.game_state.current_story_node,
+                    'message': f"成功选择分支: {branch_id}"
+                }
+            else:
+                return {
+                    'success': False,
+                    'branch_id': branch_id,
+                    'message': "分支选择失败，可能是条件不满足或分支不存在"
+                }
+                
+        except Exception as e:
+            logger.error(f"选择分支失败: {e}")
+            return {
+                'success': False,
+                'branch_id': branch_id,
+                'message': f"选择分支时发生错误: {str(e)}"
+            }
+    
+    def get_story_progress(self) -> Dict[str, Any]:
+        """获取剧情进度信息"""
+        try:
+            progress = self.script_constrainer.get_story_progress(self.game_state)
+            current_node = self.script_constrainer.get_current_story_node(self.game_state)
+            
+            return {
+                'current_node': {
+                    'id': progress['current_node_id'],
+                    'title': progress['current_node_title'],
+                    'description': current_node.description if current_node else '无描述',
+                    'character_situation': current_node.character_situation if current_node else '无情况描述'
+                },
+                'progress': {
+                    'total_nodes': progress['total_nodes'],
+                    'available_branches': progress['available_branches']
+                },
+                'game_state': {
+                    'permission_level': self.game_state.permission_level,
+                    'data_fragments_count': len(self.game_state.data_fragments),
+                    'time_elapsed': self.game_state.time_elapsed,
+                    'current_location': self.game_state.current_location
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"获取剧情进度失败: {e}")
+            return {
+                'current_node': {'id': 'unknown', 'title': '未知', 'description': '无法获取', 'character_situation': '无法获取'},
+                'progress': {'total_nodes': 0, 'available_branches': 0},
+                'game_state': {'permission_level': 1, 'data_fragments_count': 0, 'time_elapsed': 0, 'current_location': 'unknown'}
+            }
+    
+    def reset_story(self) -> Dict[str, Any]:
+        """重置剧情到初始状态"""
+        try:
+            self.script_constrainer.reset_story(self.game_state)
+            
+            # 存储重置记忆
+            self.memory_system.store_memory(
+                "剧情已重置到初始状态",
+                {
+                    'type': 'story_reset',
+                    'timestamp': int(time.time()),
+                    'previous_node': self.game_state.current_story_node
+                }
+            )
+            
+            return {
+                'success': True,
+                'message': "剧情已重置到初始状态",
+                'current_node': self.game_state.current_story_node
+            }
+            
+        except Exception as e:
+            logger.error(f"重置剧情失败: {e}")
+            return {
+                'success': False,
+                'message': f"重置剧情时发生错误: {str(e)}"
+            }
+    
+    def get_current_story_context(self) -> Dict[str, Any]:
+        """获取当前剧情上下文信息"""
+        try:
+            current_node = self.script_constrainer.get_current_story_node(self.game_state)
+            if not current_node:
+                return {
+                    "current_node": "unknown",
+                    "title": "未知",
+                    "description": "当前没有可用的剧情信息",
+                    "character_situation": "未知",
+                    "context_background": "未知",
+                    "available_branches": []
+                }
+            
+            # 获取可用分支信息
+            available_branches = self.get_available_branches()
+            
+            return {
+                "current_node": current_node.id,
+                "title": current_node.title,
+                "description": current_node.description,
+                "character_situation": current_node.character_situation,
+                "context_background": current_node.context_background,
+                "available_branches": available_branches
+            }
+            
+        except Exception as e:
+            logger.error(f"获取剧情上下文失败: {e}")
+            return {
+                "current_node": "error",
+                "title": "错误",
+                "description": f"获取剧情上下文时出现错误: {e}",
+                "character_situation": "错误",
+                "context_background": "错误",
+                "available_branches": []
             }
     
     def get_game_status(self) -> Dict[str, Any]:

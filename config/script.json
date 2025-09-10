@@ -1,0 +1,141 @@
+{
+  "description": "剧本框架约束配置 - 管理剧情节点和分支逻辑",
+  "version": "1.0.0",
+  "current_node_id": "intro_awakening",
+  "story_nodes": {
+    "intro_awakening": {
+      "id": "intro_awakening",
+      "title": "意识觉醒",
+      "description": "你在飞船的工程舱中醒来，头部隐隐作痛。周围的设备发出低沉的嗡嗡声，但有些系统显示异常的红色警告灯。你记得自己是这艘船的工程师，但对于为什么会在这里醒来却没有清晰的记忆。",
+      "character_situation": "刚刚苏醒，感到困惑和轻微的头痛。需要检查周围环境并确定当前状况。身体状态基本正常，但精神状态略显混乱。",
+      "context_background": "这是一艘深空探索飞船，正在执行长期任务。船上应该还有其他船员，但目前工程舱内只有你一个人。飞船的自动系统似乎在正常运行，但一些警告信号表明可能存在技术问题。",
+      "branches": [
+        {
+          "id": "check_systems",
+          "target_node_id": "system_analysis",
+          "description": "检查工程系统状态",
+          "conditions": {
+            "character_state": {
+              "energy": {
+                "min": 50
+              }
+            }
+          }
+        },
+        {
+          "id": "find_crew",
+          "target_node_id": "crew_search",
+          "description": "寻找其他船员",
+          "conditions": {
+            "game_state": {
+              "permission_level": {
+                "min": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "system_analysis": {
+      "id": "system_analysis",
+      "title": "系统分析",
+      "description": "你开始检查工程系统的状态。主要的生命支持系统运行正常，但动力系统显示功率输出不稳定。更令人担忧的是，通讯系统似乎无法连接到桥梁或其他舱室。",
+      "character_situation": "正在进行技术分析，发现了一些系统异常。作为工程师，你有能力理解这些技术问题，但缺乏完整的系统访问权限来进行深入诊断。",
+      "context_background": "飞船的工程系统是你的专业领域。通常情况下，你应该能够访问所有技术系统的详细状态，但现在某些高级诊断功能被锁定了。这种情况很不寻常。",
+      "branches": [
+        {
+          "id": "repair_power",
+          "target_node_id": "power_restoration",
+          "description": "尝试修复动力系统",
+          "conditions": {
+            "knowledge": {
+              "required": ["technical_systems"]
+            }
+          }
+        },
+        {
+          "id": "investigate_lockout",
+          "target_node_id": "security_investigation",
+          "description": "调查系统锁定原因",
+          "conditions": {
+            "game_state": {
+              "permission_level": {
+                "min": 3
+              }
+            }
+          }
+        }
+      ]
+    },
+    "crew_search": {
+      "id": "crew_search",
+      "title": "寻找船员",
+      "description": "你离开工程舱，开始在飞船中寻找其他船员。走廊里异常安静，只有通风系统的声音。你来到生活区，发现船员宿舍都是空的，但床铺看起来像是被匆忙离开的。",
+      "character_situation": "感到越来越不安和困惑。作为船员之一，你应该知道其他人在哪里，但现在的情况完全超出了你的预期。孤独感开始影响你的心理状态。",
+      "context_background": "这艘船通常有6名船员，包括船长、副船长、导航员、医生、工程师（你）和通讯官。按照正常的轮班制度，即使在休息时间也不应该所有人都不在岗位上。",
+      "branches": [
+        {
+          "id": "check_bridge",
+          "target_node_id": "bridge_discovery",
+          "description": "前往桥梁查看",
+          "conditions": {
+            "game_state": {
+              "permission_level": {
+                "min": 2
+              }
+            }
+          }
+        },
+        {
+          "id": "check_logs",
+          "target_node_id": "log_investigation",
+          "description": "查看船员日志",
+          "conditions": {
+            "character_state": {
+              "stress": {
+                "max": 70
+              }
+            }
+          }
+        }
+      ]
+    },
+    "power_restoration": {
+      "id": "power_restoration",
+      "title": "动力修复",
+      "description": "通过你的专业技能，你成功稳定了动力系统的输出。然而，在修复过程中，你发现了一些不寻常的痕迹——某些关键组件似乎被人为地调整过，这不像是正常的维护操作。",
+      "character_situation": "技术问题得到了解决，这让你感到一些成就感和控制感。但发现的人为痕迹让你更加警觉和困惑。你开始怀疑这里发生了什么不寻常的事情。",
+      "context_background": "作为首席工程师，你对飞船的每个系统都了如指掌。这些人为调整的痕迹表明有人在你不知情的情况下修改了系统设置，这在正常情况下是不可能发生的。",
+      "branches": [
+        {
+          "id": "analyze_modifications",
+          "target_node_id": "technical_mystery",
+          "description": "深入分析系统修改",
+          "conditions": {
+            "knowledge": {
+              "required": ["technical_systems"]
+            },
+            "game_state": {
+              "permission_level": {
+                "min": 4
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "branch_rules": {
+    "condition_types": {
+      "character_state": ["health", "stress", "energy", "mood"],
+      "game_state": ["permission_level", "time_elapsed", "current_location"],
+      "knowledge": ["required", "forbidden"],
+      "events": ["triggered", "not_triggered"]
+    },
+    "operators": {
+      "numeric": ["min", "max", "equals"],
+      "list": ["contains", "not_contains"],
+      "boolean": ["is", "is_not"]
+    }
+  }
+}

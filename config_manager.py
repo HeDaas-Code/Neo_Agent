@@ -79,7 +79,7 @@ class ConfigManager:
     
     def _validate_config(self):
         """验证配置完整性"""
-        required_sections = ['model', 'character', 'knowledge', 'game', 'memory']
+        required_sections = ['model', 'character', 'knowledge', 'game', 'memory', 'script']
         
         for section in required_sections:
             if section not in self._config:
@@ -103,6 +103,13 @@ class ConfigManager:
         memory_config = self._config.get('memory', {})
         if not memory_config.get('memory_db_path') or not memory_config.get('collection_name'):
             raise ValueError("内存配置缺少必需字段: memory_db_path 或 collection_name")
+        
+        # 验证剧本配置
+        script_config = self._config.get('script', {})
+        if not script_config.get('story_nodes'):
+            raise ValueError("剧本配置缺少必需字段: story_nodes")
+        if not script_config.get('current_node_id'):
+            raise ValueError("剧本配置缺少必需字段: current_node_id")
     
     def get(self, path: str, default: Any = None) -> Any:
         """获取配置值，支持点号路径访问"""
@@ -140,7 +147,8 @@ class ConfigManager:
             'memory': self._config.get('memory', {}),
             'character': self._config.get('character', {}),
             'knowledge': self._config.get('knowledge', {}),
-            'game': self._config.get('game', {})
+            'game': self._config.get('game', {}),
+            'script': self._config.get('script', {})
         }
         
         return legacy_config
