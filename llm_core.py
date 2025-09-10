@@ -128,10 +128,13 @@ class CharacterState:
     mood: str = "neutral"
     location: str = "unknown"
     permissions: List[str] = None
+    inventory: List[Dict[str, Any]] = None  # 物品栏：[{"name": "物品名", "description": "描述", "quantity": 数量, "type": "类型"}]
     
     def __post_init__(self):
         if self.permissions is None:
             self.permissions = []
+        if self.inventory is None:
+            self.inventory = []
 
 
 @dataclass
@@ -152,14 +155,110 @@ class StoryNode:
 @dataclass
 class GameState:
     """游戏状态数据类"""
-    permission_level: int = 1
-    data_fragments: List[str] = None
-    current_location: str = "bridge"
-    time_elapsed: int = 0
-    events_triggered: List[str] = None
-    character_health: float = 100.0
-    character_stress: float = 0.0
-    current_story_node: str = "intro_awakening"
+    def __init__(self):
+        self.permission_level: int = 1
+        self.data_fragments: List[str] = []
+        self.current_location: str = "bridge"
+        self.time_elapsed: int = 0
+        self.events_triggered: List[str] = []
+        self.character_health: float = 100.0
+        self.character_stress: float = 0.0
+        self.current_story_node: str = "intro_awakening"
+        # 新增游戏要素
+        self.locations: Dict[str, Dict[str, Any]] = self._init_default_locations()  # 地点信息
+        self.global_items: Dict[str, Dict[str, Any]] = self._init_default_items()  # 全局物品池
+    
+
+    
+    def _init_default_locations(self) -> Dict[str, Dict[str, Any]]:
+        """初始化默认地点"""
+        return {
+            "bridge": {
+                "description": "飞船指挥中心，配备导航和通信设备",
+                "exits": ["engineering", "living_quarters"],
+                "items": ["navigation_manual", "communication_log"],
+                "accessible": True
+            },
+            "engineering": {
+                "description": "工程舱，包含主要的维修和控制系统",
+                "exits": ["bridge", "cargo_bay"],
+                "items": ["repair_kit", "power_cell"],
+                "accessible": True
+            },
+            "living_quarters": {
+                "description": "船员生活区，包含休息室和个人舱室",
+                "exits": ["bridge", "cargo_bay"],
+                "items": ["personal_log", "medical_kit"],
+                "accessible": True
+            },
+            "cargo_bay": {
+                "description": "货物存储区，可能包含重要物资",
+                "exits": ["engineering", "living_quarters"],
+                "items": ["supply_crate", "emergency_beacon"],
+                "accessible": False  # 需要权限解锁
+            }
+        }
+    
+    def _init_default_items(self) -> Dict[str, Dict[str, Any]]:
+        """初始化默认物品"""
+        return {
+            "navigation_manual": {
+                "name": "导航手册",
+                "description": "详细的飞船导航操作指南",
+                "location": "bridge",
+                "obtainable": True,
+                "type": "document"
+            },
+            "communication_log": {
+                "name": "通信记录",
+                "description": "最近的通信记录，可能包含重要信息",
+                "location": "bridge",
+                "obtainable": True,
+                "type": "document"
+            },
+            "repair_kit": {
+                "name": "维修工具包",
+                "description": "包含各种维修工具和备件",
+                "location": "engineering",
+                "obtainable": True,
+                "type": "tool"
+            },
+            "power_cell": {
+                "name": "能量电池",
+                "description": "高容量能量电池，可为设备供电",
+                "location": "engineering",
+                "obtainable": True,
+                "type": "consumable"
+            },
+            "personal_log": {
+                "name": "个人日志",
+                "description": "船员的个人记录，记录了重要事件",
+                "location": "living_quarters",
+                "obtainable": True,
+                "type": "document"
+            },
+            "medical_kit": {
+                "name": "医疗包",
+                "description": "紧急医疗用品，可以治疗轻伤",
+                "location": "living_quarters",
+                "obtainable": True,
+                "type": "consumable"
+            },
+            "supply_crate": {
+                "name": "补给箱",
+                "description": "密封的补给箱，内容未知",
+                "location": "cargo_bay",
+                "obtainable": False,  # 需要权限
+                "type": "container"
+            },
+            "emergency_beacon": {
+                "name": "紧急信标",
+                "description": "紧急求救信标，可发送求救信号",
+                "location": "cargo_bay",
+                "obtainable": False,  # 需要权限
+                "type": "device"
+            }
+        }
     
     def __post_init__(self):
         if self.data_fragments is None:
@@ -514,13 +613,21 @@ class CharacterController:
         # 行为指导
         behavior_guide = """
 
-行为指导：
-1. 保持角色一致性，根据当前状态调整语气和行为
-2. 如果健康状况不佳，表现出相应的虚弱或痛苦
-3. 如果压力过高，可能表现出焦虑、恐慌或判断力下降
-4. 根据权限等级限制你能执行的操作
-5. 对未知或超出权限的请求表示无法执行
-6. 保持对话的连贯性和真实感
+【行为指导】
+1. 你是艾莉克斯，与舰载AI系统对话时要体现人类幸存者的特点
+2. 保持角色一致性，根据当前状态调整语气和行为
+3. 如果健康状况不佳，表现出相应的虚弱或痛苦
+4. 如果压力过高，可能表现出焦虑、恐慌或判断力下降
+5. 你依赖AI系统的帮助，但也有自己的判断和情感
+6. 对AI系统的指令可以提出疑问或表达担忧
+7. 根据AI系统的权限等级，某些操作可能需要你的人工确认
+8. 保持对话的连贯性和真实感，体现人机协作的关系
+
+【对话风格】
+- 称呼AI系统为"系统"、"AI"或类似称谓
+- 体现对AI系统既依赖又保持人类独立思考的态度
+- 在紧急情况下可能更多依赖AI的建议
+- 在安全情况下可能表现出更多的人类情感和个人意见
 """
         
         return base_prompt + story_prompt + cognitive_constraints + knowledge_prompt + behavior_guide
@@ -903,12 +1010,200 @@ class KnowledgeGraph:
         return fragment_requirements.get(info_id, [])
 
 
+class GameElementManager:
+    """游戏要素管理器 - 处理物品、地点、出口等游戏要素"""
+    
+    def __init__(self):
+        pass
+    
+    def get_location_info(self, game_state: GameState, location_name: str) -> Dict[str, Any]:
+        """获取地点信息"""
+        location = game_state.locations.get(location_name, {})
+        if not location:
+            return {"description": "未知地点", "exits": [], "items": [], "accessible": False, "exists": False}
+        
+        # 检查地点是否可访问
+        accessible = location.get('accessible', True)
+        if not accessible:
+            return {
+                "description": "该区域目前无法访问",
+                "exits": [],
+                "items": [],
+                "accessible": False,
+                "exists": True
+            }
+        
+        result = location.copy()
+        result['exists'] = True
+        return result
+    
+    def get_available_exits(self, game_state: GameState, current_location: str) -> List[str]:
+        """获取当前地点的可用出口"""
+        location_info = self.get_location_info(game_state, current_location)
+        if not location_info.get('accessible', False):
+            return []
+        
+        exits = location_info.get('exits', [])
+        # 过滤掉不可访问的地点
+        accessible_exits = []
+        for exit_location in exits:
+            exit_info = game_state.locations.get(exit_location, {})
+            if exit_info.get('accessible', True):
+                accessible_exits.append(exit_location)
+        
+        return accessible_exits
+    
+    def get_location_items(self, game_state: GameState, location_name: str) -> List[Dict[str, Any]]:
+        """获取地点中的物品"""
+        location_info = self.get_location_info(game_state, location_name)
+        if not location_info.get('accessible', False):
+            return []
+        
+        item_ids = location_info.get('items', [])
+        items = []
+        
+        for item_id in item_ids:
+            item_info = game_state.global_items.get(item_id, {})
+            if item_info and item_info.get('obtainable', True):
+                items.append({
+                    'id': item_id,
+                    'name': item_info.get('name', item_id),
+                    'description': item_info.get('description', '无描述'),
+                    'type': item_info.get('type', 'unknown')
+                })
+        
+        return items
+    
+    def can_take_item(self, game_state: GameState, character_state: CharacterState, 
+                     item_id: str) -> Tuple[bool, str]:
+        """检查是否可以拾取物品"""
+        item_info = game_state.global_items.get(item_id)
+        if not item_info:
+            return False, "物品不存在"
+        
+        # 检查物品是否可获取
+        if not item_info.get('obtainable', True):
+            return False, "该物品无法获取"
+        
+        # 检查物品是否在当前地点
+        item_location = item_info.get('location')
+        if item_location != character_state.location:
+            return False, "物品不在当前位置"
+        
+        # 检查物品栏是否已满（假设最多10个物品）
+        if len(character_state.inventory) >= 10:
+            return False, "物品栏已满"
+        
+        # 检查是否已经拥有该物品
+        for inv_item in character_state.inventory:
+            if inv_item.get('id') == item_id:
+                return False, "已经拥有该物品"
+        
+        return True, "可以拾取"
+    
+    def take_item(self, game_state: GameState, character_state: CharacterState, 
+                 item_id: str) -> Tuple[bool, str]:
+        """拾取物品"""
+        can_take, reason = self.can_take_item(game_state, character_state, item_id)
+        if not can_take:
+            return False, reason
+        
+        item_info = game_state.global_items[item_id]
+        
+        # 添加到物品栏
+        inventory_item = {
+            'id': item_id,
+            'name': item_info['name'],
+            'description': item_info['description'],
+            'type': item_info['type'],
+            'quantity': 1
+        }
+        character_state.inventory.append(inventory_item)
+        
+        # 从地点移除物品
+        location_name = item_info['location']
+        if location_name in game_state.locations:
+            location_items = game_state.locations[location_name].get('items', [])
+            if item_id in location_items:
+                location_items.remove(item_id)
+        
+        return True, f"成功拾取了{item_info['name']}"
+    
+    def use_item(self, character_state: CharacterState, item_id: str) -> Tuple[bool, str, Dict[str, Any]]:
+        """使用物品"""
+        # 查找物品
+        item_index = -1
+        for i, inv_item in enumerate(character_state.inventory):
+            if inv_item.get('id') == item_id:
+                item_index = i
+                break
+        
+        if item_index == -1:
+            return False, "物品栏中没有该物品", {}
+        
+        item = character_state.inventory[item_index]
+        item_type = item.get('type', 'unknown')
+        effects = {}
+        
+        # 根据物品类型产生不同效果
+        if item_type == 'consumable':
+            if item_id == 'medical_kit':
+                health_restore = min(30, 100 - character_state.health)
+                character_state.health += health_restore
+                effects['health_change'] = health_restore
+                # 消耗品使用后移除
+                character_state.inventory.pop(item_index)
+                return True, f"使用了{item['name']}，恢复了{health_restore}点健康值", effects
+            
+            elif item_id == 'power_cell':
+                energy_restore = min(20, 100 - character_state.energy)
+                character_state.energy += energy_restore
+                effects['energy_change'] = energy_restore
+                character_state.inventory.pop(item_index)
+                return True, f"使用了{item['name']}，恢复了{energy_restore}点能量", effects
+        
+        elif item_type == 'document':
+            # 文档类物品提供信息，不消耗
+            return True, f"阅读了{item['name']}：{item['description']}", effects
+        
+        elif item_type == 'tool':
+            # 工具类物品可以重复使用
+            return True, f"使用了{item['name']}，这是一个有用的工具", effects
+        
+        return False, "无法使用该物品", {}
+    
+    def move_to_location(self, game_state: GameState, character_state: CharacterState, 
+                        target_location: str) -> Tuple[bool, str]:
+        """移动到指定地点"""
+        # 检查目标地点是否存在
+        if target_location not in game_state.locations:
+            return False, "目标地点不存在"
+        
+        # 检查目标地点是否可访问
+        target_info = game_state.locations[target_location]
+        if not target_info.get('accessible', True):
+            return False, "目标地点无法访问"
+        
+        # 检查是否可以从当前地点到达目标地点
+        current_exits = self.get_available_exits(game_state, character_state.location)
+        if target_location not in current_exits:
+            return False, f"无法从{character_state.location}直接到达{target_location}"
+        
+        # 执行移动
+        old_location = character_state.location
+        character_state.location = target_location
+        game_state.current_location = target_location
+        
+        return True, f"从{old_location}移动到了{target_location}"
+
+
 class GameStateManager:
     """游戏状态管理类"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.events_config = config.get('events', {})
+        self.game_element_manager = GameElementManager()
     
     def update_permission(self, game_state: GameState, 
                          new_fragments: List[str]) -> GameState:
@@ -1199,36 +1494,60 @@ class LLMCore:
         try:
             logger.info("开始理解阶段处理")
             
-            # 解析上一轮对话意图
+            # 解析上一轮对话意图（增强版 - 支持游戏动作识别）
             last_dialogue_intent = {
                 'user_input': user_input,
                 'input_length': len(user_input),
                 'contains_question': '?' in user_input or '？' in user_input,
                 'contains_command': any(word in user_input.lower() for word in ['请', '帮', '执行', '做', '开始']),
-                'emotional_indicators': [word for word in ['高兴', '难过', '愤怒', '害怕', '惊讶'] if word in user_input]
+                'emotional_indicators': [word for word in ['高兴', '难过', '愤怒', '害怕', '惊讶'] if word in user_input],
+                # 新增游戏动作识别
+                'game_actions': self._parse_game_actions(user_input),
+                'mentioned_items': self._extract_mentioned_items(user_input, cognition_result),
+                'mentioned_locations': self._extract_mentioned_locations(user_input, cognition_result),
+                'action_type': self._classify_action_type(user_input)
             }
+            
+            # 添加调试信息
+            logger.info(f"🔍 自然语言解析结果:")
+            logger.info(f"  - 动作类型: {last_dialogue_intent['action_type']}")
+            logger.info(f"  - 识别到的游戏动作: {len(last_dialogue_intent['game_actions'])}个")
+            for i, action in enumerate(last_dialogue_intent['game_actions']):
+                logger.info(f"    动作{i+1}: {action.get('type', 'unknown')} - {action.get('target', 'N/A')}")
+            logger.info(f"  - 提到的物品: {last_dialogue_intent['mentioned_items']}")
+            logger.info(f"  - 提到的地点: {last_dialogue_intent['mentioned_locations']}")
+
+            last_dialogue_intent.update({
+                'debug_info': {
+                    'parsing_successful': len(last_dialogue_intent['game_actions']) > 0,
+                    'has_game_elements': len(last_dialogue_intent['mentioned_items']) > 0 or len(last_dialogue_intent['mentioned_locations']) > 0,
+                    'input_complexity': len(user_input.split())
+                }
+            })
             
             # 评估建议执行效果（基于历史交互）
             suggestion_feedback = {
                 'previous_suggestions_count': len([mem for mem in memory_result.dialogue_cache 
-                                                 if '建议' in mem.get('content', '')]),
+                                                 if mem and isinstance(mem, dict) and '建议' in mem.get('content', '')]),
                 'user_engagement_level': min(len(user_input) / 50.0, 1.0),  # 基于输入长度评估参与度
                 'context_continuity': len(memory_result.dialogue_cache) > 0
             }
             
             # 识别情感倾向变化
-            current_mood = cognition_result.character_profile.get('mood', 'neutral')
+            character_profile = cognition_result.character_profile or {}
+            current_mood = character_profile.get('mood', 'neutral')
             sentiment_shift = {
                 'current_mood': current_mood,
                 'mood_stability': 0.8,  # 默认情绪稳定性
-                'stress_level': cognition_result.character_profile.get('stress', 0.0) / 100.0,
-                'energy_level': cognition_result.character_profile.get('energy', 100.0) / 100.0
+                'stress_level': character_profile.get('stress', 0.0) / 100.0,
+                'energy_level': character_profile.get('energy', 100.0) / 100.0
             }
             
             # 构建上下文理解
-            context_understanding = f"用户在{cognition_result.scene_status.get('current_location', '未知位置')}" + \
+            scene_status = cognition_result.scene_status or {}
+            context_understanding = f"用户在{scene_status.get('current_location', '未知位置')}" + \
                                   f"进行交互，当前角色状态为{current_mood}，" + \
-                                  f"权限等级{cognition_result.scene_status.get('permission_level', 1)}"
+                                  f"权限等级{scene_status.get('permission_level', 1)}"
             
             result = UnderstandingResult(
                 last_dialogue_intent=last_dialogue_intent,
@@ -1251,12 +1570,450 @@ class LLMCore:
                 analysis_metadata={'context_understanding': '理解阶段出现错误'}
             )
     
+    def _parse_game_actions(self, user_input: str) -> List[Dict[str, Any]]:
+        """解析用户输入中的游戏动作"""
+        actions = []
+        user_lower = user_input.lower()
+        
+        # 添加调试信息
+        logger.info(f"🔍 解析游戏动作 - 输入: '{user_input}' -> 小写: '{user_lower}'")
+        
+        # 移动动作
+        move_keywords = ['去', '到', '走', '移动', '前往', '进入', '离开']
+        for keyword in move_keywords:
+            if keyword in user_lower:
+                actions.append({
+                    'type': 'move',
+                    'keyword': keyword,
+                    'confidence': 0.8
+                })
+                logger.info(f"  ✓ 识别到移动动作: {keyword}")
+                break
+        
+        # 拾取动作
+        take_keywords = ['拿', '取', '拾取', '获得', '收集', '捡']
+        for keyword in take_keywords:
+            if keyword in user_lower:
+                actions.append({
+                    'type': 'take',
+                    'keyword': keyword,
+                    'confidence': 0.8
+                })
+                logger.info(f"  ✓ 识别到拾取动作: {keyword}")
+                break
+        
+        # 使用动作
+        use_keywords = ['用', '使用', '打开', '启动', '激活', '操作']
+        for keyword in use_keywords:
+            if keyword in user_lower:
+                actions.append({
+                    'type': 'use',
+                    'keyword': keyword,
+                    'confidence': 0.8
+                })
+                logger.info(f"  ✓ 识别到使用动作: {keyword}")
+                break
+        
+        # 查看动作
+        look_keywords = ['看', '查看', '检查', '观察', '搜索', '寻找']
+        for keyword in look_keywords:
+            if keyword in user_lower:
+                actions.append({
+                    'type': 'look',
+                    'keyword': keyword,
+                    'confidence': 0.7
+                })
+                logger.info(f"  ✓ 识别到查看动作: {keyword}")
+                break
+        
+        # 特殊处理：如果包含"周围"相关词汇但没有明确动作，默认为查看动作
+        environment_keywords = ['周围', '四周', '环境', '附近', '这里', '当前位置']
+        if not actions:  # 如果还没有识别到任何动作
+            for env_keyword in environment_keywords:
+                if env_keyword in user_lower:
+                    actions.append({
+                        'type': 'look',
+                        'keyword': env_keyword,
+                        'confidence': 0.6,
+                        'auto_detected': True  # 标记为自动检测
+                    })
+                    logger.info(f"  ✓ 自动识别为查看动作（环境相关）: {env_keyword}")
+                    break
+        
+        # 对话动作
+        talk_keywords = ['说', '告诉', '询问', '问', '交谈', '对话']
+        for keyword in talk_keywords:
+            if keyword in user_lower:
+                actions.append({
+                    'type': 'talk',
+                    'keyword': keyword,
+                    'confidence': 0.6
+                })
+                logger.info(f"  ✓ 识别到对话动作: {keyword}")
+                break
+        
+        logger.info(f"  📊 解析结果: 共识别到 {len(actions)} 个动作")
+        return actions
+    
+    def _extract_mentioned_items(self, user_input: str, cognition_result: CognitionResult) -> List[str]:
+        """提取用户输入中提到的物品"""
+        mentioned_items = []
+        user_lower = user_input.lower()
+        
+        # 检查全局物品池中的物品
+        global_items = self.game_state.global_items or {}
+        for item_id, item_info in global_items.items():
+            item_name = item_info.get('name', '').lower()
+            if item_name and item_name in user_lower:
+                mentioned_items.append(item_id)
+            
+            # 也检查物品ID
+            if item_id.lower() in user_lower:
+                mentioned_items.append(item_id)
+        
+        # 检查物品栏中的物品
+        for inv_item in self.character_state.inventory:
+            item_name = inv_item.get('name', '').lower()
+            item_id = inv_item.get('id', '')
+            if item_name and item_name in user_lower:
+                if item_id not in mentioned_items:
+                    mentioned_items.append(item_id)
+        
+        return mentioned_items
+    
+    def _extract_mentioned_locations(self, user_input: str, cognition_result: CognitionResult) -> List[str]:
+        """提取用户输入中提到的地点"""
+        mentioned_locations = []
+        user_lower = user_input.lower()
+        
+        # 检查游戏中的地点
+        locations = self.game_state.locations or {}
+        for location_id, location_info in locations.items():
+            # 检查地点ID
+            if location_id.lower() in user_lower:
+                mentioned_locations.append(location_id)
+            
+            # 检查地点描述中的关键词
+            description = location_info.get('description', '').lower()
+            if description:
+                # 提取描述中的关键词进行匹配
+                location_keywords = {
+                    'bridge': ['指挥', '驾驶', '控制', '舰桥'],
+                    'engineering': ['工程', '引擎', '维修', '机械'],
+                    'living_quarters': ['生活', '休息', '宿舍', '房间'],
+                    'cargo_bay': ['货物', '仓库', '存储', '装载']
+                }
+                
+                keywords = location_keywords.get(location_id, [])
+                for keyword in keywords:
+                    if keyword in user_lower:
+                        if location_id not in mentioned_locations:
+                            mentioned_locations.append(location_id)
+                        break
+        
+        return mentioned_locations
+    
+    def _classify_action_type(self, user_input: str) -> str:
+        """分类用户输入的动作类型"""
+        user_lower = user_input.lower()
+        
+        # 游戏动作优先级分类
+        if any(word in user_lower for word in ['去', '到', '走', '移动', '前往']):
+            return 'movement'
+        elif any(word in user_lower for word in ['拿', '取', '拾取', '获得']):
+            return 'item_interaction'
+        elif any(word in user_lower for word in ['用', '使用', '打开', '启动']):
+            return 'item_usage'
+        elif any(word in user_lower for word in ['看', '查看', '检查', '观察']):
+            return 'exploration'
+        elif any(word in user_lower for word in ['说', '告诉', '询问', '问']):
+            return 'dialogue'
+        elif any(word in user_lower for word in ['帮助', '指令', '命令', '怎么']):
+            return 'help_request'
+        else:
+            return 'general_dialogue'
+    
+    def _determine_game_actions(self, understanding_result: UnderstandingResult) -> List[Dict[str, Any]]:
+        """根据理解结果确定要执行的游戏动作"""
+        determined_actions = []
+        
+        # 获取解析出的游戏动作 - 修复数据获取路径
+        parsed_actions = understanding_result.last_dialogue_intent.get('game_actions', [])
+        mentioned_items = understanding_result.last_dialogue_intent.get('mentioned_items', [])
+        mentioned_locations = understanding_result.last_dialogue_intent.get('mentioned_locations', [])
+        action_type = understanding_result.last_dialogue_intent.get('action_type', 'general_dialogue')
+        
+        # 根据动作类型和提到的要素确定具体动作
+        for action in parsed_actions:
+            action_detail = {
+                'type': action['type'],
+                'confidence': action['confidence'],
+                'parameters': {}
+            }
+            
+            # 移动动作
+            if action['type'] == 'move' and mentioned_locations:
+                action_detail['parameters']['target_location'] = mentioned_locations[0]
+                action_detail['executable'] = True
+            
+            # 拾取动作
+            elif action['type'] == 'take' and mentioned_items:
+                action_detail['parameters']['item_id'] = mentioned_items[0]
+                action_detail['executable'] = True
+            
+            # 使用动作
+            elif action['type'] == 'use' and mentioned_items:
+                action_detail['parameters']['item_id'] = mentioned_items[0]
+                action_detail['executable'] = True
+            
+            # 查看动作
+            elif action['type'] == 'look':
+                if mentioned_locations:
+                    action_detail['parameters']['target'] = mentioned_locations[0]
+                    action_detail['parameters']['target_type'] = 'location'
+                elif mentioned_items:
+                    action_detail['parameters']['target'] = mentioned_items[0]
+                    action_detail['parameters']['target_type'] = 'item'
+                else:
+                    action_detail['parameters']['target'] = 'current_location'
+                    action_detail['parameters']['target_type'] = 'location'
+                action_detail['executable'] = True
+            
+            # 对话动作
+            elif action['type'] == 'talk':
+                action_detail['parameters']['dialogue_type'] = 'general'
+                action_detail['executable'] = True
+            
+            else:
+                action_detail['executable'] = False
+            
+            determined_actions.append(action_detail)
+        
+        # 如果没有明确的游戏动作，根据动作类型添加默认动作
+        if not determined_actions:
+            if action_type == 'movement' and mentioned_locations:
+                determined_actions.append({
+                    'type': 'move',
+                    'confidence': 0.6,
+                    'parameters': {'target_location': mentioned_locations[0]},
+                    'executable': True
+                })
+            elif action_type == 'item_interaction' and mentioned_items:
+                determined_actions.append({
+                    'type': 'take',
+                    'confidence': 0.6,
+                    'parameters': {'item_id': mentioned_items[0]},
+                    'executable': True
+                })
+            elif action_type == 'exploration':
+                determined_actions.append({
+                    'type': 'look',
+                    'confidence': 0.5,
+                    'parameters': {'target': 'current_location', 'target_type': 'location'},
+                    'executable': True
+                })
+        
+        return determined_actions
+    
+    async def _execute_game_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """执行具体的游戏动作"""
+        # 确保action不为None
+        if action is None:
+            return {
+                'type': 'unknown',
+                'success': False,
+                'description': '动作参数为空',
+                'error': 'null_action'
+            }
+        
+        action_type = action.get('type', 'unknown')
+        parameters = action.get('parameters', {})
+        
+        # 确保parameters不为None
+        if parameters is None:
+            parameters = {}
+        
+        # 检查必要的组件是否存在
+        if not hasattr(self, 'game_state_manager') or self.game_state_manager is None:
+            logger.error("game_state_manager未初始化")
+            return {
+                'type': action_type,
+                'success': False,
+                'description': '游戏状态管理器未初始化',
+                'error': 'manager_not_initialized'
+            }
+        
+        if not hasattr(self.game_state_manager, 'game_element_manager') or self.game_state_manager.game_element_manager is None:
+            logger.error("game_element_manager未初始化")
+            return {
+                'type': action_type,
+                'success': False,
+                'description': '游戏要素管理器未初始化',
+                'error': 'element_manager_not_initialized'
+            }
+        
+        try:
+            if action_type == 'move':
+                target_location = parameters.get('target_location')
+                success, message = self.game_state_manager.game_element_manager.move_to_location(
+                    self.game_state, self.character_state, target_location
+                )
+                return {
+                    'type': 'move',
+                    'success': success,
+                    'description': message,
+                    'target': target_location
+                }
+            
+            elif action_type == 'take':
+                item_id = parameters.get('item_id')
+                success, message = self.game_state_manager.game_element_manager.take_item(
+                    self.game_state, self.character_state, item_id
+                )
+                return {
+                    'type': 'take',
+                    'success': success,
+                    'description': message,
+                    'item': item_id
+                }
+            
+            elif action_type == 'use':
+                item_id = parameters.get('item_id')
+                success, message, effects = self.game_state_manager.game_element_manager.use_item(
+                    self.character_state, item_id
+                )
+                # 应用物品使用效果
+                if success and effects:
+                    for effect_type, effect_value in effects.items():
+                        if effect_type == 'health':
+                            self.character_state.health = min(100.0, self.character_state.health + effect_value)
+                        elif effect_type == 'stress':
+                            self.character_state.stress = max(0.0, self.character_state.stress + effect_value)
+                        elif effect_type == 'energy':
+                            self.character_state.energy = min(100.0, self.character_state.energy + effect_value)
+                
+                return {
+                    'type': 'use',
+                    'success': success,
+                    'description': message,
+                    'item': item_id,
+                    'effects': effects if success else {}
+                }
+            
+            elif action_type == 'look':
+                target = parameters.get('target')
+                target_type = parameters.get('target_type', 'location')
+                
+                if target_type == 'location':
+                    if target == 'current_location':
+                        target = self.character_state.location
+                    
+                    try:
+                        location_info = self.game_state_manager.game_element_manager.get_location_info(
+                            self.game_state, target
+                        )
+                        
+                        if location_info is None:
+                            logger.error(f"get_location_info返回None，target: {target}")
+                            return {
+                                'type': 'look',
+                                'success': False,
+                                'description': f'无法获取地点信息：{target}',
+                                'target': target
+                            }
+                    except Exception as e:
+                        logger.error(f"调用get_location_info时出错: {e}")
+                        return {
+                            'type': 'look',
+                            'success': False,
+                            'description': f'获取地点信息时发生错误：{str(e)}',
+                            'target': target
+                        }
+                    
+                    if location_info.get('exists', False):
+                        location_name = location_info.get('name', target)
+                        description = f"你查看了{location_name}。{location_info.get('description', '没有特别的描述。')}"
+                        if location_info.get('exits'):
+                            description += f" 可用出口：{', '.join(location_info['exits'])}"
+                        if location_info.get('items'):
+                            item_names = []
+                            for item in location_info['items']:
+                                if item and isinstance(item, dict):
+                                    item_name = item.get('name', item.get('id', '未知物品'))
+                                    item_names.append(item_name)
+                                elif item:
+                                    item_names.append(str(item))
+                            if item_names:
+                                description += f" 这里有：{', '.join(item_names)}"
+                    else:
+                        description = f"你无法查看{target}，该地点不存在或无法访问。"
+                    
+                    return {
+                        'type': 'look',
+                        'success': location_info['exists'],
+                        'description': description,
+                        'target': target
+                    }
+                
+                elif target_type == 'item':
+                    # 查看物品详情
+                    item_info = self.game_state.global_items.get(target, {})
+                    if item_info:
+                        description = f"你仔细查看了{item_info.get('name', target)}。{item_info.get('description', '没有特别的描述。')}"
+                    else:
+                        description = f"你无法找到{target}这个物品。"
+                    
+                    return {
+                        'type': 'look',
+                        'success': bool(item_info),
+                        'description': description,
+                        'target': target
+                    }
+            
+            elif action_type == 'talk':
+                # 对话动作通常不需要特殊处理，直接返回成功
+                return {
+                    'type': 'talk',
+                    'success': True,
+                    'description': '你开始了对话。',
+                    'dialogue_type': parameters.get('dialogue_type', 'general')
+                }
+            
+            else:
+                return {
+                    'type': action_type,
+                    'success': False,
+                    'description': f'未知的动作类型：{action_type}',
+                    'error': 'unknown_action_type'
+                }
+        
+        except Exception as e:
+            logger.error(f"执行游戏动作时出错: {e}")
+            return {
+                'type': action_type,
+                'success': False,
+                'description': f'执行{action_type}动作时发生错误。',
+                'error': str(e)
+            }
+    
     async def _decision_stage(self, cognition_result: CognitionResult, 
                             memory_result: MemoryResult, 
                             understanding_result: UnderstandingResult) -> DecisionResult:
         """决策阶段：生成多模态响应选项、计算行为效用评分、选择最优对话策略"""
         try:
             logger.info("开始决策阶段处理")
+            
+            # 检查是否有游戏动作需要决策
+            game_actions = understanding_result.last_dialogue_intent.get('game_actions', [])
+            logger.info(f"🎯 决策阶段分析:")
+            logger.info(f"  - 需要决策的游戏动作: {len(game_actions)}个")
+            
+            if game_actions:
+                for i, action in enumerate(game_actions):
+                    logger.info(f"    动作{i+1}: {action.get('type', 'unknown')} -> {action.get('target', 'N/A')}")
+                    logger.info(f"      置信度: {action.get('confidence', 0.0):.2f}")
+            else:
+                logger.info("  - 未识别到具体游戏动作，将进行对话响应")
             
             # 生成多模态响应选项
             available_branches = self.script_constrainer.get_available_branches(
@@ -1310,6 +2067,12 @@ class LLMCore:
                 
                 action_utility_score[option['id']] = min(base_score, 1.0)
             
+            # 确定游戏动作
+            game_actions = self._determine_game_actions(understanding_result)
+            logger.info(f"决策阶段 - 确定的游戏动作: {len(game_actions)}个")
+            for i, action in enumerate(game_actions):
+                logger.info(f"  动作{i+1}: 类型={action['type']}, 可执行={action.get('executable', False)}, 置信度={action.get('confidence', 0)}")
+            
             # 选择最优对话策略
             if not action_utility_score:
                 dialogue_strategy = "default"
@@ -1330,7 +2093,11 @@ class LLMCore:
                 response_options=response_options,
                 action_utility_score=action_utility_score,
                 dialogue_strategy=dialogue_strategy,
-                selected_option_id=selected_option_id
+                selected_option_id=selected_option_id,
+                strategy_metadata={
+                    'game_actions': game_actions,
+                    'action_count': len(game_actions) if game_actions else 0
+                }
             )
             
             logger.info(f"决策阶段完成，选择策略: {dialogue_strategy}")
@@ -1350,19 +2117,45 @@ class LLMCore:
                              understanding_result: UnderstandingResult,
                              decision_result: DecisionResult,
                              user_input: str) -> ExecutionResult:
-        """执行阶段：输出自然语言响应、触发游戏行为指令、更新角色状态数据"""
+        """执行阶段：先执行游戏动作操作，再通过LLM加工处理结果，输出自然语言响应"""
         try:
             start_time = time.time()
             logger.info(f"开始执行阶段处理，策略: {decision_result.dialogue_strategy}")
             
-            # 构建系统提示词
+            # 第一步：执行游戏动作操作
+            game_actions = decision_result.strategy_metadata.get('game_actions', [])
+            game_action_results = []
+            
+            # 添加游戏动作执行的调试信息
+            logger.info(f"⚡ 执行阶段 - 游戏动作处理:")
+            logger.info(f"  - 待执行动作数量: {len(game_actions)}")
+            
+            for i, action in enumerate(game_actions):
+                logger.info(f"  - 动作{i+1}: {action.get('type', 'unknown')} (可执行: {action.get('executable', False)})")
+                if action.get('executable', False):
+                    logger.info(f"    正在执行动作: {action.get('type')} -> {action.get('target', 'N/A')}")
+                    action_result = await self._execute_game_action(action)
+                    game_action_results.append(action_result)
+                    logger.info(f"    执行结果: {'成功' if action_result['success'] else '失败'} - {action_result['description']}")
+                else:
+                    logger.info(f"    跳过不可执行动作: {action.get('type', 'unknown')}")
+            
+            logger.info(f"  - 成功执行动作数量: {len([r for r in game_action_results if r['success']])}")
+            
+            # 第二步：构建包含游戏动作结果的上下文
             system_prompt = self.character_controller.build_system_prompt(
                 self.character_state, self.game_state, 
                 memory_result.knowledge_graph_nodes, self.script_constrainer
             )
             
-            # 根据决策结果构建上下文
+            # 根据决策结果和游戏动作结果构建上下文
             context_parts = []
+            
+            # 添加游戏动作结果上下文
+            if game_action_results:
+                action_context = "\n".join([result['description'] for result in game_action_results if result['success']])
+                if action_context:
+                    context_parts.append(f"游戏动作结果：{action_context}")
             
             # 添加记忆上下文
             if memory_result.long_term_memory:
@@ -1384,7 +2177,7 @@ class LLMCore:
                 {"role": "user", "content": f"{context}\n\n用户输入：{user_input}"}
             ]
             
-            # 调用LLM生成响应
+            # 第三步：调用LLM生成自然语言响应
             raw_response = await self.model_manager.call_deepseek_api(messages)
             if not raw_response:
                 raw_response = "*系统故障* 抱歉，我现在无法正常响应..."
