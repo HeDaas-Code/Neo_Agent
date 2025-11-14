@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 import requests
+from long_term_memory import LongTermMemoryManager
 
 # 加载环境变量
 load_dotenv()
@@ -297,13 +298,16 @@ class ChatAgent:
         """
         初始化聊天代理
         """
-        self.memory_manager = MemoryManager()
+        # 使用新的长效记忆管理器
+        self.memory_manager = LongTermMemoryManager()
         self.character = CharacterProfile()
         self.llm = SiliconFlowLLM()
         self.system_prompt = self.character.get_system_prompt()
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
-        print(f"记忆系统已加载: {len(self.memory_manager.messages)} 条历史消息")
+        stats = self.memory_manager.get_statistics()
+        print(f"短期记忆: {stats['short_term']['rounds']} 轮对话")
+        print(f"长期记忆: {stats['long_term']['total_summaries']} 个主题概括")
 
     def chat(self, user_input: str) -> str:
         """
@@ -323,6 +327,11 @@ class ChatAgent:
             {'role': 'system', 'content': self.system_prompt}
         ]
 
+        # 添加长期记忆上下文
+        long_context = self.memory_manager.get_context_for_chat()
+        if long_context:
+            messages.append({'role': 'system', 'content': long_context})
+
         # 添加历史对话（最近10条）
         recent_messages = self.memory_manager.get_recent_messages(count=10)
         messages.extend(recent_messages)
@@ -334,7 +343,7 @@ class ChatAgent:
         self.memory_manager.add_message('assistant', response)
 
         # 保存记忆
-        self.memory_manager.save_memory()
+        self.memory_manager.save_all_memory()
 
         return response
 
@@ -360,7 +369,7 @@ class ChatAgent:
         """
         清空所有对话记忆
         """
-        self.memory_manager.clear_memory()
+        self.memory_manager.clear_all_memory()
 
     def get_conversation_history(self, count: int = None) -> List[Dict[str, Any]]:
         """
@@ -372,10 +381,20 @@ class ChatAgent:
         Returns:
             对话历史列表
         """
+        messages = self.memory_manager.short_term_messages
         if count is None:
-            return self.memory_manager.messages
+            return messages
         else:
-            return self.memory_manager.messages[-count:] if len(self.memory_manager.messages) > count else self.memory_manager.messages
+            return messages[-count:] if len(messages) > count else messages
+
+    def get_long_term_summaries(self) -> List[Dict[str, Any]]:
+        """
+        获取所有长期记忆概括
+
+        Returns:
+            长期记忆概括列表
+        """
+        return self.memory_manager.get_all_summaries()
 
 
 # 测试代码

@@ -1,0 +1,899 @@
+"""
+增强版Tkinter GUI界面
+包含聊天主题时间线可视化功能
+"""
+
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox, Canvas
+from datetime import datetime
+import threading
+from chat_agent import ChatAgent
+
+
+class TopicTimelineCanvas(Canvas):
+    """
+    主题时间线画布
+    用于可视化展示聊天主题的变化
+    """
+
+    def __init__(self, parent, **kwargs):
+        """
+        初始化时间线画布
+
+        Args:
+            parent: 父容器
+        """
+        super().__init__(parent, **kwargs)
+        self.topics = []
+        self.colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
+            '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
+            '#F8B739', '#52B788', '#FF8FA3', '#6A9BD1'
+        ]
+
+        # 绑定鼠标事件
+        self.bind('<Configure>', self.on_resize)
+        self.bind('<Motion>', self.on_mouse_move)
+
+        # 工具提示
+        self.tooltip = None
+
+    def update_topics(self, summaries):
+        """
+        更新主题数据并重绘
+
+        Args:
+            summaries: 长期记忆概括列表
+        """
+        self.topics = summaries
+        self.draw_timeline()
+
+    def draw_timeline(self):
+        """
+        绘制时间线
+        """
+        self.delete('all')  # 清空画布
+
+        if not self.topics:
+            # 如果没有数据，显示提示
+            width = self.winfo_width()
+            height = self.winfo_height()
+            self.create_text(
+                width // 2, height // 2,
+                text="暂无主题数据\n对话超过20轮后将自动生成主题概括",
+                font=('微软雅黑', 10),
+                fill='#999999',
+                justify=tk.CENTER
+            )
+            return
+
+        width = self.winfo_width()
+        height = self.winfo_height()
+
+        if width <= 1 or height <= 1:
+            return
+
+        # 计算布局参数
+        padding = 40
+        timeline_y = height // 2
+        available_width = width - 2 * padding
+
+        # 如果只有一个主题
+        if len(self.topics) == 1:
+            x = width // 2
+            self._draw_topic_node(x, timeline_y, self.topics[0], 0)
+            return
+
+        # 多个主题：均匀分布
+        step = available_width / (len(self.topics) - 1) if len(self.topics) > 1 else 0
+
+        # 绘制时间线
+        self.create_line(
+            padding, timeline_y,
+            width - padding, timeline_y,
+            fill='#CCCCCC', width=2, tags='timeline'
+        )
+
+        # 绘制各个主题节点
+        for i, topic in enumerate(self.topics):
+            x = padding + i * step
+            self._draw_topic_node(x, timeline_y, topic, i)
+
+            # 绘制连接线（除了最后一个）
+            if i < len(self.topics) - 1:
+                next_x = padding + (i + 1) * step
+                self.create_line(
+                    x, timeline_y,
+                    next_x, timeline_y,
+                    fill=self.colors[i % len(self.colors)],
+                    width=3,
+                    arrow=tk.LAST,
+                    arrowshape=(10, 12, 5),
+                    tags=f'line_{i}'
+                )
+
+    def _draw_topic_node(self, x, y, topic, index):
+        """
+        绘制单个主题节点
+
+        Args:
+            x: X坐标
+            y: Y坐标
+            topic: 主题数据
+            index: 索引
+        """
+        color = self.colors[index % len(self.colors)]
+        radius = 12
+
+        # 绘制节点圆圈
+        node_id = self.create_oval(
+            x - radius, y - radius,
+            x + radius, y + radius,
+            fill=color,
+            outline='white',
+            width=3,
+            tags=f'node_{index}'
+        )
+
+        # 绘制节点编号
+        self.create_text(
+            x, y,
+            text=str(index + 1),
+            font=('Arial', 10, 'bold'),
+            fill='white',
+            tags=f'node_text_{index}'
+        )
+
+        # 绘制日期标签
+        date_str = topic.get('created_at', '')[:10] if topic.get('created_at') else ''
+        self.create_text(
+            x, y - 30,
+            text=date_str,
+            font=('微软雅黑', 8),
+            fill='#666666',
+            tags=f'date_{index}'
+        )
+
+        # 绘制主题摘要（简短版）
+        summary = topic.get('summary', '')
+        short_summary = summary[:15] + '...' if len(summary) > 15 else summary
+        self.create_text(
+            x, y + 30,
+            text=short_summary,
+            font=('微软雅黑', 8),
+            fill='#333333',
+            width=100,
+            tags=f'summary_{index}'
+        )
+
+        # 绑定点击事件
+        self.tag_bind(f'node_{index}', '<Button-1>',
+                     lambda e, t=topic, i=index: self.on_node_click(t, i))
+
+        # 存储完整信息用于工具提示
+        self.itemconfig(node_id, tags=(f'node_{index}', f'tooltip_{index}'))
+
+    def on_node_click(self, topic, index):
+        """
+        节点点击事件处理
+
+        Args:
+            topic: 主题数据
+            index: 索引
+        """
+        # 显示详细信息
+        info = f"""主题 {index + 1} 详细信息
+        
+时间范围: {topic.get('created_at', '')[:19]} 至 {topic.get('ended_at', '')[:19]}
+对话轮数: {topic.get('rounds', 0)} 轮
+消息数量: {topic.get('message_count', 0)} 条
+UUID: {topic.get('uuid', '')}
+
+主题概括:
+{topic.get('summary', '')}"""
+
+        messagebox.showinfo(f"主题 {index + 1}", info)
+
+    def on_mouse_move(self, event):
+        """
+        鼠标移动事件处理（用于显示工具提示）
+
+        Args:
+            event: 事件对象
+        """
+        # 查找鼠标下的节点
+        items = self.find_overlapping(event.x - 2, event.y - 2, event.x + 2, event.y + 2)
+
+        for item in items:
+            tags = self.gettags(item)
+            for tag in tags:
+                if tag.startswith('node_') and not tag.endswith('text'):
+                    # 改变鼠标样式
+                    self.config(cursor='hand2')
+                    return
+
+        # 恢复默认鼠标样式
+        self.config(cursor='')
+
+    def on_resize(self, event):
+        """
+        窗口大小改变事件处理
+
+        Args:
+            event: 事件对象
+        """
+        self.draw_timeline()
+
+
+class EnhancedChatDebugGUI:
+    """
+    增强版聊天调试GUI
+    包含主题时��线可视化
+    """
+
+    def __init__(self, root):
+        """
+        初始化GUI界面
+
+        Args:
+            root: Tkinter根窗口
+        """
+        self.root = root
+        self.root.title("智能对话代理 - 增强调试界面")
+        self.root.geometry("1400x900")
+        self.root.minsize(1000, 700)  # 设置最小窗口尺寸，防止布局混乱
+
+        # 初始化聊天代理
+        self.agent = None
+        self.is_processing = False
+
+        # 创建UI组件
+        self.create_widgets()
+
+        # 初始化代理
+        self.initialize_agent()
+
+        # 绑定快捷键
+        self.root.bind('<Return>', lambda e: self.send_message() if not e.state & 0x1 else None)
+        self.root.bind('<Control-Return>', lambda e: self.input_text.insert(tk.INSERT, '\n'))
+
+    def create_widgets(self):
+        """
+        创建所有UI组件
+        """
+        # 主容器
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 上部：主题时间线（固定高度）
+        timeline_frame = ttk.LabelFrame(main_container, text="📊 对话主题时间线", padding=5, height=130)
+        timeline_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
+        timeline_frame.pack_propagate(False)  # 固定高度，防止过大
+
+        # 时间线画布
+        self.timeline_canvas = TopicTimelineCanvas(
+            timeline_frame,
+            bg='#f8f9fa',
+            highlightthickness=0
+        )
+        self.timeline_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # 主分割窗格
+        main_paned = ttk.PanedWindow(main_container, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 左侧面板 - 聊天区域
+        left_frame = ttk.Frame(main_paned)
+        main_paned.add(left_frame, weight=3)
+
+        # 右侧面板 - 调试信息
+        right_frame = ttk.Frame(main_paned)
+        main_paned.add(right_frame, weight=1)
+
+        # ========== 左侧聊天区域 ==========
+        self.create_chat_area(left_frame)
+
+        # ========== 右侧调试区域 ==========
+        self.create_debug_area(right_frame)
+
+    def create_chat_area(self, parent):
+        """
+        创建聊天区域
+
+        Args:
+            parent: 父容器
+        """
+        # 顶部标题栏（固定高度）
+        title_frame = ttk.Frame(parent, height=40)
+        title_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
+        title_frame.pack_propagate(False)  # 防止子组件改变frame大小
+
+        title_label = ttk.Label(
+            title_frame,
+            text="💬 智能对话系统",
+            font=("微软雅黑", 16, "bold")
+        )
+        title_label.pack(side=tk.LEFT)
+
+        self.status_label = ttk.Label(
+            title_frame,
+            text="● 就绪",
+            foreground="green",
+            font=("微软雅黑", 10)
+        )
+        self.status_label.pack(side=tk.RIGHT, padx=10)
+
+        # 角色信息栏（固定高度）
+        self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5, height=50)
+        self.character_frame.pack(fill=tk.X, padx=5, pady=3, side=tk.TOP)
+        self.character_frame.pack_propagate(False)
+
+        self.character_label = ttk.Label(
+            self.character_frame,
+            text="加载中...",
+            font=("微软雅黑", 9)
+        )
+        self.character_label.pack()
+
+        # 记忆状态栏（固定高度）
+        memory_status_frame = ttk.Frame(parent, height=30)
+        memory_status_frame.pack(fill=tk.X, padx=5, pady=2, side=tk.TOP)
+        memory_status_frame.pack_propagate(False)
+
+        self.memory_status_label = ttk.Label(
+            memory_status_frame,
+            text="短期记忆: 0轮 | 长期记忆: 0个主题",
+            font=("微软雅黑", 9),
+            foreground="#0066cc"
+        )
+        self.memory_status_label.pack(side=tk.LEFT)
+
+        ttk.Button(
+            memory_status_frame,
+            text="🔄",
+            width=3,
+            command=self.refresh_all
+        ).pack(side=tk.RIGHT, padx=2)
+
+        # 输入区域（固定在底部，固定高度）
+        input_frame = ttk.LabelFrame(parent, text="✏️ 输入消息", padding=5, height=140)
+        input_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.BOTTOM)
+        input_frame.pack_propagate(False)  # 防止被压缩
+
+        # 输入文本框
+        self.input_text = tk.Text(
+            input_frame,
+            height=3,
+            wrap=tk.WORD,
+            font=("微软雅黑", 10),
+            relief=tk.SOLID,
+            borderwidth=1
+        )
+        self.input_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=(5, 2))
+
+        # 按钮区域
+        button_frame = ttk.Frame(input_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        self.send_button = ttk.Button(
+            button_frame,
+            text="发送 (Enter)",
+            command=self.send_message
+        )
+        self.send_button.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            button_frame,
+            text="清空输入",
+            command=self.clear_input
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            button_frame,
+            text="清空对话",
+            command=self.clear_chat_display
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 聊天显示区域（填充剩余空间）
+        chat_frame = ttk.Frame(parent)
+        chat_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5, side=tk.TOP)
+
+        self.chat_display = scrolledtext.ScrolledText(
+            chat_frame,
+            wrap=tk.WORD,
+            font=("微软雅黑", 11),
+            bg="#f5f5f5",
+            relief=tk.FLAT,
+            padx=10,
+            pady=10
+        )
+        self.chat_display.pack(fill=tk.BOTH, expand=True)
+        self.chat_display.config(state=tk.DISABLED)
+
+        # 配置文本标签样式
+        self.chat_display.tag_config("user", foreground="#0066cc", font=("微软雅黑", 11, "bold"))
+        self.chat_display.tag_config("assistant", foreground="#ff6600", font=("微软雅黑", 11, "bold"))
+        self.chat_display.tag_config("system", foreground="#666666", font=("微软雅黑", 9, "italic"))
+        self.chat_display.tag_config("timestamp", foreground="#999999", font=("微软雅黑", 8))
+        self.chat_display.tag_config("archive", foreground="#9933cc", font=("微软雅黑", 9, "italic"))
+
+    def create_debug_area(self, parent):
+        """
+        创建调试区域
+
+        Args:
+            parent: 父容器
+        """
+        # 调试选项卡
+        notebook = ttk.Notebook(parent)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 选项卡1: 系统信息
+        info_tab = ttk.Frame(notebook)
+        notebook.add(info_tab, text="系统信息")
+
+        self.info_display = scrolledtext.ScrolledText(
+            info_tab,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.info_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.info_display.config(state=tk.DISABLED)
+
+        # 选项卡2: 短期记忆
+        short_term_tab = ttk.Frame(notebook)
+        notebook.add(short_term_tab, text="短期记忆")
+
+        self.short_term_display = scrolledtext.ScrolledText(
+            short_term_tab,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.short_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.short_term_display.config(state=tk.DISABLED)
+
+        # 选项卡3: 长期记忆
+        long_term_tab = ttk.Frame(notebook)
+        notebook.add(long_term_tab, text="长期记忆")
+
+        self.long_term_display = scrolledtext.ScrolledText(
+            long_term_tab,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.long_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.long_term_display.config(state=tk.DISABLED)
+
+        # 选项卡4: 控制面板
+        control_tab = ttk.Frame(notebook)
+        notebook.add(control_tab, text="控制面板")
+
+        self.create_control_panel(control_tab)
+
+    def create_control_panel(self, parent):
+        """
+        创建控制面板
+
+        Args:
+            parent: 父容器
+        """
+        control_container = ttk.Frame(parent, padding=10)
+        control_container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(control_container, text="记忆管理", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=5)
+
+        ttk.Button(
+            control_container,
+            text="🔄 刷新所有信息",
+            command=self.refresh_all,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="📈 更新主题时间线",
+            command=self.update_timeline,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="🗑️ 清空所有记忆",
+            command=self.clear_all_memory,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Separator(control_container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
+        ttk.Label(control_container, text="系统设置", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=5)
+
+        ttk.Button(
+            control_container,
+            text="♻️ 重新加载代理",
+            command=self.reload_agent,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="ℹ️ 关于",
+            command=self.show_about,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+    def initialize_agent(self):
+        """
+        初始化聊天代理
+        """
+        try:
+            self.update_status("初始化中...", "orange")
+            self.agent = ChatAgent()
+
+            # 更新所有信息显示
+            self.update_character_info()
+            self.update_system_info()
+            self.refresh_all()
+
+            # 显示欢迎消息
+            self.add_system_message("系统初始化完成！开始对话吧～")
+
+            self.update_status("就绪", "green")
+
+        except Exception as e:
+            self.update_status("初始化失败", "red")
+            messagebox.showerror("初始化错误", f"初始化聊天代理时出错：\n{str(e)}")
+
+    def update_character_info(self):
+        """
+        更新角色信息显示
+        """
+        if self.agent:
+            char_info = self.agent.get_character_info()
+            info_text = f"姓名: {char_info['name']} | 性别: {char_info['gender']} | 身份: {char_info['role']} | "
+            info_text += f"年龄: {char_info['age']}岁 | 身高: {char_info['height']} | 体重: {char_info['weight']}\n"
+            info_text += f"性格: {char_info['personality']}"
+
+            self.character_label.config(text=info_text)
+
+    def update_system_info(self):
+        """
+        更新系统信息显示
+        """
+        if not self.agent:
+            return
+
+        info = []
+        info.append("=" * 40)
+        info.append("系统信息")
+        info.append("=" * 40)
+        info.append("")
+
+        char_info = self.agent.get_character_info()
+        info.append("【角色信息】")
+        for key, value in char_info.items():
+            info.append(f"  {key}: {value}")
+
+        info.append("")
+        info.append("【系统配置】")
+        info.append(f"  短期记忆文件: {self.agent.memory_manager.short_term_file}")
+        info.append(f"  长期记忆文件: {self.agent.memory_manager.long_term_file}")
+        info.append(f"  最大短期轮数: {self.agent.memory_manager.max_short_term_rounds}")
+        info.append(f"  API模型: {self.agent.llm.model_name}")
+        info.append(f"  温度参数: {self.agent.llm.temperature}")
+
+        self.update_text_widget(self.info_display, "\n".join(info))
+
+    def refresh_all(self):
+        """
+        刷新所有信息
+        """
+        if not self.agent:
+            return
+
+        self.update_memory_status()
+        self.update_short_term_display()
+        self.update_long_term_display()
+        self.update_timeline()
+
+    def update_memory_status(self):
+        """
+        更新记忆状态显示
+        """
+        if not self.agent:
+            return
+
+        stats = self.agent.get_memory_stats()
+        status_text = f"短期记忆: {stats['short_term']['rounds']}轮 | 长期记忆: {stats['long_term']['total_summaries']}个主题"
+        self.memory_status_label.config(text=status_text)
+
+    def update_short_term_display(self):
+        """
+        更新短期记忆显示
+        """
+        if not self.agent:
+            return
+
+        history = self.agent.get_conversation_history()
+
+        if not history:
+            self.update_text_widget(self.short_term_display, "暂无短期记忆")
+            return
+
+        text = []
+        text.append("=" * 40)
+        text.append(f"短期记忆 (共 {len(history)} 条消息)")
+        text.append("=" * 40)
+        text.append("")
+
+        for i, msg in enumerate(history, 1):
+            role = "用户" if msg['role'] == 'user' else self.agent.character.name
+            timestamp = msg.get('timestamp', 'Unknown')[:19]
+            text.append(f"[{i}] {timestamp}")
+            text.append(f"{role}: {msg['content']}")
+            text.append("-" * 40)
+
+        self.update_text_widget(self.short_term_display, "\n".join(text))
+
+    def update_long_term_display(self):
+        """
+        更新长期记忆显示
+        """
+        if not self.agent:
+            return
+
+        summaries = self.agent.get_long_term_summaries()
+
+        if not summaries:
+            self.update_text_widget(self.long_term_display, "暂无长期记忆\n对话超过20轮后将自动生成")
+            return
+
+        text = []
+        text.append("=" * 40)
+        text.append(f"长期记忆概括 (共 {len(summaries)} 个主题)")
+        text.append("=" * 40)
+        text.append("")
+
+        for i, summary in enumerate(summaries, 1):
+            text.append(f"【主题 {i}】")
+            text.append(f"UUID: {summary.get('uuid', '')}")
+            text.append(f"时间: {summary.get('created_at', '')[:19]} ~ {summary.get('ended_at', '')[:19]}")
+            text.append(f"对话轮数: {summary.get('rounds', 0)} 轮")
+            text.append(f"消息数量: {summary.get('message_count', 0)} 条")
+            text.append(f"主题概括: {summary.get('summary', '')}")
+            text.append("=" * 40)
+            text.append("")
+
+        self.update_text_widget(self.long_term_display, "\n".join(text))
+
+    def update_timeline(self):
+        """
+        更新主题时间线
+        """
+        if not self.agent:
+            return
+
+        summaries = self.agent.get_long_term_summaries()
+        self.timeline_canvas.update_topics(summaries)
+
+    def update_text_widget(self, widget, text):
+        """
+        更新文本组件内容
+        """
+        widget.config(state=tk.NORMAL)
+        widget.delete(1.0, tk.END)
+        widget.insert(tk.END, text)
+        widget.config(state=tk.DISABLED)
+
+    def update_status(self, status: str, color: str = "black"):
+        """
+        更新状态标签
+        """
+        self.status_label.config(text=f"● {status}", foreground=color)
+        self.root.update()
+
+    def add_message_to_display(self, role: str, content: str):
+        """
+        在聊天显示区添加消息
+        """
+        self.chat_display.config(state=tk.NORMAL)
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+
+        if role == "user":
+            self.chat_display.insert(tk.END, "你: ", "user")
+        elif role == "assistant":
+            name = self.agent.character.name if self.agent else "助手"
+            self.chat_display.insert(tk.END, f"{name}: ", "assistant")
+
+        self.chat_display.insert(tk.END, f"{content}\n\n")
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+
+    def add_system_message(self, message: str):
+        """
+        添加系统消息
+        """
+        self.chat_display.config(state=tk.NORMAL)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        self.chat_display.insert(tk.END, f"[系统] {message}\n\n", "system")
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+
+    def add_archive_message(self, rounds: int, summary: str):
+        """
+        添加归档消息
+        """
+        self.chat_display.config(state=tk.NORMAL)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        self.chat_display.insert(tk.END, f"[记忆归档] 已将前{rounds}轮对话归档\n", "archive")
+        self.chat_display.insert(tk.END, f"主题概括: {summary}\n\n", "archive")
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+
+    def send_message(self):
+        """
+        发送消息
+        """
+        if self.is_processing:
+            messagebox.showwarning("请稍候", "正在处理上一条消息，请稍候...")
+            return
+
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        user_input = self.input_text.get(1.0, tk.END).strip()
+
+        if not user_input:
+            messagebox.showwarning("提示", "请输入消息内容")
+            return
+
+        self.add_message_to_display("user", user_input)
+        self.input_text.delete(1.0, tk.END)
+
+        self.is_processing = True
+        self.update_status("思考中...", "orange")
+        self.send_button.config(state=tk.DISABLED)
+
+        # 记录当前长期记忆数量
+        old_summary_count = len(self.agent.get_long_term_summaries())
+
+        def process_chat():
+            try:
+                response = self.agent.chat(user_input)
+                self.root.after(0, lambda: self.handle_response(response, old_summary_count))
+            except Exception as e:
+                error_msg = f"处理消息时出错: {str(e)}"
+                self.root.after(0, lambda: self.handle_error(error_msg))
+
+        thread = threading.Thread(target=process_chat, daemon=True)
+        thread.start()
+
+    def handle_response(self, response: str, old_summary_count: int):
+        """
+        处理代理回复
+        """
+        self.add_message_to_display("assistant", response)
+
+        # 检查是否生成了新的概括
+        new_summaries = self.agent.get_long_term_summaries()
+        if len(new_summaries) > old_summary_count:
+            # 有新的概括生成
+            latest_summary = new_summaries[-1]
+            self.add_archive_message(latest_summary.get('rounds', 20), latest_summary.get('summary', ''))
+            self.update_timeline()
+
+        # 更新显示
+        self.refresh_all()
+
+        self.is_processing = False
+        self.update_status("就绪", "green")
+        self.send_button.config(state=tk.NORMAL)
+        self.input_text.focus()
+
+    def handle_error(self, error_msg: str):
+        """
+        处理错误
+        """
+        self.add_system_message(f"错误: {error_msg}")
+        messagebox.showerror("错误", error_msg)
+
+        self.is_processing = False
+        self.update_status("出错", "red")
+        self.send_button.config(state=tk.NORMAL)
+
+    def clear_input(self):
+        """
+        清空输入框
+        """
+        self.input_text.delete(1.0, tk.END)
+
+    def clear_chat_display(self):
+        """
+        清空聊天显示区
+        """
+        result = messagebox.askyesno("确认", "确定要清空聊天显示区吗？\n（不会删除历史记忆）")
+        if result:
+            self.chat_display.config(state=tk.NORMAL)
+            self.chat_display.delete(1.0, tk.END)
+            self.chat_display.config(state=tk.DISABLED)
+            self.add_system_message("聊天显示区已清空")
+
+    def clear_all_memory(self):
+        """
+        清空所有记忆
+        """
+        result = messagebox.askyesno(
+            "警告",
+            "确定要清空所有记忆吗？\n包括短期和长期记忆！\n此操作不可恢复！",
+            icon='warning'
+        )
+
+        if result:
+            if self.agent:
+                self.agent.clear_memory()
+                self.chat_display.config(state=tk.NORMAL)
+                self.chat_display.delete(1.0, tk.END)
+                self.chat_display.config(state=tk.DISABLED)
+                self.add_system_message("所有记忆已清空")
+                self.refresh_all()
+
+    def reload_agent(self):
+        """
+        重新加载代理
+        """
+        result = messagebox.askyesno("确认", "确定要重新加载代理吗？\n将重新读取配置文件")
+        if result:
+            self.initialize_agent()
+            messagebox.showinfo("成功", "代理已重新加载")
+
+    def show_about(self):
+        """
+        显示关于对话框
+        """
+        about_text = """
+智能对话代理 v2.0 增强版
+基于LangChain和Python开发
+
+功能特性:
+• 角色扮演对话
+• 分层记忆系统（短期+长期）
+• 自动主题概括（每20轮）
+• 对话主题时间线可视化
+• 对话历史持久化
+• 可视化调试界面
+
+技术栈: Python + Tkinter + LangChain
+开发: 2025
+        """
+        messagebox.showinfo("关于", about_text)
+
+
+def main():
+    """
+    主函数
+    """
+    root = tk.Tk()
+
+    style = ttk.Style()
+    try:
+        style.theme_use('clam')
+    except:
+        pass
+
+    app = EnhancedChatDebugGUI(root)
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
+

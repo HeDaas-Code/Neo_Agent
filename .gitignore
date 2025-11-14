@@ -2,7 +2,8 @@
 config/model.json
 config/local_*.json
 *.local.json
-
+longmemory_data.json
+memory_data.json
 # API密钥和敏感信息
 .env
 .env.local
