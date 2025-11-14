@@ -732,7 +732,7 @@ class EnhancedChatDebugGUI:
 
     def update_knowledge_display(self):
         """
-        更新知识库显示
+        更新知识库显示（支持新的主体-定义-信息结构）
         """
         if not self.agent:
             return
@@ -744,42 +744,68 @@ class EnhancedChatDebugGUI:
             return
 
         text = []
-        text.append("=" * 40)
+        text.append("=" * 50)
         text.append(f"知识库 (共 {len(knowledge_list)} 条知识)")
-        text.append("=" * 40)
+
+        # 显示统计信息
+        if hasattr(self.agent.memory_manager.knowledge_base, 'get_statistics'):
+            stats = self.agent.memory_manager.knowledge_base.get_statistics()
+            text.append(f"主体数: {stats.get('total_entities', 0)} | "
+                       f"定义: {stats.get('total_definitions', 0)} | "
+                       f"相关信息: {stats.get('total_related_info', 0)}")
+
+        text.append("=" * 50)
         text.append("")
 
-        # 按类型分组显示
-        knowledge_by_type = {}
+        # 按主体分组显示
+        knowledge_by_entity = {}
         for k in knowledge_list:
-            k_type = k.get('type', '其他')
-            if k_type not in knowledge_by_type:
-                knowledge_by_type[k_type] = []
-            knowledge_by_type[k_type].append(k)
+            entity_name = k.get('entity_name', '未知主体')
+            if entity_name not in knowledge_by_entity:
+                knowledge_by_entity[entity_name] = {'definitions': [], 'related': []}
 
-        for k_type, items in knowledge_by_type.items():
-            text.append(f"【{k_type}】({len(items)}条)")
+            if k.get('is_definition', False):
+                knowledge_by_entity[entity_name]['definitions'].append(k)
+            else:
+                knowledge_by_entity[entity_name]['related'].append(k)
+
+        for entity_name, items in knowledge_by_entity.items():
+            text.append(f"【主体: {entity_name}】")
             text.append("")
-            for i, knowledge in enumerate(items, 1):
-                text.append(f"{i}. {knowledge.get('title', '未命名')}")
-                text.append(f"   内容: {knowledge.get('content', '')}")
-                text.append(f"   来源: {knowledge.get('source', '')}")
-                text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
-                text.append(f"   UUID: {knowledge.get('uuid', '')}")
 
-                # 显示标签
-                tags = knowledge.get('tags', [])
-                if tags:
-                    text.append(f"   标签: {', '.join(tags)}")
+            # 显示定义（高置信度）
+            if items['definitions']:
+                for definition in items['definitions']:
+                    confidence = definition.get('confidence', 1.0)
+                    confidence_icon = "⭐" if confidence >= 0.9 else "✓"
+                    text.append(f"  {confidence_icon} 定义 (置信度: {confidence:.2f})")
+                    text.append(f"     内容: {definition.get('content', '')}")
+                    text.append(f"     类型: {definition.get('type', '')}")
+                    text.append(f"     来源: {definition.get('source', '')}")
+                    text.append(f"     时间: {definition.get('created_at', '')[:19]}")
+                    text.append(f"     UUID: {definition.get('uuid', '')}")
+                    text.append("")
 
-                text.append("-" * 40)
+            # 显示相关信息
+            if items['related']:
+                text.append(f"  相关信息 ({len(items['related'])}条):")
+                for i, info in enumerate(items['related'], 1):
+                    confidence = info.get('confidence', 0.8)
+                    confidence_icon = "•" if confidence >= 0.7 else "◦"
+                    text.append(f"    {confidence_icon} [{info.get('type', '其他')}] (置信度: {confidence:.2f})")
+                    text.append(f"       {info.get('content', '')}")
+                    text.append(f"       时间: {info.get('created_at', '')[:19]} | UUID: {info.get('uuid', '')}")
+                    if i < len(items['related']):
+                        text.append("")
+
+            text.append("-" * 50)
             text.append("")
 
         self.update_text_widget(self.knowledge_display, "\n".join(text))
 
     def search_knowledge(self):
         """
-        搜索知识库
+        搜索知识库（支持主体名称搜索）
         """
         if not self.agent:
             return
@@ -796,24 +822,40 @@ class EnhancedChatDebugGUI:
             return
 
         text = []
-        text.append("=" * 40)
+        text.append("=" * 50)
         text.append(f"搜索结果: '{keyword}' (共 {len(results)} 条)")
-        text.append("=" * 40)
+        text.append("=" * 50)
         text.append("")
 
-        for i, knowledge in enumerate(results, 1):
-            text.append(f"{i}. [{knowledge.get('type', '其他')}] {knowledge.get('title', '未命名')}")
-            text.append(f"   内容: {knowledge.get('content', '')}")
-            text.append(f"   来源: {knowledge.get('source', '')}")
-            text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
-            text.append(f"   UUID: {knowledge.get('uuid', '')}")
-            text.append("-" * 40)
+        # 按主体分组显示搜索结果
+        results_by_entity = {}
+        for k in results:
+            entity_name = k.get('entity_name', '未知主体')
+            if entity_name not in results_by_entity:
+                results_by_entity[entity_name] = []
+            results_by_entity[entity_name].append(k)
+
+        for entity_name, items in results_by_entity.items():
+            text.append(f"【主体: {entity_name}】")
+            for item in items:
+                confidence = item.get('confidence', 0.8)
+                is_def = item.get('is_definition', False)
+                type_label = "定义" if is_def else item.get('type', '其他')
+                confidence_icon = "⭐" if confidence >= 0.9 else "✓" if confidence >= 0.7 else "◦"
+
+                text.append(f"  {confidence_icon} [{type_label}] (置信度: {confidence:.2f})")
+                text.append(f"     内容: {item.get('content', '')}")
+                text.append(f"     来源: {item.get('source', '')}")
+                text.append(f"     时间: {item.get('created_at', '')[:19]}")
+                text.append(f"     UUID: {item.get('uuid', '')}")
+                text.append("")
+            text.append("-" * 50)
 
         self.update_text_widget(self.knowledge_display, "\n".join(text))
 
     def filter_knowledge_by_type(self):
         """
-        按类型筛选知识
+        按类型筛选知识（支持新的主体结构）
         """
         if not self.agent:
             return
@@ -831,18 +873,33 @@ class EnhancedChatDebugGUI:
             return
 
         text = []
-        text.append("=" * 40)
+        text.append("=" * 50)
         text.append(f"类型筛选: {selected_type} (共 {len(results)} 条)")
-        text.append("=" * 40)
+        text.append("=" * 50)
         text.append("")
 
-        for i, knowledge in enumerate(results, 1):
-            text.append(f"{i}. {knowledge.get('title', '未命名')}")
-            text.append(f"   内容: {knowledge.get('content', '')}")
-            text.append(f"   来源: {knowledge.get('source', '')}")
-            text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
-            text.append(f"   UUID: {knowledge.get('uuid', '')}")
-            text.append("-" * 40)
+        # 按主体分组显示
+        results_by_entity = {}
+        for k in results:
+            entity_name = k.get('entity_name', '未知主体')
+            if entity_name not in results_by_entity:
+                results_by_entity[entity_name] = []
+            results_by_entity[entity_name].append(k)
+
+        for entity_name, items in results_by_entity.items():
+            text.append(f"【主体: {entity_name}】")
+            for item in items:
+                confidence = item.get('confidence', 0.8)
+                is_def = item.get('is_definition', False)
+                confidence_icon = "⭐" if confidence >= 0.9 else "✓" if confidence >= 0.7 else "◦"
+
+                text.append(f"  {confidence_icon} {'定义' if is_def else '相关信息'} (置信度: {confidence:.2f})")
+                text.append(f"     内容: {item.get('content', '')}")
+                text.append(f"     来源: {item.get('source', '')}")
+                text.append(f"     时间: {item.get('created_at', '')[:19]}")
+                text.append(f"     UUID: {item.get('uuid', '')}")
+                text.append("")
+            text.append("-" * 50)
 
         self.update_text_widget(self.knowledge_display, "\n".join(text))
 

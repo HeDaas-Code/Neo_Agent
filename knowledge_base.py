@@ -1,6 +1,7 @@
 """
 知识库管理模块
 负责从对话中提取和管理知识性记忆
+实现主体-定义-信息的三层绑定结构，支持冲突检测和置信度管理
 """
 
 import os
@@ -18,6 +19,13 @@ class KnowledgeBase:
     """
     知识库管理器
     每5轮对话提取一次知识，形成结构化的知识性记忆
+
+    数据结构：
+    - entities: 主体字典 {entity_uuid: entity_data}
+      - 每个主体有唯一UUID
+      - 每个主体只能有一个定义(definition)
+      - 每个主体可以有多个相关信息(related_info)
+    - knowledge_items: 为了向后兼容保留的旧格式知识列表
     """
 
     def __init__(self,
@@ -42,7 +50,13 @@ class KnowledgeBase:
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
-        # 知识数据
+        # 新的知识数据结构：主体字典
+        self.entities: Dict[str, Dict[str, Any]] = {}
+
+        # 主体名称到UUID的映射，方便查找
+        self.entity_name_map: Dict[str, str] = {}
+
+        # 旧的知识数据（向后兼容）
         self.knowledge_items: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
 
@@ -52,26 +66,79 @@ class KnowledgeBase:
     def load_knowledge(self):
         """
         从文件加载知识库
+        支持新旧格式兼容
         """
         try:
             if os.path.exists(self.knowledge_file):
                 with open(self.knowledge_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+
+                    # 加载新格式：主体字典
+                    self.entities = data.get('entities', {})
+                    self.entity_name_map = data.get('entity_name_map', {})
+
+                    # 加载旧格式（向后兼容）
                     self.knowledge_items = data.get('knowledge_items', [])
                     self.metadata = data.get('metadata', {})
-                    print(f"✓ 成功加载知识库: {len(self.knowledge_items)} 条知识")
+
+                    # 如果存在旧格式但没有新格式，尝试迁移
+                    if self.knowledge_items and not self.entities:
+                        print("○ 检测到旧格式知识库，开始迁移...")
+                        self._migrate_old_knowledge()
+
+                    print(f"✓ 成功加载知识库: {len(self.entities)} 个主体, {len(self.knowledge_items)} 条旧知识")
             else:
                 print("○ 未找到知识库文件，创建新的知识库")
+                self.entities = {}
+                self.entity_name_map = {}
                 self.knowledge_items = []
                 self.metadata = {
                     'created_at': datetime.now().isoformat(),
                     'total_knowledge': 0,
-                    'last_extraction': None
+                    'last_extraction': None,
+                    'version': '2.0'  # 新版本标记
                 }
         except Exception as e:
             print(f"✗ 加载知识库时出错: {e}")
+            self.entities = {}
+            self.entity_name_map = {}
             self.knowledge_items = []
             self.metadata = {}
+
+    def _migrate_old_knowledge(self):
+        """
+        将旧格式知识迁移到新的主体-定义-信息结构
+        """
+        migrated_count = 0
+        for old_item in self.knowledge_items:
+            # 尝试从标题或内容中提取主体名称
+            entity_name = old_item.get('title', '未知主体')
+
+            # 将旧知识作为定义或相关信息添加
+            if old_item.get('type') in ['个人信息', '事实', '定义']:
+                # 作为定义添加
+                self._add_or_update_entity_definition(
+                    entity_name=entity_name,
+                    definition=old_item.get('content', ''),
+                    knowledge_type=old_item.get('type', '事实'),
+                    source=old_item.get('source', ''),
+                    created_at=old_item.get('created_at', datetime.now().isoformat()),
+                    confidence=0.7  # 迁移的旧知识给予中等置信度
+                )
+            else:
+                # 作为相关信息添加
+                entity_uuid = self._find_or_create_entity(entity_name)
+                if entity_uuid:
+                    self.add_related_info_to_entity(
+                        entity_uuid=entity_uuid,
+                        info_content=old_item.get('content', ''),
+                        info_type=old_item.get('type', '其他'),
+                        source=old_item.get('source', '')
+                    )
+            migrated_count += 1
+
+        print(f"✓ 已迁移 {migrated_count} 条旧知识到新格式")
+        self.save_knowledge()
 
     def save_knowledge(self):
         """
@@ -79,6 +146,11 @@ class KnowledgeBase:
         """
         try:
             data = {
+                # 新格式
+                'entities': self.entities,
+                'entity_name_map': self.entity_name_map,
+
+                # 旧格式（向后兼容）
                 'knowledge_items': self.knowledge_items,
                 'metadata': self.metadata,
                 'last_updated': datetime.now().isoformat()
@@ -86,19 +158,214 @@ class KnowledgeBase:
 
             with open(self.knowledge_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"✓ 知识库已保存: {len(self.knowledge_items)} 条知识")
+            print(f"✓ 知识库已保存: {len(self.entities)} 个主体, {len(self.knowledge_items)} 条旧知识")
         except Exception as e:
             print(f"✗ 保存知识库时出错: {e}")
+
+    def _find_or_create_entity(self, entity_name: str) -> str:
+        """
+        查找或创建主体
+
+        Args:
+            entity_name: 主体名称
+
+        Returns:
+            主体UUID
+        """
+        # 标准化主体名称（去除空格，统一大小写）
+        normalized_name = entity_name.strip().lower()
+
+        # 查找是否已存在
+        if normalized_name in self.entity_name_map:
+            return self.entity_name_map[normalized_name]
+
+        # 创建新主体
+        entity_uuid = str(uuid.uuid4())
+        self.entities[entity_uuid] = {
+            'uuid': entity_uuid,
+            'name': entity_name,  # 保留原始名称
+            'normalized_name': normalized_name,
+            'definition': None,  # 主体的定义（唯一）
+            'related_info': [],  # 主体的相关信息列表（不限数量）
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+
+        self.entity_name_map[normalized_name] = entity_uuid
+        return entity_uuid
+
+    def _add_or_update_entity_definition(self,
+                                         entity_name: str,
+                                         definition: str,
+                                         knowledge_type: str = '定义',
+                                         source: str = '',
+                                         created_at: str = None,
+                                         confidence: float = 1.0) -> str:
+        """
+        添加或更新主体的定义（每个主体只能有一个定义，新定义会覆盖旧定义）
+
+        Args:
+            entity_name: 主体名称
+            definition: 定义内容
+            knowledge_type: 知识类型
+            source: 来源
+            created_at: 创建时间（用于迁移旧数据）
+            confidence: 置信度（0-1之间，定义的置信度高于相关信息）
+
+        Returns:
+            主体UUID
+        """
+        entity_uuid = self._find_or_create_entity(entity_name)
+        entity = self.entities[entity_uuid]
+
+        # 检查是否存在旧定义
+        if entity['definition'] is not None:
+            old_def = entity['definition']
+            print(f"⚠ 主体 '{entity_name}' 的定义发生冲突:")
+            print(f"  旧定义: {old_def.get('content', '')[:50]}...")
+            print(f"  新定义: {definition[:50]}...")
+            print(f"  → 采用新定义（置信度: {confidence}）")
+
+            # 将旧定义标记为过时并移到历史记录
+            if 'definition_history' not in entity:
+                entity['definition_history'] = []
+
+            old_def['obsolete'] = True
+            old_def['obsolete_at'] = datetime.now().isoformat()
+            old_def['replaced_by'] = {
+                'content': definition,
+                'time': created_at or datetime.now().isoformat()
+            }
+            entity['definition_history'].append(old_def)
+
+        # 设置新定义
+        entity['definition'] = {
+            'content': definition,
+            'type': knowledge_type,
+            'source': source,
+            'confidence': confidence,  # 定义的置信度
+            'created_at': created_at or datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+
+        entity['updated_at'] = datetime.now().isoformat()
+        return entity_uuid
+
+    def add_related_info_to_entity(self,
+                                   entity_uuid: str = None,
+                                   entity_name: str = None,
+                                   info_content: str = '',
+                                   info_type: str = '相关信息',
+                                   source: str = '',
+                                   confidence: float = 0.8) -> Optional[str]:
+        """
+        为主体添加相关信息（不限数量）
+
+        Args:
+            entity_uuid: 主体UUID（优先使用）
+            entity_name: 主体名称（如果没有UUID则使用名称查找）
+            info_content: 信息内容
+            info_type: 信息类型
+            source: 来源
+            confidence: 置信度（相关信息的置信度低于定义）
+
+        Returns:
+            信息UUID，失败返回None
+        """
+        # 确定主体UUID
+        if entity_uuid is None and entity_name is None:
+            print("✗ 必须提供entity_uuid或entity_name")
+            return None
+
+        if entity_uuid is None:
+            entity_uuid = self._find_or_create_entity(entity_name)
+
+        if entity_uuid not in self.entities:
+            print(f"✗ 主体UUID {entity_uuid} 不存在")
+            return None
+
+        entity = self.entities[entity_uuid]
+
+        # 创建相关信息
+        info_uuid = str(uuid.uuid4())
+        info_item = {
+            'uuid': info_uuid,
+            'content': info_content,
+            'type': info_type,
+            'source': source,
+            'confidence': confidence,  # 相关信息的置信度
+            'created_at': datetime.now().isoformat(),
+            'obsolete': False  # 是否已过时
+        }
+
+        entity['related_info'].append(info_item)
+        entity['updated_at'] = datetime.now().isoformat()
+
+        return info_uuid
+
+    def mark_related_info_obsolete(self, entity_uuid: str, info_uuid: str, reason: str = '') -> bool:
+        """
+        标记某条相关信息为过时（当用户纠正错误时）
+
+        Args:
+            entity_uuid: 主体UUID
+            info_uuid: 信息UUID
+            reason: 标记原因
+
+        Returns:
+            是否成功标记
+        """
+        if entity_uuid not in self.entities:
+            return False
+
+        entity = self.entities[entity_uuid]
+
+        for info in entity['related_info']:
+            if info['uuid'] == info_uuid:
+                info['obsolete'] = True
+                info['obsolete_at'] = datetime.now().isoformat()
+                info['obsolete_reason'] = reason
+                print(f"✓ 已将信息标记为过时: {info['content'][:50]}...")
+                return True
+
+        return False
+
+    def cleanup_obsolete_info(self):
+        """
+        清理所有被标记为过时的相关信息
+        清理旧定义历史中过时的定义（保留最近3个历史定义）
+        """
+        cleaned_count = 0
+
+        for entity_uuid, entity in self.entities.items():
+            # 清理过时的相关信息
+            original_count = len(entity['related_info'])
+            entity['related_info'] = [
+                info for info in entity['related_info']
+                if not info.get('obsolete', False)
+            ]
+            cleaned_count += original_count - len(entity['related_info'])
+
+            # 清理过多的定义历史（只保留最近3个）
+            if 'definition_history' in entity and len(entity['definition_history']) > 3:
+                entity['definition_history'] = entity['definition_history'][-3:]
+
+        if cleaned_count > 0:
+            print(f"✓ 已清理 {cleaned_count} 条过时信息")
+            self.save_knowledge()
+
+        return cleaned_count
 
     def extract_knowledge(self, messages: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
         """
         从最近的对话中提取知识
+        提取主体、定义和相关信息的结构化知识
 
         Args:
             messages: 最近5轮的对话消息列表
 
         Returns:
-            提取的知识列表，每个知识包含标题、内容、类型等
+            提取的知识列表，每个知识包含entity(主体)、is_definition(是否为定义)、content等
         """
         try:
             # 构建对话文本
@@ -107,31 +374,37 @@ class KnowledgeBase:
                 role_name = "用户" if msg['role'] == 'user' else "助手"
                 conversation_text += f"{role_name}: {msg['content']}\n"
 
-            # 构建知识提取请求
+            # 构建知识提取请求（新版提示词，关注主体-定义-信息结构）
             extraction_prompt = f"""请从以下对话中提取用户提到的关键信息和知识点。
 
-要求：
-1. 识别用户分享的事实性信息、个人信息、偏好、经历等
-2. 每个知识点包含：
-   - 标题（简短概括，10字以内）
-   - 内容（详细描述知识点）
-   - 类型（如：个人信息、偏好、事实、经历、观点等）
-3. 只提取明确的、有价值的信息，避免重复和模糊的内容
-4. 如果没有值得记录的知识，返回空列表
-5. 以JSON格式返回，格式如下：
+重要要求：
+1. 识别对话中的**主体**（entity）：如人名、物品名、概念名等
+2. 对每个主体，区分以下两类信息：
+   - **定义**（definition）：主体的核心定义、本质属性（如"是什么"）
+   - **相关信息**（related_info）：主体的其他属性、特征、用途等（不限数量）
+3. 每个主体只应有一个定义，如果对话中有冲突的定义，以最新的为准
+4. 如果用户纠正了之前的错误信息，标记old_info_correction=true
+5. 知识类型包括：个人信息、偏好、事实、经历、观点、定义等
+6. 只提取明确的、有价值的信息，避免重复和模糊的内容
+7. 如果没有值得记录的知识，返回空列表
+
+返回JSON格式（只返回JSON数组，不要其他文字）：
 [
   {{
-    "title": "知识标题",
-    "content": "知识详细内容",
+    "entity_name": "主体名称",
+    "is_definition": true,
+    "content": "定义内容或相关信息内容",
     "type": "知识类型",
-    "source": "来源概述"
+    "source": "来源概述",
+    "confidence": 0.9,
+    "is_correction": false
   }}
 ]
 
 对话内容：
 {conversation_text}
 
-请提取知识点（只返回JSON数组，不要其他文字）："""
+请提取知识点（只返回JSON数组）："""
 
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
@@ -141,11 +414,11 @@ class KnowledgeBase:
             payload = {
                 'model': self.model_name,
                 'messages': [
-                    {'role': 'system', 'content': '你是一个专业的知识提取助手，擅长从对话中识别和提取有价值的信息。你只返回JSON格式的数据，不添加任何解释。'},
+                    {'role': 'system', 'content': '你是一个专业的知识提取助手，擅长识别主体、定义和相关信息。你只返回JSON格式的数据，不添加任何解释。'},
                     {'role': 'user', 'content': extraction_prompt}
                 ],
                 'temperature': 0.3,
-                'max_tokens': 1000,
+                'max_tokens': 1500,
                 'stream': False
             }
 
@@ -191,37 +464,102 @@ class KnowledgeBase:
 
     def add_knowledge(self, knowledge_data: Dict[str, Any], source_messages: List[Dict[str, Any]]) -> str:
         """
-        添加一条知识到知识库
+        添加一条知识到知识库（新版：支持主体-定义-信息结构）
 
         Args:
-            knowledge_data: 知识数据（包含title, content, type等）
+            knowledge_data: 知识数据（包含entity_name, is_definition, content, type等）
             source_messages: 来源消息列表
 
         Returns:
-            知识的UUID
+            知识的UUID（主体UUID或信息UUID）
         """
-        knowledge_uuid = str(uuid.uuid4())
+        entity_name = knowledge_data.get('entity_name', '未知主体')
+        is_definition = knowledge_data.get('is_definition', False)
+        content = knowledge_data.get('content', '')
+        knowledge_type = knowledge_data.get('type', '其他')
+        source = knowledge_data.get('source', '对话记录')
+        confidence = knowledge_data.get('confidence', 0.9 if is_definition else 0.8)
+        is_correction = knowledge_data.get('is_correction', False)
 
+        # 如果是纠正信息，尝试标记旧信息为过时
+        if is_correction:
+            self._handle_knowledge_correction(entity_name, content)
+
+        if is_definition:
+            # 添加或更新定义
+            entity_uuid = self._add_or_update_entity_definition(
+                entity_name=entity_name,
+                definition=content,
+                knowledge_type=knowledge_type,
+                source=source,
+                confidence=confidence
+            )
+            result_uuid = entity_uuid
+        else:
+            # 添加相关信息
+            info_uuid = self.add_related_info_to_entity(
+                entity_name=entity_name,
+                info_content=content,
+                info_type=knowledge_type,
+                source=source,
+                confidence=confidence
+            )
+            result_uuid = info_uuid
+
+        # 同时以旧格式保存（向后兼容）
+        old_format_uuid = str(uuid.uuid4())
         knowledge_item = {
-            'uuid': knowledge_uuid,
-            'title': knowledge_data.get('title', '未命名知识'),
-            'content': knowledge_data.get('content', ''),
-            'type': knowledge_data.get('type', '其他'),
-            'source': knowledge_data.get('source', '对话记录'),
+            'uuid': old_format_uuid,
+            'title': f"{entity_name}{'的定义' if is_definition else ''}",
+            'content': content,
+            'type': knowledge_type,
+            'source': source,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
             'source_time_range': {
                 'start': source_messages[0].get('timestamp', '') if source_messages else '',
                 'end': source_messages[-1].get('timestamp', '') if source_messages else ''
             },
-            'tags': self._generate_tags(knowledge_data)
+            'tags': self._generate_tags(knowledge_data),
+            'entity_name': entity_name,
+            'is_definition': is_definition,
+            'confidence': confidence
         }
 
         self.knowledge_items.append(knowledge_item)
         self.metadata['total_knowledge'] = len(self.knowledge_items)
         self.metadata['last_extraction'] = datetime.now().isoformat()
 
-        return knowledge_uuid
+        return result_uuid
+
+    def _handle_knowledge_correction(self, entity_name: str, new_content: str):
+        """
+        处理知识纠正：标记旧的错误信息为过时
+
+        Args:
+            entity_name: 主体名称
+            new_content: 新的正确内容
+        """
+        normalized_name = entity_name.strip().lower()
+        if normalized_name not in self.entity_name_map:
+            return
+
+        entity_uuid = self.entity_name_map[normalized_name]
+        entity = self.entities[entity_uuid]
+
+        # 标记所有相关信息为可能过时（实际应该通过更智能的方式判断）
+        # 这里简化处理：标记最近的一条相关信息
+        if entity['related_info']:
+            # 找到最近添加的信息
+            latest_info = max(entity['related_info'],
+                            key=lambda x: x.get('created_at', ''),
+                            default=None)
+            if latest_info and not latest_info.get('obsolete', False):
+                self.mark_related_info_obsolete(
+                    entity_uuid,
+                    latest_info['uuid'],
+                    reason=f"用户提供了新的信息: {new_content[:30]}..."
+                )
 
     def _generate_tags(self, knowledge_data: Dict[str, Any]) -> List[str]:
         """
@@ -245,40 +583,95 @@ class KnowledgeBase:
 
         return tags
 
-    def search_knowledge(self, keyword: str = None, knowledge_type: str = None) -> List[Dict[str, Any]]:
+    def search_knowledge(self, keyword: str = None, knowledge_type: str = None,
+                        entity_name: str = None) -> List[Dict[str, Any]]:
         """
         搜索知识库
 
         Args:
             keyword: 关键词
             knowledge_type: 知识类型
+            entity_name: 主体名称
 
         Returns:
-            匹配的知识列表
+            匹配的知识列表（按置信度排序）
         """
-        results = self.knowledge_items.copy()
+        results = self.get_all_knowledge(sort_by_confidence=True)
 
+        # 按主体名称筛选
+        if entity_name:
+            entity_lower = entity_name.lower()
+            results = [
+                k for k in results
+                if entity_lower in k.get('entity_name', '').lower()
+            ]
+
+        # 按关键词筛选
         if keyword:
             keyword_lower = keyword.lower()
             results = [
                 k for k in results
                 if keyword_lower in k.get('title', '').lower() or
-                   keyword_lower in k.get('content', '').lower()
+                   keyword_lower in k.get('content', '').lower() or
+                   keyword_lower in k.get('entity_name', '').lower()
             ]
 
+        # 按类型筛选
         if knowledge_type:
             results = [k for k in results if k.get('type', '') == knowledge_type]
 
         return results
 
-    def get_all_knowledge(self) -> List[Dict[str, Any]]:
+    def get_all_knowledge(self, sort_by_confidence: bool = True) -> List[Dict[str, Any]]:
         """
-        获取所有知识
+        获取所有知识（新版：返回结构化的主体-定义-信息列表）
+
+        Args:
+            sort_by_confidence: 是否按置信度排序（定义优先于相关信息）
 
         Returns:
-            知识列表
+            知识列表，包含主体、定义、相关信息等
         """
-        return self.knowledge_items
+        result = []
+
+        for entity_uuid, entity in self.entities.items():
+            # 添加主体的定义
+            if entity['definition']:
+                definition = entity['definition']
+                result.append({
+                    'uuid': entity_uuid,
+                    'entity_name': entity['name'],
+                    'title': f"{entity['name']}的定义",
+                    'content': definition['content'],
+                    'type': definition['type'],
+                    'source': definition['source'],
+                    'confidence': definition['confidence'],
+                    'is_definition': True,
+                    'created_at': definition['created_at'],
+                    'updated_at': definition.get('updated_at', definition['created_at'])
+                })
+
+            # 添加主体的相关信息（过滤掉过时的）
+            for info in entity['related_info']:
+                if not info.get('obsolete', False):
+                    result.append({
+                        'uuid': info['uuid'],
+                        'entity_name': entity['name'],
+                        'title': f"{entity['name']}的{info['type']}",
+                        'content': info['content'],
+                        'type': info['type'],
+                        'source': info['source'],
+                        'confidence': info['confidence'],
+                        'is_definition': False,
+                        'created_at': info['created_at'],
+                        'updated_at': info.get('created_at')
+                    })
+
+        # 按置信度排序（定义优先）
+        if sort_by_confidence:
+            result.sort(key=lambda x: (x['confidence'], x['is_definition']), reverse=True)
+
+        return result
 
     def get_knowledge_by_uuid(self, knowledge_uuid: str) -> Optional[Dict[str, Any]]:
         """
@@ -304,30 +697,57 @@ class KnowledgeBase:
         """
         # 统计各类型知识数量
         type_counts = {}
-        for item in self.knowledge_items:
+        definition_count = 0
+        related_info_count = 0
+
+        all_knowledge = self.get_all_knowledge(sort_by_confidence=False)
+
+        for item in all_knowledge:
             item_type = item.get('type', '其他')
             type_counts[item_type] = type_counts.get(item_type, 0) + 1
 
+            if item.get('is_definition', False):
+                definition_count += 1
+            else:
+                related_info_count += 1
+
+        # 统计置信度分布
+        high_confidence = sum(1 for k in all_knowledge if k.get('confidence', 0) >= 0.9)
+        medium_confidence = sum(1 for k in all_knowledge if 0.7 <= k.get('confidence', 0) < 0.9)
+        low_confidence = sum(1 for k in all_knowledge if k.get('confidence', 0) < 0.7)
+
         return {
-            'total_knowledge': len(self.knowledge_items),
+            'total_entities': len(self.entities),
+            'total_definitions': definition_count,
+            'total_related_info': related_info_count,
+            'total_knowledge': len(all_knowledge),
             'type_distribution': type_counts,
+            'confidence_distribution': {
+                'high (>=0.9)': high_confidence,
+                'medium (0.7-0.9)': medium_confidence,
+                'low (<0.7)': low_confidence
+            },
             'last_extraction': self.metadata.get('last_extraction', 'Never'),
             'created_at': self.metadata.get('created_at', 'Unknown'),
-            'knowledge_file': self.knowledge_file
+            'knowledge_file': self.knowledge_file,
+            'version': self.metadata.get('version', '2.0')
         }
 
     def clear_knowledge(self):
         """
-        清空知识库
+        清空知识库（包括主体字典和旧格式知识）
         """
+        self.entities = {}
+        self.entity_name_map = {}
         self.knowledge_items = []
         self.metadata = {
             'created_at': datetime.now().isoformat(),
             'total_knowledge': 0,
-            'last_extraction': None
+            'last_extraction': None,
+            'version': '2.0'
         }
         self.save_knowledge()
-        print("✓ 知识库已清空")
+        print("✓ 知识库已清空（包括所有主体和知识）")
 
     def delete_knowledge(self, knowledge_uuid: str) -> bool:
         """

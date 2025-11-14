@@ -240,6 +240,7 @@ class LongTermMemoryManager:
     def _extract_and_save_knowledge(self):
         """
         从最近5轮对话中提取并保存知识
+        同时定期清理过时的知识
         """
         # 获取最近5轮对话（10条消息）
         recent_messages = []
@@ -265,11 +266,24 @@ class LongTermMemoryManager:
             # 保存每条知识
             for knowledge_data in knowledge_list:
                 knowledge_uuid = self.knowledge_base.add_knowledge(knowledge_data, recent_messages)
-                print(f"  • [{knowledge_data.get('type', '其他')}] {knowledge_data.get('title', '未命名')}")
-                print(f"    UUID: {knowledge_uuid}")
+                entity_name = knowledge_data.get('entity_name', knowledge_data.get('title', '未知'))
+                is_def = knowledge_data.get('is_definition', False)
+                content_preview = knowledge_data.get('content', '')[:30]
+                print(f"  • [{knowledge_data.get('type', '其他')}] {entity_name}{'的定义' if is_def else ''}: {content_preview}...")
+                confidence = knowledge_data.get('confidence', 0.8)
+                print(f"    置信度: {confidence:.2f} | UUID: {knowledge_uuid}")
 
             # 保存知识库
             self.knowledge_base.save_knowledge()
+
+            # 每次提取知识后，检查是否需要清理过时信息
+            # 每10次提取清理一次（即每50轮对话）
+            total_conv = self.short_term_metadata.get('total_conversations', 0)
+            if total_conv % 50 == 0 and total_conv > 0:
+                print("○ 执行定期知识库清理...")
+                cleaned = self.knowledge_base.cleanup_obsolete_info()
+                if cleaned > 0:
+                    print(f"✓ 清理完成，已移除 {cleaned} 条过时信息")
         else:
             print("○ 未提取到新知识")
 
