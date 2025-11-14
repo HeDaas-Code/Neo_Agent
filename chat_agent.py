@@ -312,6 +312,7 @@ class ChatAgent:
     def chat(self, user_input: str) -> str:
         """
         处理用户输入并生成回复
+        新增理解阶段：先提取相关主体并检索知识库
 
         Args:
             user_input: 用户输入的消息
@@ -319,13 +320,25 @@ class ChatAgent:
         Returns:
             AI角色的回复
         """
+        # ===== 理解阶段 =====
+        # 1. 从用户输入中提取相关主体并检索知识
+        relevant_knowledge = self.memory_manager.knowledge_base.get_relevant_knowledge_for_query(user_input)
+
+        # 记录理解阶段的结果（用于调试）
+        self._last_understanding = relevant_knowledge
+
         # 添加用户消息到记忆
         self.memory_manager.add_message('user', user_input)
 
-        # 构建消息列表
+        # ===== 构建消息列表 =====
         messages = [
             {'role': 'system', 'content': self.system_prompt}
         ]
+
+        # 添加知识库上下文（如果有相关知识）
+        if relevant_knowledge['knowledge_items']:
+            knowledge_context = self._build_knowledge_context(relevant_knowledge)
+            messages.append({'role': 'system', 'content': knowledge_context})
 
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
@@ -336,7 +349,7 @@ class ChatAgent:
         recent_messages = self.memory_manager.get_recent_messages(count=10)
         messages.extend(recent_messages)
 
-        # 调用LLM获取回复
+        # ===== 生成回复 =====
         response = self.llm.chat(messages)
 
         # 添加助手回复到记忆
@@ -346,6 +359,67 @@ class ChatAgent:
         self.memory_manager.save_all_memory()
 
         return response
+
+    def _build_knowledge_context(self, relevant_knowledge: Dict[str, Any]) -> str:
+        """
+        根据检索到的知识构建上下文提示
+
+        Args:
+            relevant_knowledge: get_relevant_knowledge_for_query返回的结果
+
+        Returns:
+            知识上下文字符串
+        """
+        entities = relevant_knowledge['entities_found']
+        knowledge_items = relevant_knowledge['knowledge_items']
+
+        if not knowledge_items:
+            return ""
+
+        context_parts = ["【相关知识库信息】"]
+        context_parts.append(f"用户提到了以下主体：{', '.join(entities)}")
+        context_parts.append("\n请根据以下知识库中的信息来回答（优先使用定义，其次使用相关信息）：\n")
+
+        # 按主体分组显示
+        by_entity = {}
+        for item in knowledge_items:
+            entity_name = item['entity_name']
+            if entity_name not in by_entity:
+                by_entity[entity_name] = {'definitions': [], 'info': []}
+
+            if item['type'] == '定义':
+                by_entity[entity_name]['definitions'].append(item)
+            else:
+                by_entity[entity_name]['info'].append(item)
+
+        for entity_name, items in by_entity.items():
+            context_parts.append(f"\n关于「{entity_name}」：")
+
+            # 定义（最高优先级）
+            if items['definitions']:
+                for definition in items['definitions']:
+                    confidence_label = "【高置信度】" if definition['confidence'] >= 0.9 else "【中置信度】"
+                    context_parts.append(f"  {confidence_label} 定义: {definition['content']}")
+
+            # 相关信息
+            if items['info']:
+                context_parts.append("  其他相关信息:")
+                for info in items['info']:
+                    confidence_label = "【高】" if info['confidence'] >= 0.8 else "【中】"
+                    context_parts.append(f"    {confidence_label} {info['type']}: {info['content']}")
+
+        context_parts.append("\n请基于以上知识库信息进行回答，保持角色设定的同时确保信息准确。")
+
+        return '\n'.join(context_parts)
+
+    def get_last_understanding(self) -> Dict[str, Any]:
+        """
+        获取上一次理解阶段的结果（用于调试）
+
+        Returns:
+            理解阶段结果字典
+        """
+        return getattr(self, '_last_understanding', None)
 
     def get_character_info(self) -> Dict[str, str]:
         """

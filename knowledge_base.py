@@ -462,6 +462,205 @@ class KnowledgeBase:
             print(f"✗ 提取知识时出错: {e}")
             return None
 
+    def extract_entities_from_query(self, query: str) -> List[str]:
+        """
+        从用户查询中提取相关主体
+
+        Args:
+            query: 用户输入的查询文本
+
+        Returns:
+            提取到的主体名称列表
+        """
+        try:
+            # 构建实体提取请求
+            extraction_prompt = f"""请从以下用户输入中提取所有可能相关的主体（实体）名称。
+
+主体可以是：人名、物品名、概念名、地点名、事件名等。
+
+用户输入：
+{query}
+
+请以JSON数组格式返回主体名称列表（只返回JSON，不要其他文字）：
+["主体1", "主体2", ...]
+
+如果没有明确的主体，返回空数组 []"""
+
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'model': self.model_name,
+                'messages': [
+                    {'role': 'system', 'content': '你是一个专业的实体识别助手，只返回JSON格式数据。'},
+                    {'role': 'user', 'content': extraction_prompt}
+                ],
+                'temperature': 0.2,
+                'max_tokens': 500,
+                'stream': False
+            }
+
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+
+            response.raise_for_status()
+            result = response.json()
+
+            if 'choices' in result and len(result['choices']) > 0:
+                content = result['choices'][0]['message']['content'].strip()
+
+                # 清理markdown代码块
+                if content.startswith('```'):
+                    content = content.split('```')[1]
+                    if content.startswith('json'):
+                        content = content[4:]
+                content = content.strip()
+
+                try:
+                    entities = json.loads(content)
+                    if isinstance(entities, list):
+                        return [e for e in entities if isinstance(e, str)]
+                    else:
+                        return []
+                except json.JSONDecodeError:
+                    print(f"✗ 实体提取JSON解析失败")
+                    return []
+            else:
+                return []
+
+        except Exception as e:
+            print(f"✗ 提取实体时出错: {e}")
+            return []
+
+    def get_relevant_knowledge_for_query(self, query: str, max_items: int = 10) -> Dict[str, Any]:
+        """
+        根据用户查询获取相关知识（理解阶段使用）
+        按优先级返回：定义（高置信度） > 相关信息（中置信度）
+
+        Args:
+            query: 用户查询
+            max_items: 最多返回的知识条目数
+
+        Returns:
+            包含实体和相关知识的字典
+        """
+        # 1. 提取查询中的主体
+        entities = self.extract_entities_from_query(query)
+
+        if not entities:
+            return {
+                'query': query,
+                'entities_found': [],
+                'knowledge_items': [],
+                'summary': '未在查询中识别到相关主体。'
+            }
+
+        # 2. 对每个主体，查找对应的知识
+        knowledge_items = []
+        entities_found = []
+
+        for entity_name in entities:
+            normalized_name = entity_name.strip().lower()
+
+            # 查找主体是否存在于知识库
+            if normalized_name in self.entity_name_map:
+                entity_uuid = self.entity_name_map[normalized_name]
+                entity = self.entities[entity_uuid]
+                entities_found.append(entity_name)
+
+                # 添加定义（最高优先级）
+                if entity['definition']:
+                    definition = entity['definition']
+                    knowledge_items.append({
+                        'entity_name': entity['name'],
+                        'type': '定义',
+                        'content': definition['content'],
+                        'confidence': definition['confidence'],
+                        'priority': 1,  # 最高优先级
+                        'created_at': definition['created_at']
+                    })
+
+                # 添加相关信息（次优先级，只取最新的几条）
+                active_info = [
+                    info for info in entity['related_info']
+                    if not info.get('obsolete', False)
+                ]
+
+                # 按创建时间降序排序，取最新的3条
+                active_info.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                for info in active_info[:3]:
+                    knowledge_items.append({
+                        'entity_name': entity['name'],
+                        'type': info['type'],
+                        'content': info['content'],
+                        'confidence': info['confidence'],
+                        'priority': 2,  # 次优先级
+                        'created_at': info['created_at']
+                    })
+
+        # 3. 按优先级和置信度排序
+        knowledge_items.sort(key=lambda x: (x['priority'], -x['confidence']))
+
+        # 4. 限制返回数量
+        knowledge_items = knowledge_items[:max_items]
+
+        # 5. 生成摘要
+        summary = self._generate_knowledge_summary(entities_found, knowledge_items)
+
+        return {
+            'query': query,
+            'entities_found': entities_found,
+            'knowledge_items': knowledge_items,
+            'summary': summary
+        }
+
+    def _generate_knowledge_summary(self, entities: List[str], knowledge_items: List[Dict]) -> str:
+        """
+        生成知识摘要文本
+
+        Args:
+            entities: 识别到的实体列表
+            knowledge_items: 知识项列表
+
+        Returns:
+            摘要文本
+        """
+        if not entities:
+            return '未找到相关主体。'
+
+        if not knowledge_items:
+            return f'识别到主体：{", ".join(entities)}，但知识库中暂无相关信息。'
+
+        # 按主体分组
+        by_entity = {}
+        for item in knowledge_items:
+            entity_name = item['entity_name']
+            if entity_name not in by_entity:
+                by_entity[entity_name] = []
+            by_entity[entity_name].append(item)
+
+        summary_parts = [f'识别到 {len(entities)} 个相关主体：{", ".join(entities)}。']
+        summary_parts.append('\n相关知识：')
+
+        for entity_name, items in by_entity.items():
+            definitions = [i for i in items if i['type'] == '定义']
+            others = [i for i in items if i['type'] != '定义']
+
+            if definitions:
+                summary_parts.append(f'\n• {entity_name}: {definitions[0]["content"]}')
+
+            if others:
+                for item in others[:2]:  # 最多显示2条相关信息
+                    summary_parts.append(f'  - {item["type"]}: {item["content"][:50]}...')
+
+        return ''.join(summary_parts)
+
     def add_knowledge(self, knowledge_data: Dict[str, Any], source_messages: List[Dict[str, Any]]) -> str:
         """
         添加一条知识到知识库（新版：支持主体-定义-信息结构）

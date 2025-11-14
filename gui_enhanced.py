@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, Canvas
 from datetime import datetime
 import threading
+from typing import Dict, Any, List, Optional
 from chat_agent import ChatAgent
 
 
@@ -470,7 +471,21 @@ class EnhancedChatDebugGUI:
         self.long_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.long_term_display.config(state=tk.DISABLED)
 
-        # 选项卡4: 知识库
+        # 选项卡4: 理解阶段
+        understanding_tab = ttk.Frame(notebook)
+        notebook.add(understanding_tab, text="🧠 理解阶段")
+
+        self.understanding_display = scrolledtext.ScrolledText(
+            understanding_tab,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.understanding_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.understanding_display.config(state=tk.DISABLED)
+
+        # 选项卡5: 知识库
         knowledge_tab = ttk.Frame(notebook)
         notebook.add(knowledge_tab, text="📚 知识库")
 
@@ -522,7 +537,7 @@ class EnhancedChatDebugGUI:
         self.knowledge_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.knowledge_display.config(state=tk.DISABLED)
 
-        # 选项卡5: 控制面板
+        # 选项卡6: 控制面板
         control_tab = ttk.Frame(notebook)
         notebook.add(control_tab, text="控制面板")
 
@@ -657,6 +672,7 @@ class EnhancedChatDebugGUI:
         self.update_memory_status()
         self.update_short_term_display()
         self.update_long_term_display()
+        self.update_understanding_display()  # 新增：更新理解阶段显示
         self.update_knowledge_display()
         self.update_timeline()
 
@@ -729,6 +745,110 @@ class EnhancedChatDebugGUI:
             text.append("")
 
         self.update_text_widget(self.long_term_display, "\n".join(text))
+
+    def update_understanding_display(self, understanding_result: Dict[str, Any] = None):
+        """
+        更新理解阶段显示
+
+        Args:
+            understanding_result: 理解阶段结果字典
+        """
+        if not self.agent:
+            return
+
+        # 如果没有传入结果，尝试获取最后一次的结果
+        if understanding_result is None:
+            understanding_result = self.agent.get_last_understanding()
+
+        if not understanding_result:
+            self.update_text_widget(
+                self.understanding_display,
+                "理解阶段\n\n等待用户输入...\n\n说明：\n当你发送消息后，系统会：\n1. 提取消息中的相关主体\n2. 从知识库检索相关知识\n3. 按优先级排序（定义>相关信息）\n4. 将知识提供给AI参考"
+            )
+            return
+
+        text = []
+        text.append("=" * 50)
+        text.append("🧠 理解阶段分析")
+        text.append("=" * 50)
+        text.append("")
+
+        text.append(f"【用户输入】\n{understanding_result.get('query', '')}")
+        text.append("")
+        text.append("-" * 50)
+
+        entities_found = understanding_result.get('entities_found', [])
+        if entities_found:
+            text.append(f"\n【识别到的主体】（共 {len(entities_found)} 个）")
+            for i, entity in enumerate(entities_found, 1):
+                text.append(f"  {i}. {entity}")
+        else:
+            text.append("\n【识别到的主体】")
+            text.append("  未识别到相关主体")
+
+        text.append("")
+        text.append("-" * 50)
+
+        knowledge_items = understanding_result.get('knowledge_items', [])
+        if knowledge_items:
+            text.append(f"\n【检索到的知识】（共 {len(knowledge_items)} 条，按优先级排序）")
+            text.append("")
+
+            # 按主体分组
+            by_entity = {}
+            for item in knowledge_items:
+                entity_name = item['entity_name']
+                if entity_name not in by_entity:
+                    by_entity[entity_name] = {'definitions': [], 'info': []}
+
+                if item['type'] == '定义':
+                    by_entity[entity_name]['definitions'].append(item)
+                else:
+                    by_entity[entity_name]['info'].append(item)
+
+            for entity_name, items in by_entity.items():
+                text.append(f"► 主体: {entity_name}")
+                text.append("")
+
+                # 显示定义
+                if items['definitions']:
+                    for definition in items['definitions']:
+                        confidence = definition['confidence']
+                        confidence_icon = "⭐⭐⭐" if confidence >= 0.9 else "⭐⭐"
+                        priority_label = "【最高优先级】"
+                        text.append(f"  {confidence_icon} {priority_label} 定义")
+                        text.append(f"     置信度: {confidence:.2f}")
+                        text.append(f"     内容: {definition['content']}")
+                        text.append(f"     时间: {definition.get('created_at', '')[:19]}")
+                        text.append("")
+
+                # 显示相关信息
+                if items['info']:
+                    text.append("  其他相关信息:")
+                    for info in items['info']:
+                        confidence = info['confidence']
+                        confidence_icon = "⭐⭐" if confidence >= 0.8 else "⭐"
+                        priority_label = "【次优先级】"
+                        text.append(f"    {confidence_icon} {priority_label} {info['type']}")
+                        text.append(f"       置信度: {confidence:.2f}")
+                        text.append(f"       内容: {info['content']}")
+                        text.append(f"       时间: {info.get('created_at', '')[:19]}")
+                        text.append("")
+
+                text.append("-" * 50)
+        else:
+            text.append("\n【检索到的知识】")
+            text.append("  知识库中暂无相关信息")
+            text.append("")
+
+        text.append("")
+        text.append("【摘要】")
+        text.append(understanding_result.get('summary', ''))
+        text.append("")
+        text.append("=" * 50)
+        text.append("✓ AI将基于以上知识来回答用户问题")
+
+        self.update_text_widget(self.understanding_display, "\n".join(text))
 
     def update_knowledge_display(self):
         """
@@ -1026,6 +1146,11 @@ class EnhancedChatDebugGUI:
         处理代理回复
         """
         self.add_message_to_display("assistant", response)
+
+        # 更新理解阶段显示
+        understanding_result = self.agent.get_last_understanding()
+        if understanding_result:
+            self.update_understanding_display(understanding_result)
 
         # 检查是否生成了新的概括
         new_summaries = self.agent.get_long_term_summaries()
