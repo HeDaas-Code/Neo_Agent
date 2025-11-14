@@ -396,6 +396,37 @@ class ChatAgent:
         """
         return self.memory_manager.get_all_summaries()
 
+    def get_knowledge_base(self):
+        """
+        获取知识库对象
+
+        Returns:
+            知识库对象
+        """
+        return self.memory_manager.knowledge_base
+
+    def get_all_knowledge(self) -> List[Dict[str, Any]]:
+        """
+        获取所有知识
+
+        Returns:
+            知识列表
+        """
+        return self.memory_manager.knowledge_base.get_all_knowledge()
+
+    def search_knowledge(self, keyword: str = None, knowledge_type: str = None) -> List[Dict[str, Any]]:
+        """
+        搜索知识库
+
+        Args:
+            keyword: 关键词
+            knowledge_type: 知识类型
+
+        Returns:
+            匹配的知识列表
+        """
+        return self.memory_manager.knowledge_base.search_knowledge(keyword, knowledge_type)
+
 
 # 测试代码
 if __name__ == '__main__':

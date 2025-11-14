@@ -470,7 +470,59 @@ class EnhancedChatDebugGUI:
         self.long_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.long_term_display.config(state=tk.DISABLED)
 
-        # 选项卡4: 控制面板
+        # 选项卡4: 知识库
+        knowledge_tab = ttk.Frame(notebook)
+        notebook.add(knowledge_tab, text="📚 知识库")
+
+        # 知识库顶部工具栏
+        kb_toolbar = ttk.Frame(knowledge_tab)
+        kb_toolbar.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(kb_toolbar, text="搜索:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=2)
+
+        self.kb_search_var = tk.StringVar()
+        self.kb_search_entry = ttk.Entry(kb_toolbar, textvariable=self.kb_search_var, width=20)
+        self.kb_search_entry.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            kb_toolbar,
+            text="🔍",
+            width=3,
+            command=self.search_knowledge
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            kb_toolbar,
+            text="刷新",
+            width=6,
+            command=self.update_knowledge_display
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 知识类型筛选
+        ttk.Label(kb_toolbar, text="类型:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 2))
+        self.kb_type_var = tk.StringVar(value="全部")
+        self.kb_type_combo = ttk.Combobox(
+            kb_toolbar,
+            textvariable=self.kb_type_var,
+            width=12,
+            state="readonly"
+        )
+        self.kb_type_combo['values'] = ['全部', '个人信息', '偏好', '事实', '经历', '观点', '其他']
+        self.kb_type_combo.pack(side=tk.LEFT, padx=2)
+        self.kb_type_combo.bind('<<ComboboxSelected>>', lambda e: self.filter_knowledge_by_type())
+
+        # 知识显示区域
+        self.knowledge_display = scrolledtext.ScrolledText(
+            knowledge_tab,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.knowledge_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.knowledge_display.config(state=tk.DISABLED)
+
+        # 选项卡5: 控制面板
         control_tab = ttk.Frame(notebook)
         notebook.add(control_tab, text="控制面板")
 
@@ -535,6 +587,10 @@ class EnhancedChatDebugGUI:
             self.update_status("初始化中...", "orange")
             self.agent = ChatAgent()
 
+            # 记录初始知识库数量
+            stats = self.agent.get_memory_stats()
+            self._last_kb_count = stats['knowledge_base']['total_knowledge']
+
             # 更新所有信息显示
             self.update_character_info()
             self.update_system_info()
@@ -583,7 +639,9 @@ class EnhancedChatDebugGUI:
         info.append("【系统配置】")
         info.append(f"  短期记忆文件: {self.agent.memory_manager.short_term_file}")
         info.append(f"  长期记忆文件: {self.agent.memory_manager.long_term_file}")
+        info.append(f"  知识库文件: {self.agent.memory_manager.knowledge_base.knowledge_file}")
         info.append(f"  最大短期轮数: {self.agent.memory_manager.max_short_term_rounds}")
+        info.append(f"  知识提取间隔: {self.agent.memory_manager.knowledge_extraction_interval} 轮")
         info.append(f"  API模型: {self.agent.llm.model_name}")
         info.append(f"  温度参数: {self.agent.llm.temperature}")
 
@@ -599,6 +657,7 @@ class EnhancedChatDebugGUI:
         self.update_memory_status()
         self.update_short_term_display()
         self.update_long_term_display()
+        self.update_knowledge_display()
         self.update_timeline()
 
     def update_memory_status(self):
@@ -609,7 +668,7 @@ class EnhancedChatDebugGUI:
             return
 
         stats = self.agent.get_memory_stats()
-        status_text = f"短期记忆: {stats['short_term']['rounds']}轮 | 长期记忆: {stats['long_term']['total_summaries']}个主题"
+        status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识库: {stats['knowledge_base']['total_knowledge']}条"
         self.memory_status_label.config(text=status_text)
 
     def update_short_term_display(self):
@@ -670,6 +729,122 @@ class EnhancedChatDebugGUI:
             text.append("")
 
         self.update_text_widget(self.long_term_display, "\n".join(text))
+
+    def update_knowledge_display(self):
+        """
+        更新知识库显示
+        """
+        if not self.agent:
+            return
+
+        knowledge_list = self.agent.get_all_knowledge()
+
+        if not knowledge_list:
+            self.update_text_widget(self.knowledge_display, "暂无知识\n对话超过5轮后将自动提取知识")
+            return
+
+        text = []
+        text.append("=" * 40)
+        text.append(f"知识库 (共 {len(knowledge_list)} 条知识)")
+        text.append("=" * 40)
+        text.append("")
+
+        # 按类型分组显示
+        knowledge_by_type = {}
+        for k in knowledge_list:
+            k_type = k.get('type', '其他')
+            if k_type not in knowledge_by_type:
+                knowledge_by_type[k_type] = []
+            knowledge_by_type[k_type].append(k)
+
+        for k_type, items in knowledge_by_type.items():
+            text.append(f"【{k_type}】({len(items)}条)")
+            text.append("")
+            for i, knowledge in enumerate(items, 1):
+                text.append(f"{i}. {knowledge.get('title', '未命名')}")
+                text.append(f"   内容: {knowledge.get('content', '')}")
+                text.append(f"   来源: {knowledge.get('source', '')}")
+                text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
+                text.append(f"   UUID: {knowledge.get('uuid', '')}")
+
+                # 显示标签
+                tags = knowledge.get('tags', [])
+                if tags:
+                    text.append(f"   标签: {', '.join(tags)}")
+
+                text.append("-" * 40)
+            text.append("")
+
+        self.update_text_widget(self.knowledge_display, "\n".join(text))
+
+    def search_knowledge(self):
+        """
+        搜索知识库
+        """
+        if not self.agent:
+            return
+
+        keyword = self.kb_search_var.get().strip()
+        if not keyword:
+            self.update_knowledge_display()
+            return
+
+        results = self.agent.search_knowledge(keyword=keyword)
+
+        if not results:
+            self.update_text_widget(self.knowledge_display, f"未找到包含 '{keyword}' 的知识")
+            return
+
+        text = []
+        text.append("=" * 40)
+        text.append(f"搜索结果: '{keyword}' (共 {len(results)} 条)")
+        text.append("=" * 40)
+        text.append("")
+
+        for i, knowledge in enumerate(results, 1):
+            text.append(f"{i}. [{knowledge.get('type', '其他')}] {knowledge.get('title', '未命名')}")
+            text.append(f"   内容: {knowledge.get('content', '')}")
+            text.append(f"   来源: {knowledge.get('source', '')}")
+            text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
+            text.append(f"   UUID: {knowledge.get('uuid', '')}")
+            text.append("-" * 40)
+
+        self.update_text_widget(self.knowledge_display, "\n".join(text))
+
+    def filter_knowledge_by_type(self):
+        """
+        按类型筛选知识
+        """
+        if not self.agent:
+            return
+
+        selected_type = self.kb_type_var.get()
+
+        if selected_type == "全部":
+            self.update_knowledge_display()
+            return
+
+        results = self.agent.search_knowledge(knowledge_type=selected_type)
+
+        if not results:
+            self.update_text_widget(self.knowledge_display, f"暂无 '{selected_type}' 类型的知识")
+            return
+
+        text = []
+        text.append("=" * 40)
+        text.append(f"类型筛选: {selected_type} (共 {len(results)} 条)")
+        text.append("=" * 40)
+        text.append("")
+
+        for i, knowledge in enumerate(results, 1):
+            text.append(f"{i}. {knowledge.get('title', '未命名')}")
+            text.append(f"   内容: {knowledge.get('content', '')}")
+            text.append(f"   来源: {knowledge.get('source', '')}")
+            text.append(f"   时间: {knowledge.get('created_at', '')[:19]}")
+            text.append(f"   UUID: {knowledge.get('uuid', '')}")
+            text.append("-" * 40)
+
+        self.update_text_widget(self.knowledge_display, "\n".join(text))
 
     def update_timeline(self):
         """
@@ -739,6 +914,17 @@ class EnhancedChatDebugGUI:
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
 
+    def add_knowledge_extraction_message(self, knowledge_count: int):
+        """
+        添加知识提取消息
+        """
+        self.chat_display.config(state=tk.NORMAL)
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        self.chat_display.insert(tk.END, f"[知识提取] 已从最近5轮对话中提取 {knowledge_count} 条知识\n\n", "archive")
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+
     def send_message(self):
         """
         发送消息
@@ -791,6 +977,19 @@ class EnhancedChatDebugGUI:
             latest_summary = new_summaries[-1]
             self.add_archive_message(latest_summary.get('rounds', 20), latest_summary.get('summary', ''))
             self.update_timeline()
+
+        # 检查是否提取了新知识（通过对话轮数判断）
+        stats = self.agent.get_memory_stats()
+        current_rounds = stats['total_conversations']
+        if current_rounds > 0 and current_rounds % 5 == 0:
+            # 刚好是5的倍数，可能提取了知识
+            # 通过比较知识数量来确认
+            old_kb_count = getattr(self, '_last_kb_count', 0)
+            new_kb_count = stats['knowledge_base']['total_knowledge']
+            if new_kb_count > old_kb_count:
+                extracted_count = new_kb_count - old_kb_count
+                self.add_knowledge_extraction_message(extracted_count)
+                self._last_kb_count = new_kb_count
 
         # 更新显示
         self.refresh_all()
@@ -861,14 +1060,17 @@ class EnhancedChatDebugGUI:
         显示关于对话框
         """
         about_text = """
-智能对话代理 v2.0 增强版
+智能对话代理 v3.0 知识库版
 基于LangChain和Python开发
 
 功能特性:
 • 角色扮演对话
-• 分层记忆系统（短期+长期）
-• 自动主题概括（每20轮）
+• 三层记忆系统（短期+长期+知识库）
+• 短期记忆：最近20轮详细对话
+• 长期记忆：自动主题概括（每20轮）
+• 知识库：自动知识提取（每5轮）
 • 对话主题时间线可视化
+• 知识库搜索和分类管理
 • 对话历史持久化
 • 可视化调试界面
 

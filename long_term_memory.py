@@ -1,6 +1,6 @@
 """
 长效记忆管理模块
-实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆
+实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆 + 知识库
 """
 
 import os
@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
+from knowledge_base import KnowledgeBase
 
 load_dotenv()
 
@@ -44,6 +45,9 @@ class LongTermMemoryManager:
         self.max_short_term_rounds = 20
         self.max_short_term_messages = self.max_short_term_rounds * 2  # user + assistant
 
+        # 知识提取间隔（每5轮）
+        self.knowledge_extraction_interval = 5
+
         # API配置（用于生成概括）
         self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
@@ -54,6 +58,13 @@ class LongTermMemoryManager:
         self.short_term_metadata: Dict[str, Any] = {}
         self.long_term_summaries: List[Dict[str, Any]] = []
         self.long_term_metadata: Dict[str, Any] = {}
+
+        # 初始化知识库
+        self.knowledge_base = KnowledgeBase(
+            api_key=self.api_key,
+            api_url=self.api_url,
+            model_name=self.model_name
+        )
 
         # 加载现有记忆
         self.load_all_memory()
@@ -164,6 +175,12 @@ class LongTermMemoryManager:
         if role == 'user':
             self.short_term_metadata['total_conversations'] = self.short_term_metadata.get('total_conversations', 0) + 1
 
+            # 检查是否需要提取知识（每5轮）
+            current_rounds = self.short_term_metadata['total_conversations']
+            if current_rounds % self.knowledge_extraction_interval == 0:
+                print(f"\n📚 已达到 {current_rounds} 轮对话，开始提取知识...")
+                self._extract_and_save_knowledge()
+
         # 检查是否需要归档
         self._check_and_archive()
 
@@ -219,6 +236,42 @@ class LongTermMemoryManager:
 
             print(f"✓ 已归档 {user_count} 轮对话（{len(messages_to_archive)} 条消息）")
             print(f"✓ 生成主题概括: {summary[:50]}...")
+
+    def _extract_and_save_knowledge(self):
+        """
+        从最近5轮对话中提取并保存知识
+        """
+        # 获取最近5轮对话（10条消息）
+        recent_messages = []
+        user_count = 0
+
+        for msg in reversed(self.short_term_messages):
+            recent_messages.insert(0, msg)
+            if msg['role'] == 'user':
+                user_count += 1
+                if user_count >= 5:
+                    break
+
+        if len(recent_messages) < 2:  # 至少需要一轮对话
+            print("✗ 消息太少，无法提取知识")
+            return
+
+        # 使用知识库提取知识
+        knowledge_list = self.knowledge_base.extract_knowledge(recent_messages)
+
+        if knowledge_list and len(knowledge_list) > 0:
+            print(f"✓ 提取到 {len(knowledge_list)} 条知识")
+
+            # 保存每条知识
+            for knowledge_data in knowledge_list:
+                knowledge_uuid = self.knowledge_base.add_knowledge(knowledge_data, recent_messages)
+                print(f"  • [{knowledge_data.get('type', '其他')}] {knowledge_data.get('title', '未命名')}")
+                print(f"    UUID: {knowledge_uuid}")
+
+            # 保存知识库
+            self.knowledge_base.save_knowledge()
+        else:
+            print("○ 未提取到新知识")
 
     def _generate_summary(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """
@@ -319,6 +372,9 @@ class LongTermMemoryManager:
         short_user = sum(1 for msg in self.short_term_messages if msg['role'] == 'user')
         short_assistant = sum(1 for msg in self.short_term_messages if msg['role'] == 'assistant')
 
+        # 获取知识库统计
+        knowledge_stats = self.knowledge_base.get_statistics()
+
         return {
             'short_term': {
                 'total_messages': len(self.short_term_messages),
@@ -333,13 +389,19 @@ class LongTermMemoryManager:
                 'total_archived_messages': sum(s.get('message_count', 0) for s in self.long_term_summaries),
                 'file': self.long_term_file
             },
+            'knowledge_base': {
+                'total_knowledge': knowledge_stats['total_knowledge'],
+                'type_distribution': knowledge_stats['type_distribution'],
+                'last_extraction': knowledge_stats['last_extraction'],
+                'file': knowledge_stats['knowledge_file']
+            },
             'total_conversations': self.short_term_metadata.get('total_conversations', 0),
             'created_at': self.short_term_metadata.get('created_at', 'Unknown')
         }
 
     def clear_all_memory(self):
         """
-        清空所有记忆（短期和长期）
+        清空所有记忆（短期、长期和知识库）
         """
         self.short_term_messages = []
         self.short_term_metadata = {
@@ -351,9 +413,10 @@ class LongTermMemoryManager:
             'created_at': datetime.now().isoformat(),
             'total_summaries': 0
         }
+        self.knowledge_base.clear_knowledge()
         self._save_short_term_memory()
         self._save_long_term_memory()
-        print("✓ 所有记忆已清空")
+        print("✓ 所有记忆已清空（包括知识库）")
 
     def save_all_memory(self):
         """
