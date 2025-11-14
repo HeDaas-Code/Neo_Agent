@@ -1,14 +1,16 @@
 """
 增强版Tkinter GUI界面
-包含聊天主题时间线可视化功能
+包含聊天主题时间线可视化功能和Debug日志界面
 """
 
+import os
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, Canvas
 from datetime import datetime
 import threading
 from typing import Dict, Any, List, Optional
 from chat_agent import ChatAgent
+from debug_logger import get_debug_logger
 
 
 class TopicTimelineCanvas(Canvas):
@@ -567,9 +569,95 @@ class EnhancedChatDebugGUI:
         self.knowledge_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.knowledge_display.config(state=tk.DISABLED)
 
-        # 选项卡6: 控制面板
+        # 选项卡6: Debug日志（仅在debug模式下显示）
+        debug_mode = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
+        if debug_mode:
+            debug_tab = ttk.Frame(notebook)
+            notebook.add(debug_tab, text="🔧 Debug日志")
+
+            # Debug工具栏
+            debug_toolbar = ttk.Frame(debug_tab)
+            debug_toolbar.pack(fill=tk.X, padx=5, pady=5)
+
+            ttk.Label(
+                debug_toolbar,
+                text="Debug模式已启用",
+                font=("微软雅黑", 9, "bold"),
+                foreground="#e74c3c"
+            ).pack(side=tk.LEFT, padx=5)
+
+            ttk.Button(
+                debug_toolbar,
+                text="刷新日志",
+                width=10,
+                command=self.update_debug_display
+            ).pack(side=tk.LEFT, padx=2)
+
+            ttk.Button(
+                debug_toolbar,
+                text="清空日志",
+                width=10,
+                command=self.clear_debug_logs
+            ).pack(side=tk.LEFT, padx=2)
+
+            # 日志类型筛选
+            ttk.Label(debug_toolbar, text="类型:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 2))
+            self.debug_type_var = tk.StringVar(value="全部")
+            debug_type_combo = ttk.Combobox(
+                debug_toolbar,
+                textvariable=self.debug_type_var,
+                width=12,
+                state="readonly"
+            )
+            debug_type_combo['values'] = ['全部', 'module', 'prompt', 'request', 'response', 'error', 'info']
+            debug_type_combo.pack(side=tk.LEFT, padx=2)
+            debug_type_combo.bind('<<ComboboxSelected>>', lambda e: self.update_debug_display())
+
+            # 自动刷新开关
+            self.debug_auto_refresh = tk.BooleanVar(value=True)
+            ttk.Checkbutton(
+                debug_toolbar,
+                text="自动刷新",
+                variable=self.debug_auto_refresh
+            ).pack(side=tk.LEFT, padx=10)
+
+            # 统计信息
+            self.debug_stats_label = ttk.Label(
+                debug_toolbar,
+                text="日志: 0 条",
+                font=("微软雅黑", 8)
+            )
+            self.debug_stats_label.pack(side=tk.RIGHT, padx=5)
+
+            # Debug日志显示区域
+            self.debug_display = scrolledtext.ScrolledText(
+                debug_tab,
+                wrap=tk.WORD,
+                font=("Consolas", 9),
+                bg="#1e1e1e",
+                fg="#d4d4d4",
+                relief=tk.FLAT,
+                insertbackground="white"
+            )
+            self.debug_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            self.debug_display.config(state=tk.DISABLED)
+
+            # 配置颜色标签
+            self.debug_display.tag_config('module', foreground='#4ec9b0')
+            self.debug_display.tag_config('prompt', foreground='#ce9178')
+            self.debug_display.tag_config('request', foreground='#569cd6')
+            self.debug_display.tag_config('response', foreground='#4fc1ff')
+            self.debug_display.tag_config('error', foreground='#f48771')
+            self.debug_display.tag_config('info', foreground='#b5cea8')
+            self.debug_display.tag_config('timestamp', foreground='#858585')
+
+            # 获取debug logger并添加监听器
+            self.debug_logger = get_debug_logger()
+            self.debug_logger.add_listener(self.on_debug_log_added)
+
+        # 选项卡7: 控制面板
         control_tab = ttk.Frame(notebook)
-        notebook.add(control_tab, text="控制面板")
+        notebook.add(control_tab, text="⚙️ 控制面板")
 
         self.create_control_panel(control_tab)
 
@@ -1345,6 +1433,147 @@ class EnhancedChatDebugGUI:
         """
         self.status_label.config(text=f"● {status}", foreground=color)
         self.root.update()
+
+    def on_debug_log_added(self, log_entry: Dict[str, Any]):
+        """
+        Debug日志监听器回调，当有新日志时自动更新显示
+
+        Args:
+            log_entry: 日志条目
+        """
+        if not hasattr(self, 'debug_display') or not self.debug_auto_refresh.get():
+            return
+
+        # 在主线程中更新UI
+        self.root.after(0, lambda: self._append_debug_log(log_entry))
+
+    def _append_debug_log(self, log_entry: Dict[str, Any]):
+        """
+        添加单条debug日志到显示区域
+
+        Args:
+            log_entry: 日志条目
+        """
+        try:
+            # 检查是否需要筛选
+            selected_type = self.debug_type_var.get()
+            if selected_type != "全部" and log_entry['type'] != selected_type:
+                return
+
+            self.debug_display.config(state=tk.NORMAL)
+
+            # 时间戳
+            timestamp = log_entry['timestamp'][11:19]
+            self.debug_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+
+            # 日志类型
+            log_type = log_entry['type'].upper()
+            self.debug_display.insert(tk.END, f"[{log_type}] ", log_entry['type'])
+
+            # 模块名
+            module = log_entry.get('module', 'Unknown')
+            self.debug_display.insert(tk.END, f"{module} ", "info")
+
+            # 根据类型显示不同内容
+            if log_entry['type'] == 'module':
+                self.debug_display.insert(tk.END, f"| {log_entry.get('action', '')}\n")
+                if log_entry.get('details'):
+                    self.debug_display.insert(tk.END, f"  详情: {log_entry['details']}\n", "info")
+
+            elif log_entry['type'] == 'prompt':
+                prompt_type = log_entry.get('prompt_type', '')
+                content = log_entry.get('content', '')
+                display_content = content[:150] + "..." if len(content) > 150 else content
+                self.debug_display.insert(tk.END, f"| {prompt_type}\n")
+                self.debug_display.insert(tk.END, f"  {display_content}\n", "prompt")
+
+            elif log_entry['type'] == 'request':
+                api_url = log_entry.get('api_url', '')
+                self.debug_display.insert(tk.END, f"| {api_url}\n")
+
+            elif log_entry['type'] == 'response':
+                status = log_entry.get('status_code', 0)
+                elapsed = log_entry.get('elapsed_time', 0)
+                self.debug_display.insert(tk.END, f"| 状态:{status} 耗时:{elapsed:.2f}s\n")
+
+            elif log_entry['type'] == 'error':
+                message = log_entry.get('message', '')
+                self.debug_display.insert(tk.END, f"| {message}\n", "error")
+
+            elif log_entry['type'] == 'info':
+                message = log_entry.get('message', '')
+                self.debug_display.insert(tk.END, f"| {message}\n")
+
+            self.debug_display.insert(tk.END, "\n")
+            self.debug_display.see(tk.END)
+            self.debug_display.config(state=tk.DISABLED)
+
+            # 更新统计
+            if hasattr(self, 'debug_logger'):
+                stats = self.debug_logger.get_statistics()
+                self.debug_stats_label.config(text=f"日志: {stats['total_logs']} 条")
+
+        except Exception as e:
+            print(f"✗ 更新debug日志显示失败: {e}")
+
+    def update_debug_display(self):
+        """
+        更新Debug日志显示
+        """
+        if not hasattr(self, 'debug_display') or not hasattr(self, 'debug_logger'):
+            return
+
+        try:
+            # 获取筛选类型
+            selected_type = self.debug_type_var.get()
+            log_type = None if selected_type == "全部" else selected_type
+
+            # 获取日志
+            logs = self.debug_logger.get_logs(log_type=log_type, limit=500)
+
+            # 清空并重新显示
+            self.debug_display.config(state=tk.NORMAL)
+            self.debug_display.delete(1.0, tk.END)
+
+            if not logs:
+                self.debug_display.insert(tk.END, "暂无日志\n", "info")
+            else:
+                for log_entry in logs:
+                    self._append_debug_log(log_entry)
+
+            self.debug_display.config(state=tk.DISABLED)
+
+            # 更新统计
+            stats = self.debug_logger.get_statistics()
+            self.debug_stats_label.config(
+                text=f"日志: {stats['total_logs']} 条 | "
+                     f"模块:{stats['by_type']['module']} "
+                     f"提示词:{stats['by_type']['prompt']} "
+                     f"请求:{stats['by_type']['request']} "
+                     f"响应:{stats['by_type']['response']} "
+                     f"错误:{stats['by_type']['error']}"
+            )
+
+        except Exception as e:
+            print(f"✗ 更新debug显示失败: {e}")
+
+    def clear_debug_logs(self):
+        """
+        清空Debug日志
+        """
+        if not hasattr(self, 'debug_logger'):
+            return
+
+        if messagebox.askyesno("确认", "确定要清空所有Debug日志吗？"):
+            self.debug_logger.clear_logs()
+            if hasattr(self, 'debug_display'):
+                self.debug_display.config(state=tk.NORMAL)
+                self.debug_display.delete(1.0, tk.END)
+                self.debug_display.insert(tk.END, "日志已清空\n", "info")
+                self.debug_display.config(state=tk.DISABLED)
+
+            self.debug_stats_label.config(text="日志: 0 条")
+            messagebox.showinfo("成功", "Debug日志已清空")
 
     def add_message_to_display(self, role: str, content: str):
         """

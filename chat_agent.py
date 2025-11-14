@@ -5,14 +5,19 @@
 
 import os
 import json
+import time
 from datetime import datetime
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 import requests
 from long_term_memory import LongTermMemoryManager
+from debug_logger import get_debug_logger
 
 # 加载环境变量
 load_dotenv()
+
+# 获取debug日志记录器
+debug_logger = get_debug_logger()
 
 
 class MemoryManager:
@@ -251,6 +256,18 @@ class SiliconFlowLLM:
             AI的回复内容
         """
         try:
+            # Debug: 记录请求前的信息
+            debug_logger.log_module('SiliconFlowLLM', '准备发送API请求', f'消息数: {len(messages)}')
+
+            # Debug: 记录所有消息
+            for i, msg in enumerate(messages):
+                debug_logger.log_prompt(
+                    'SiliconFlowLLM',
+                    msg['role'],
+                    msg['content'],
+                    {'message_index': i, 'total_messages': len(messages)}
+                )
+
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
                 'Content-Type': 'application/json'
@@ -264,26 +281,42 @@ class SiliconFlowLLM:
                 'stream': False
             }
 
+            # Debug: 记录API请求
+            debug_logger.log_request('SiliconFlowLLM', self.api_url, payload, headers)
+
+            start_time = time.time()
             response = requests.post(
                 self.api_url,
                 headers=headers,
                 json=payload,
                 timeout=30
             )
+            elapsed_time = time.time() - start_time
 
             response.raise_for_status()
             result = response.json()
 
+            # Debug: 记录API响应
+            debug_logger.log_response('SiliconFlowLLM', result, response.status_code, elapsed_time)
+
             # 提取回复内容
             if 'choices' in result and len(result['choices']) > 0:
-                return result['choices'][0]['message']['content']
+                reply_content = result['choices'][0]['message']['content']
+                debug_logger.log_info('SiliconFlowLLM', '成功提取回复内容', {
+                    'reply_length': len(reply_content),
+                    'elapsed_time': elapsed_time
+                })
+                return reply_content
             else:
+                debug_logger.log_error('SiliconFlowLLM', '响应中没有有效的choices')
                 return "抱歉，我没有收到有效的回复。"
 
         except requests.exceptions.RequestException as e:
+            debug_logger.log_error('SiliconFlowLLM', f'API请求错误: {str(e)}', e)
             print(f"API请求错误: {e}")
             return f"抱歉，网络连接出现问题: {str(e)}"
         except Exception as e:
+            debug_logger.log_error('SiliconFlowLLM', f'处理回复时出错: {str(e)}', e)
             print(f"处理回复时出错: {e}")
             return f"抱歉，处理回复时出现错误: {str(e)}"
 
@@ -320,43 +353,73 @@ class ChatAgent:
         Returns:
             AI角色的回复
         """
+        debug_logger.log_module('ChatAgent', '开始处理用户输入', f'输入长度: {len(user_input)}')
+
         # ===== 理解阶段 =====
+        debug_logger.log_module('ChatAgent', '理解阶段开始', '提取相关主体并检索知识库')
+
         # 1. 从用户输入中提取相关主体并检索知识
         relevant_knowledge = self.memory_manager.knowledge_base.get_relevant_knowledge_for_query(user_input)
 
         # 记录理解阶段的结果（用于调试）
         self._last_understanding = relevant_knowledge
 
+        debug_logger.log_info('ChatAgent', '理解阶段完成', {
+            'entities_found': relevant_knowledge['entities_found'],
+            'knowledge_count': len(relevant_knowledge.get('knowledge_items', []))
+        })
+
         # 添加用户消息到记忆
         self.memory_manager.add_message('user', user_input)
 
         # ===== 构建消息列表 =====
+        debug_logger.log_module('ChatAgent', '构建消息列表', '组装系统提示词、知识上下文和历史对话')
+
         messages = [
             {'role': 'system', 'content': self.system_prompt}
         ]
+
+        debug_logger.log_prompt('ChatAgent', 'system', self.system_prompt, {'stage': '角色设定'})
 
         # 添加知识库上下文（如果有相关知识）
         if relevant_knowledge['knowledge_items']:
             knowledge_context = self._build_knowledge_context(relevant_knowledge)
             messages.append({'role': 'system', 'content': knowledge_context})
+            debug_logger.log_prompt('ChatAgent', 'system', knowledge_context, {
+                'stage': '知识库上下文',
+                'entities_count': len(relevant_knowledge['entities_found'])
+            })
 
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
         if long_context:
             messages.append({'role': 'system', 'content': long_context})
+            debug_logger.log_prompt('ChatAgent', 'system', long_context, {'stage': '长期记忆上下文'})
 
         # 添加历史对话（最近10条）
         recent_messages = self.memory_manager.get_recent_messages(count=10)
         messages.extend(recent_messages)
 
+        debug_logger.log_info('ChatAgent', '消息列表构建完成', {
+            'total_messages': len(messages),
+            'recent_history': len(recent_messages)
+        })
+
         # ===== 生成回复 =====
+        debug_logger.log_module('ChatAgent', '调用LLM生成回复', f'消息数: {len(messages)}')
         response = self.llm.chat(messages)
+
+        debug_logger.log_info('ChatAgent', 'LLM回复完成', {
+            'response_length': len(response)
+        })
 
         # 添加助手回复到记忆
         self.memory_manager.add_message('assistant', response)
 
         # 保存记忆
         self.memory_manager.save_all_memory()
+
+        debug_logger.log_module('ChatAgent', '对话处理完成', '已保存记忆')
 
         return response
 
