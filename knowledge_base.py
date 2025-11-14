@@ -12,8 +12,12 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from base_knowledge import BaseKnowledge
+from debug_logger import get_debug_logger
 
 load_dotenv()
+
+# 获取debug日志记录器
+debug_logger = get_debug_logger()
 
 
 class KnowledgeBase:
@@ -567,17 +571,26 @@ class KnowledgeBase:
                 try:
                     entities = json.loads(content)
                     if isinstance(entities, list):
-                        return [e for e in entities if isinstance(e, str)]
+                        result = [e for e in entities if isinstance(e, str)]
+                        debug_logger.log_info('KnowledgeBase', '实体提取成功', {
+                            'query': query,
+                            'entities': result
+                        })
+                        return result
                     else:
+                        debug_logger.log_info('KnowledgeBase', '实体提取结果不是列表', {'content': content})
                         return []
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
                     print(f"✗ 实体提取JSON解析失败")
+                    debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
                     return []
             else:
+                debug_logger.log_info('KnowledgeBase', 'API响应中没有choices')
                 return []
 
         except Exception as e:
             print(f"✗ 提取实体时出错: {e}")
+            debug_logger.log_error('KnowledgeBase', '提取实体时出错', e)
             return []
 
     def get_relevant_knowledge_for_query(self, query: str, max_items: int = 10) -> Dict[str, Any]:
@@ -592,10 +605,13 @@ class KnowledgeBase:
         Returns:
             包含实体和相关知识的字典
         """
+        debug_logger.log_module('KnowledgeBase', '开始检索相关知识', f'查询: {query}')
+
         # 1. 提取查询中的主体
         entities = self.extract_entities_from_query(query)
 
         if not entities:
+            debug_logger.log_info('KnowledgeBase', '未识别到实体')
             return {
                 'query': query,
                 'entities_found': [],
@@ -612,9 +628,16 @@ class KnowledgeBase:
         for entity_name in entities:
             normalized_name = entity_name.strip().lower()
 
+            debug_logger.log_info('KnowledgeBase', f'查找实体: {entity_name}', {
+                'normalized_name': normalized_name
+            })
+
             # 首先检查基础知识库（最高优先级）
             base_fact = self.base_knowledge.get_base_fact(entity_name)
             if base_fact:
+                debug_logger.log_info('KnowledgeBase', f'找到基础知识: {entity_name}', {
+                    'content': base_fact['content']
+                })
                 base_knowledge_items.append({
                     'entity_name': entity_name,
                     'type': '基础知识',
@@ -625,6 +648,8 @@ class KnowledgeBase:
                     'created_at': base_fact['created_at']
                 })
                 entities_found.append(entity_name)
+            else:
+                debug_logger.log_info('KnowledgeBase', f'未找到基础知识: {entity_name}')
 
             # 查找主体是否存在于普通知识库
             if normalized_name in self.entity_name_map:
@@ -676,6 +701,13 @@ class KnowledgeBase:
 
         # 5. 生成摘要
         summary = self._generate_knowledge_summary(entities_found, all_knowledge)
+
+        debug_logger.log_info('KnowledgeBase', '知识检索完成', {
+            'entities_found': entities_found,
+            'base_knowledge_count': len(base_knowledge_items),
+            'normal_knowledge_count': len(knowledge_items),
+            'total_knowledge': len(all_knowledge)
+        })
 
         return {
             'query': query,

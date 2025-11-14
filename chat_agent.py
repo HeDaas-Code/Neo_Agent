@@ -382,12 +382,15 @@ class ChatAgent:
         debug_logger.log_prompt('ChatAgent', 'system', self.system_prompt, {'stage': '角色设定'})
 
         # 添加知识库上下文（如果有相关知识）
-        if relevant_knowledge['knowledge_items']:
+        all_knowledge = relevant_knowledge.get('all_knowledge', [])
+        if all_knowledge:
             knowledge_context = self._build_knowledge_context(relevant_knowledge)
             messages.append({'role': 'system', 'content': knowledge_context})
             debug_logger.log_prompt('ChatAgent', 'system', knowledge_context, {
                 'stage': '知识库上下文',
-                'entities_count': len(relevant_knowledge['entities_found'])
+                'entities_count': len(relevant_knowledge['entities_found']),
+                'base_knowledge_count': len(relevant_knowledge.get('base_knowledge_items', [])),
+                'total_knowledge': len(all_knowledge)
             })
 
         # 添加长期记忆上下文
@@ -434,23 +437,37 @@ class ChatAgent:
             知识上下文字符串
         """
         entities = relevant_knowledge['entities_found']
-        knowledge_items = relevant_knowledge['knowledge_items']
+        base_knowledge_items = relevant_knowledge.get('base_knowledge_items', [])
+        knowledge_items = relevant_knowledge.get('knowledge_items', [])
 
-        if not knowledge_items:
+        # 使用all_knowledge如果存在，否则合并两个列表
+        all_items = relevant_knowledge.get('all_knowledge', base_knowledge_items + knowledge_items)
+
+        if not all_items:
             return ""
 
         context_parts = ["【相关知识库信息】"]
         context_parts.append(f"用户提到了以下主体：{', '.join(entities)}")
-        context_parts.append("\n请根据以下知识库中的信息来回答（优先使用定义，其次使用相关信息）：\n")
+
+        # 如果有基础知识，特别强调
+        if base_knowledge_items:
+            context_parts.append("\n⚠️ 以下是核心基础知识（优先级最高，必须严格遵循）：")
+            for item in base_knowledge_items:
+                context_parts.append(f"  🔒 {item['entity_name']}: {item['content']}")
+            context_parts.append("")
+
+        context_parts.append("\n请根据以下知识库中的信息来回答（优先使用基础知识，其次使用定义，最后使用相关信息）：\n")
 
         # 按主体分组显示
         by_entity = {}
-        for item in knowledge_items:
+        for item in all_items:
             entity_name = item['entity_name']
             if entity_name not in by_entity:
-                by_entity[entity_name] = {'definitions': [], 'info': []}
+                by_entity[entity_name] = {'base': [], 'definitions': [], 'info': []}
 
-            if item['type'] == '定义':
+            if item.get('is_base_knowledge', False):
+                by_entity[entity_name]['base'].append(item)
+            elif item['type'] == '定义':
                 by_entity[entity_name]['definitions'].append(item)
             else:
                 by_entity[entity_name]['info'].append(item)
@@ -458,7 +475,12 @@ class ChatAgent:
         for entity_name, items in by_entity.items():
             context_parts.append(f"\n关于「{entity_name}」：")
 
-            # 定义（最高优先级）
+            # 基础知识（最高优先级）
+            if items['base']:
+                for base_item in items['base']:
+                    context_parts.append(f"  🔒【基础知识-100%准确】: {base_item['content']}")
+
+            # 定义（高优先级）
             if items['definitions']:
                 for definition in items['definitions']:
                     confidence_label = "【高置信度】" if definition['confidence'] >= 0.9 else "【中置信度】"
@@ -471,7 +493,8 @@ class ChatAgent:
                     confidence_label = "【高】" if info['confidence'] >= 0.8 else "【中】"
                     context_parts.append(f"    {confidence_label} {info['type']}: {info['content']}")
 
-        context_parts.append("\n请基于以上知识库信息进行回答，保持角色设定的同时确保信息准确。")
+        context_parts.append("\n⚠️ 重要：如果存在基础知识（🔒标记），必须优先遵循基础知识的内容，即使它可能与你的常识不同。")
+        context_parts.append("请基于以上知识库信息进行回答，保持角色设定的同时确保信息准确。")
 
         return '\n'.join(context_parts)
 

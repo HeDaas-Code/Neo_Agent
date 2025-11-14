@@ -146,7 +146,7 @@ class BaseKnowledge:
 
     def get_base_fact(self, entity_name: str) -> Dict[str, Any] | None:
         """
-        获取指定实体的基础事实
+        获取指定实体的基础事实（支持不区分大小写的查找）
 
         Args:
             entity_name: 实体名称
@@ -154,8 +154,18 @@ class BaseKnowledge:
         Returns:
             基础事实字典，如果不存在返回None
         """
+        # 首先尝试精确匹配
         normalized_name = entity_name.strip()
-        return self.base_facts.get(normalized_name)
+        if normalized_name in self.base_facts:
+            return self.base_facts[normalized_name]
+
+        # 如果精确匹配失败，尝试不区分大小写的匹配
+        lower_name = normalized_name.lower()
+        for key, value in self.base_facts.items():
+            if key.lower() == lower_name:
+                return value
+
+        return None
 
     def check_conflict_with_base(self, entity_name: str, new_content: str) -> bool:
         """
