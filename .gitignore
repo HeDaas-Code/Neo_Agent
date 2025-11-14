@@ -5,6 +5,8 @@ config/local_*.json
 longmemory_data.json
 memory_data.json
 knowledge_base.json
+base_knowledge.json
+
 # API密钥和敏感信息
 .env
 .env.local
