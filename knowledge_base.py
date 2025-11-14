@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
+from base_knowledge import BaseKnowledge
 
 load_dotenv()
 
@@ -32,7 +33,8 @@ class KnowledgeBase:
                  knowledge_file: str = None,
                  api_key: str = None,
                  api_url: str = None,
-                 model_name: str = None):
+                 model_name: str = None,
+                 base_knowledge_file: str = None):
         """
         初始化知识库管理器
 
@@ -41,6 +43,7 @@ class KnowledgeBase:
             api_key: API密钥
             api_url: API地址
             model_name: 模型名称
+            base_knowledge_file: 基础知识库文件路径
         """
         # 文件路径配置
         self.knowledge_file = knowledge_file or 'knowledge_base.json'
@@ -49,6 +52,9 @@ class KnowledgeBase:
         self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+
+        # 初始化基础知识库（最高优先级）
+        self.base_knowledge = BaseKnowledge(base_knowledge_file)
 
         # 新的知识数据结构：主体字典
         self.entities: Dict[str, Dict[str, Any]] = {}
@@ -203,6 +209,7 @@ class KnowledgeBase:
                                          confidence: float = 1.0) -> str:
         """
         添加或更新主体的定义（每个主体只能有一个定义，新定义会覆盖旧定义）
+        但基础知识库中的定义拥有最高优先级，不会被覆盖
 
         Args:
             entity_name: 主体名称
@@ -215,8 +222,42 @@ class KnowledgeBase:
         Returns:
             主体UUID
         """
+        # 检查是否与基础知识冲突
+        if self.base_knowledge.check_conflict_with_base(entity_name, definition):
+            print(f"⚠ 由于与基础知识冲突，拒绝添加/更新定义: {entity_name}")
+            print(f"  → 保持基础知识不变")
+
+            # 如果实体不存在，创建它但使用基础知识作为定义
+            base_fact = self.base_knowledge.get_base_fact(entity_name)
+            if base_fact:
+                entity_uuid = self._find_or_create_entity(entity_name)
+                entity = self.entities[entity_uuid]
+
+                # 使用基础知识作为定义
+                if entity['definition'] is None:
+                    entity['definition'] = {
+                        'content': base_fact['content'],
+                        'type': '基础知识',
+                        'source': '基础知识库',
+                        'confidence': 1.0,  # 基础知识100%置信度
+                        'priority': 100,  # 最高优先级
+                        'is_base_knowledge': True,  # 标记为基础知识
+                        'created_at': base_fact['created_at'],
+                        'updated_at': datetime.now().isoformat()
+                    }
+
+                return entity_uuid
+
         entity_uuid = self._find_or_create_entity(entity_name)
         entity = self.entities[entity_uuid]
+
+        # 检查当前定义是否为基础知识
+        if entity['definition'] is not None and entity['definition'].get('is_base_knowledge', False):
+            print(f"⚠ 主体 '{entity_name}' 的定义来自基础知识库，不可更改")
+            print(f"  基础知识: {entity['definition']['content']}")
+            print(f"  尝试更新为: {definition}")
+            print(f"  → 保持基础知识不变（优先级100）")
+            return entity_uuid
 
         # 检查是否存在旧定义
         if entity['definition'] is not None:
@@ -244,6 +285,7 @@ class KnowledgeBase:
             'type': knowledge_type,
             'source': source,
             'confidence': confidence,  # 定义的置信度
+            'is_base_knowledge': False,  # 非基础知识
             'created_at': created_at or datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
@@ -541,7 +583,7 @@ class KnowledgeBase:
     def get_relevant_knowledge_for_query(self, query: str, max_items: int = 10) -> Dict[str, Any]:
         """
         根据用户查询获取相关知识（理解阶段使用）
-        按优先级返回：定义（高置信度） > 相关信息（中置信度）
+        按优先级返回：基础知识（最高优先级100） > 定义（高置信度） > 相关信息（中置信度）
 
         Args:
             query: 用户查询
@@ -558,35 +600,56 @@ class KnowledgeBase:
                 'query': query,
                 'entities_found': [],
                 'knowledge_items': [],
+                'base_knowledge_items': [],
                 'summary': '未在查询中识别到相关主体。'
             }
 
         # 2. 对每个主体，查找对应的知识
         knowledge_items = []
+        base_knowledge_items = []
         entities_found = []
 
         for entity_name in entities:
             normalized_name = entity_name.strip().lower()
 
-            # 查找主体是否存在于知识库
+            # 首先检查基础知识库（最高优先级）
+            base_fact = self.base_knowledge.get_base_fact(entity_name)
+            if base_fact:
+                base_knowledge_items.append({
+                    'entity_name': entity_name,
+                    'type': '基础知识',
+                    'content': base_fact['content'],
+                    'confidence': 1.0,  # 100%置信度
+                    'priority': 0,  # 最高优先级（数字越小优先级越高）
+                    'is_base_knowledge': True,
+                    'created_at': base_fact['created_at']
+                })
+                entities_found.append(entity_name)
+
+            # 查找主体是否存在于普通知识库
             if normalized_name in self.entity_name_map:
                 entity_uuid = self.entity_name_map[normalized_name]
                 entity = self.entities[entity_uuid]
-                entities_found.append(entity_name)
 
-                # 添加定义（最高优先级）
+                if entity_name not in entities_found:
+                    entities_found.append(entity_name)
+
+                # 添加定义（次优先级）
                 if entity['definition']:
                     definition = entity['definition']
-                    knowledge_items.append({
-                        'entity_name': entity['name'],
-                        'type': '定义',
-                        'content': definition['content'],
-                        'confidence': definition['confidence'],
-                        'priority': 1,  # 最高优先级
-                        'created_at': definition['created_at']
-                    })
 
-                # 添加相关信息（次优先级，只取最新的几条）
+                    # 如果定义来自基础知识，跳过（已经在基础知识中添加了）
+                    if not definition.get('is_base_knowledge', False):
+                        knowledge_items.append({
+                            'entity_name': entity['name'],
+                            'type': '定义',
+                            'content': definition['content'],
+                            'confidence': definition['confidence'],
+                            'priority': 1,  # 次优先级
+                            'created_at': definition['created_at']
+                        })
+
+                # 添加相关信息（第三优先级，只取最新的几条）
                 active_info = [
                     info for info in entity['related_info']
                     if not info.get('obsolete', False)
@@ -600,23 +663,26 @@ class KnowledgeBase:
                         'type': info['type'],
                         'content': info['content'],
                         'confidence': info['confidence'],
-                        'priority': 2,  # 次优先级
+                        'priority': 2,  # 第三优先级
                         'created_at': info['created_at']
                     })
 
-        # 3. 按优先级和置信度排序
-        knowledge_items.sort(key=lambda x: (x['priority'], -x['confidence']))
+        # 3. 合并基础知识和普通知识，按优先级和置信度排序
+        all_knowledge = base_knowledge_items + knowledge_items
+        all_knowledge.sort(key=lambda x: (x['priority'], -x['confidence']))
 
         # 4. 限制返回数量
-        knowledge_items = knowledge_items[:max_items]
+        all_knowledge = all_knowledge[:max_items]
 
         # 5. 生成摘要
-        summary = self._generate_knowledge_summary(entities_found, knowledge_items)
+        summary = self._generate_knowledge_summary(entities_found, all_knowledge)
 
         return {
             'query': query,
             'entities_found': entities_found,
             'knowledge_items': knowledge_items,
+            'base_knowledge_items': base_knowledge_items,
+            'all_knowledge': all_knowledge,
             'summary': summary
         }
 
@@ -887,6 +953,16 @@ class KnowledgeBase:
                 return item
         return None
 
+    def get_base_knowledge_prompt(self) -> str:
+        """
+        获取基础知识提示词文本，用于嵌入到系统提示词中
+        这些知识具有最高优先级，AI必须严格遵循
+
+        Returns:
+            基础知识提示词文本
+        """
+        return self.base_knowledge.generate_base_knowledge_prompt()
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         获取知识库统计信息
@@ -915,11 +991,15 @@ class KnowledgeBase:
         medium_confidence = sum(1 for k in all_knowledge if 0.7 <= k.get('confidence', 0) < 0.9)
         low_confidence = sum(1 for k in all_knowledge if k.get('confidence', 0) < 0.7)
 
+        # 获取基础知识库统计
+        base_kb_stats = self.base_knowledge.get_statistics()
+
         return {
             'total_entities': len(self.entities),
             'total_definitions': definition_count,
             'total_related_info': related_info_count,
             'total_knowledge': len(all_knowledge),
+            'base_knowledge_facts': base_kb_stats['total_facts'],  # 基础知识数量
             'type_distribution': type_counts,
             'confidence_distribution': {
                 'high (>=0.9)': high_confidence,
@@ -929,6 +1009,7 @@ class KnowledgeBase:
             'last_extraction': self.metadata.get('last_extraction', 'Never'),
             'created_at': self.metadata.get('created_at', 'Unknown'),
             'knowledge_file': self.knowledge_file,
+            'base_knowledge_file': self.base_knowledge.base_knowledge_file,
             'version': self.metadata.get('version', '2.0')
         }
 

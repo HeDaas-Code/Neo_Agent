@@ -493,36 +493,66 @@ class EnhancedChatDebugGUI:
         kb_toolbar = ttk.Frame(knowledge_tab)
         kb_toolbar.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Label(kb_toolbar, text="搜索:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=2)
+        # 第一行：基础知识信息
+        kb_info_frame = ttk.Frame(kb_toolbar)
+        kb_info_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.base_kb_info_label = ttk.Label(
+            kb_info_frame,
+            text="🔒 基础知识: 加载中...",
+            font=("微软雅黑", 9, "bold"),
+            foreground="#d35400"
+        )
+        self.base_kb_info_label.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            kb_info_frame,
+            text="查看基础知识",
+            width=12,
+            command=self.show_base_knowledge
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            kb_info_frame,
+            text="添加基础知识",
+            width=12,
+            command=self.add_base_knowledge
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 第二行：搜索和筛选
+        kb_search_frame = ttk.Frame(kb_toolbar)
+        kb_search_frame.pack(fill=tk.X)
+
+        ttk.Label(kb_search_frame, text="搜索:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=2)
 
         self.kb_search_var = tk.StringVar()
-        self.kb_search_entry = ttk.Entry(kb_toolbar, textvariable=self.kb_search_var, width=20)
+        self.kb_search_entry = ttk.Entry(kb_search_frame, textvariable=self.kb_search_var, width=20)
         self.kb_search_entry.pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            kb_toolbar,
+            kb_search_frame,
             text="🔍",
             width=3,
             command=self.search_knowledge
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            kb_toolbar,
+            kb_search_frame,
             text="刷新",
             width=6,
             command=self.update_knowledge_display
         ).pack(side=tk.LEFT, padx=2)
 
         # 知识类型筛选
-        ttk.Label(kb_toolbar, text="类型:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 2))
+        ttk.Label(kb_search_frame, text="类型:", font=("微软雅黑", 9)).pack(side=tk.LEFT, padx=(10, 2))
         self.kb_type_var = tk.StringVar(value="全部")
         self.kb_type_combo = ttk.Combobox(
-            kb_toolbar,
+            kb_search_frame,
             textvariable=self.kb_type_var,
             width=12,
             state="readonly"
         )
-        self.kb_type_combo['values'] = ['全部', '个人信息', '偏好', '事实', '经历', '观点', '其他']
+        self.kb_type_combo['values'] = ['全部', '基础知识', '个人信息', '偏好', '事实', '经历', '观点', '其他']
         self.kb_type_combo.pack(side=tk.LEFT, padx=2)
         self.kb_type_combo.bind('<<ComboboxSelected>>', lambda e: self.filter_knowledge_by_type())
 
@@ -655,6 +685,8 @@ class EnhancedChatDebugGUI:
         info.append(f"  短期记忆文件: {self.agent.memory_manager.short_term_file}")
         info.append(f"  长期记忆文件: {self.agent.memory_manager.long_term_file}")
         info.append(f"  知识库文件: {self.agent.memory_manager.knowledge_base.knowledge_file}")
+        if hasattr(self.agent.memory_manager.knowledge_base, 'base_knowledge'):
+            info.append(f"  基础知识库文件: {self.agent.memory_manager.knowledge_base.base_knowledge.base_knowledge_file}")
         info.append(f"  最大短期轮数: {self.agent.memory_manager.max_short_term_rounds}")
         info.append(f"  知识提取间隔: {self.agent.memory_manager.knowledge_extraction_interval} 轮")
         info.append(f"  API模型: {self.agent.llm.model_name}")
@@ -684,7 +716,10 @@ class EnhancedChatDebugGUI:
             return
 
         stats = self.agent.get_memory_stats()
+        base_kb_count = stats['knowledge_base'].get('base_knowledge_facts', 0)
         status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识库: {stats['knowledge_base']['total_knowledge']}条"
+        if base_kb_count > 0:
+            status_text += f" | 基础: {base_kb_count}条"
         self.memory_status_label.config(text=status_text)
 
     def update_short_term_display(self):
@@ -852,32 +887,95 @@ class EnhancedChatDebugGUI:
 
     def update_knowledge_display(self):
         """
-        更新知识库显示（支持新的主体-定义-信息结构）
+        更新知识库显示（支持基础知识和主体-定义-信息结构）
         """
         if not self.agent:
             return
 
+        # 更新基础知识信息标签
+        if hasattr(self.agent.memory_manager.knowledge_base, 'base_knowledge'):
+            base_kb = self.agent.memory_manager.knowledge_base.base_knowledge
+            base_facts = base_kb.get_all_base_facts()
+            self.base_kb_info_label.config(
+                text=f"🔒 基础知识: {len(base_facts)} 条 (优先级: 100%)"
+            )
+
         knowledge_list = self.agent.get_all_knowledge()
 
         if not knowledge_list:
+            # 即使没有普通知识，也显示基础知识
+            if hasattr(self.agent.memory_manager.knowledge_base, 'base_knowledge'):
+                base_kb = self.agent.memory_manager.knowledge_base.base_knowledge
+                base_facts = base_kb.get_all_base_facts()
+                if base_facts:
+                    text = []
+                    text.append("=" * 60)
+                    text.append("【核心基础知识库 - 最高优先级】")
+                    text.append("=" * 60)
+                    text.append("")
+
+                    for fact in base_facts:
+                        text.append(f"🔒 主体: {fact['entity_name']}")
+                        text.append(f"   内容: {fact['content']}")
+                        text.append(f"   分类: {fact['category']}")
+                        text.append(f"   优先级: {fact['priority']} | 置信度: {fact['confidence']*100:.0f}%")
+                        if fact.get('description'):
+                            text.append(f"   说明: {fact['description']}")
+                        text.append(f"   创建时间: {fact['created_at'][:19]}")
+                        text.append(f"   🔐 状态: 不可更改")
+                        text.append("")
+                        text.append("-" * 60)
+                        text.append("")
+
+                    text.append("\n普通知识库: 暂无知识\n对话超过5轮后将自动提取知识")
+                    self.update_text_widget(self.knowledge_display, "\n".join(text))
+                    return
+
             self.update_text_widget(self.knowledge_display, "暂无知识\n对话超过5轮后将自动提取知识")
             return
 
         text = []
-        text.append("=" * 50)
-        text.append(f"知识库 (共 {len(knowledge_list)} 条知识)")
+        text.append("=" * 60)
+        text.append(f"知识库总览")
 
         # 显示统计信息
         if hasattr(self.agent.memory_manager.knowledge_base, 'get_statistics'):
             stats = self.agent.memory_manager.knowledge_base.get_statistics()
-            text.append(f"主体数: {stats.get('total_entities', 0)} | "
+            text.append(f"基础知识: {stats.get('base_knowledge_facts', 0)} 条 (优先级100%) | "
+                       f"主体数: {stats.get('total_entities', 0)} | "
                        f"定义: {stats.get('total_definitions', 0)} | "
                        f"相关信息: {stats.get('total_related_info', 0)}")
 
-        text.append("=" * 50)
+        text.append("=" * 60)
         text.append("")
 
-        # 按主体分组显示
+        # 首先显示基础知识（如果有）
+        if hasattr(self.agent.memory_manager.knowledge_base, 'base_knowledge'):
+            base_kb = self.agent.memory_manager.knowledge_base.base_knowledge
+            base_facts = base_kb.get_all_base_facts()
+
+            if base_facts:
+                text.append("╔" + "═" * 58 + "╗")
+                text.append("║" + " " * 15 + "【核心基础知识 - 优先级100%】" + " " * 15 + "║")
+                text.append("╚" + "═" * 58 + "╝")
+                text.append("")
+
+                for fact in base_facts:
+                    text.append(f"🔒 主体: {fact['entity_name']}")
+                    text.append(f"   ● 内容: {fact['content']}")
+                    text.append(f"   ● 分类: {fact['category']} | 置信度: {fact['confidence']*100:.0f}%")
+                    if fact.get('description'):
+                        text.append(f"   ● 说明: {fact['description']}")
+                    text.append(f"   ● 时间: {fact['created_at'][:19]} | 状态: 🔐 不可更改")
+                    text.append("")
+
+                text.append("=" * 60)
+                text.append("")
+
+        # 显示普通知识库（按主体分组显示）
+        text.append("【普通知识库】")
+        text.append("")
+
         knowledge_by_entity = {}
         for k in knowledge_list:
             entity_name = k.get('entity_name', '未知主体')
@@ -890,7 +988,7 @@ class EnhancedChatDebugGUI:
                 knowledge_by_entity[entity_name]['related'].append(k)
 
         for entity_name, items in knowledge_by_entity.items():
-            text.append(f"【主体: {entity_name}】")
+            text.append(f"📌 主体: {entity_name}")
             text.append("")
 
             # 显示定义（高置信度）
@@ -898,11 +996,18 @@ class EnhancedChatDebugGUI:
                 for definition in items['definitions']:
                     confidence = definition.get('confidence', 1.0)
                     confidence_icon = "⭐" if confidence >= 0.9 else "✓"
-                    text.append(f"  {confidence_icon} 定义 (置信度: {confidence:.2f})")
+
+                    # 检查是否来自基础知识
+                    is_base = definition.get('is_base_knowledge', False)
+                    base_mark = " [基础知识]" if is_base else ""
+
+                    text.append(f"  {confidence_icon} 定义 (置信度: {confidence:.2f}){base_mark}")
                     text.append(f"     内容: {definition.get('content', '')}")
                     text.append(f"     类型: {definition.get('type', '')}")
                     text.append(f"     来源: {definition.get('source', '')}")
                     text.append(f"     时间: {definition.get('created_at', '')[:19]}")
+                    if is_base:
+                        text.append(f"     🔐 此定义来自基础知识库，不可更改")
                     text.append(f"     UUID: {definition.get('uuid', '')}")
                     text.append("")
 
@@ -918,7 +1023,7 @@ class EnhancedChatDebugGUI:
                     if i < len(items['related']):
                         text.append("")
 
-            text.append("-" * 50)
+            text.append("-" * 60)
             text.append("")
 
         self.update_text_widget(self.knowledge_display, "\n".join(text))
@@ -1022,6 +1127,198 @@ class EnhancedChatDebugGUI:
             text.append("-" * 50)
 
         self.update_text_widget(self.knowledge_display, "\n".join(text))
+
+    def show_base_knowledge(self):
+        """
+        显示基础知识库详情
+        """
+        if not self.agent:
+            return
+
+        base_kb = self.agent.memory_manager.knowledge_base.base_knowledge
+        base_facts = base_kb.get_all_base_facts()
+
+        if not base_facts:
+            messagebox.showinfo("基础知识库", "基础知识库为空")
+            return
+
+        # 创建新窗口显示基础知识
+        base_window = tk.Toplevel(self.root)
+        base_window.title("基础知识库 - 最高优先级")
+        base_window.geometry("700x500")
+
+        # 标题
+        title_frame = ttk.Frame(base_window, padding=10)
+        title_frame.pack(fill=tk.X)
+
+        ttk.Label(
+            title_frame,
+            text="🔒 基础知识库（优先级: 100% | 不可更改）",
+            font=("微软雅黑", 12, "bold"),
+            foreground="#d35400"
+        ).pack()
+
+        # 统计信息
+        stats = base_kb.get_statistics()
+        ttk.Label(
+            title_frame,
+            text=f"总计: {stats['total_facts']} 条基础事实",
+            font=("微软雅黑", 9)
+        ).pack()
+
+        # 显示区域
+        text_widget = scrolledtext.ScrolledText(
+            base_window,
+            wrap=tk.WORD,
+            font=("微软雅黑", 10),
+            bg="#fff9e6"
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # 生成显示内容
+        text = []
+        text.append(base_kb.generate_base_knowledge_prompt())
+        text.append("\n")
+        text.append("=" * 60)
+        text.append("详细信息")
+        text.append("=" * 60)
+        text.append("")
+
+        for i, fact in enumerate(base_facts, 1):
+            text.append(f"{i}. 【{fact['entity_name']}】")
+            text.append(f"   内容: {fact['content']}")
+            text.append(f"   分类: {fact['category']}")
+            text.append(f"   优先级: {fact['priority']} | 置信度: {fact['confidence']*100:.0f}%")
+            if fact.get('description'):
+                text.append(f"   说明: {fact['description']}")
+            text.append(f"   创建时间: {fact['created_at'][:19]}")
+            text.append(f"   不可变: {'是' if fact.get('immutable', True) else '否'}")
+            text.append("")
+
+        text_widget.insert(tk.END, "\n".join(text))
+        text_widget.config(state=tk.DISABLED)
+
+        # 关闭按钮
+        ttk.Button(
+            base_window,
+            text="关闭",
+            command=base_window.destroy
+        ).pack(pady=10)
+
+    def add_base_knowledge(self):
+        """
+        添加基础知识对话框
+        """
+        if not self.agent:
+            return
+
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("添加基础知识")
+        dialog.geometry("600x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 标题
+        ttk.Label(
+            dialog,
+            text="添加核心基础知识",
+            font=("微软雅黑", 12, "bold")
+        ).pack(pady=10)
+
+        ttk.Label(
+            dialog,
+            text="基础知识具有最高优先级（100%），不可被覆盖或更改",
+            font=("微软雅黑", 9),
+            foreground="#d35400"
+        ).pack()
+
+        # 输入框架
+        input_frame = ttk.Frame(dialog, padding=15)
+        input_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 实体名称
+        ttk.Label(input_frame, text="实体名称:", font=("微软雅黑", 10)).grid(row=0, column=0, sticky=tk.W, pady=5)
+        entity_entry = ttk.Entry(input_frame, width=40, font=("微软雅黑", 10))
+        entity_entry.grid(row=0, column=1, pady=5, padx=10)
+
+        # 事实内容
+        ttk.Label(input_frame, text="事实内容:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky=tk.NW, pady=5)
+        content_text = tk.Text(input_frame, width=40, height=4, font=("微软雅黑", 10))
+        content_text.grid(row=1, column=1, pady=5, padx=10)
+
+        # 分类
+        ttk.Label(input_frame, text="分类:", font=("微软雅黑", 10)).grid(row=2, column=0, sticky=tk.W, pady=5)
+        category_var = tk.StringVar(value="通用")
+        category_combo = ttk.Combobox(
+            input_frame,
+            textvariable=category_var,
+            width=38,
+            font=("微软雅黑", 10)
+        )
+        category_combo['values'] = ['机构类型', '人物定义', '地点定义', '事物定义', '关系定义', '通用']
+        category_combo.grid(row=2, column=1, pady=5, padx=10)
+
+        # 说明
+        ttk.Label(input_frame, text="说明:", font=("微软雅黑", 10)).grid(row=3, column=0, sticky=tk.NW, pady=5)
+        desc_text = tk.Text(input_frame, width=40, height=3, font=("微软雅黑", 10))
+        desc_text.grid(row=3, column=1, pady=5, padx=10)
+
+        # 提示信息
+        tip_frame = ttk.Frame(dialog)
+        tip_frame.pack(fill=tk.X, padx=15, pady=5)
+        ttk.Label(
+            tip_frame,
+            text="⚠️ 注意：基础知识一旦添加，将优先于所有其他信息，即使与现实相悖也会被遵循",
+            font=("微软雅黑", 8),
+            foreground="red",
+            wraplength=550
+        ).pack()
+
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=15)
+
+        def save_base_knowledge():
+            entity_name = entity_entry.get().strip()
+            content = content_text.get("1.0", tk.END).strip()
+            category = category_var.get().strip()
+            description = desc_text.get("1.0", tk.END).strip()
+
+            if not entity_name or not content:
+                messagebox.showwarning("输入错误", "实体名称和事实内容不能为空")
+                return
+
+            # 添加基础知识
+            base_kb = self.agent.memory_manager.knowledge_base.base_knowledge
+            success = base_kb.add_base_fact(
+                entity_name=entity_name,
+                fact_content=content,
+                category=category,
+                description=description,
+                immutable=True
+            )
+
+            if success:
+                messagebox.showinfo("成功", f"已添加基础知识：{entity_name}")
+                self.update_knowledge_display()
+                dialog.destroy()
+            else:
+                messagebox.showerror("失败", "添加基础知识失败（可能已存在同名实体）")
+
+        ttk.Button(
+            button_frame,
+            text="保存",
+            command=save_base_knowledge,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="取消",
+            command=dialog.destroy,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
     def update_timeline(self):
         """
