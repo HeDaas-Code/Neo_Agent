@@ -8,9 +8,215 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, Canvas
 from datetime import datetime
 import threading
+import math
 from typing import Dict, Any, List, Optional
 from chat_agent import ChatAgent
 from debug_logger import get_debug_logger
+from emotion_analyzer import format_emotion_summary
+
+
+class EmotionRadarCanvas(Canvas):
+    """
+    情感关系雷达图画布
+    用于可视化展示情感关系的5个维度
+    """
+
+    def __init__(self, parent, **kwargs):
+        """
+        初始化雷达图画布
+
+        Args:
+            parent: 父容器
+        """
+        super().__init__(parent, **kwargs)
+        self.emotion_data = None
+        self.dimensions = ["亲密度", "信任度", "愉悦度", "共鸣度", "依赖度"]
+        self.colors = {
+            'bg': '#f8f9fa',
+            'grid': '#dee2e6',
+            'axis': '#adb5bd',
+            'text': '#495057',
+            'fill': '#4ecdc4',
+            'line': '#2c9c94',
+            'highlight': '#ff6b6b'
+        }
+
+        # 绑定事件
+        self.bind('<Configure>', self.on_resize)
+
+    def update_emotion(self, emotion_data: Dict[str, Any]):
+        """
+        更新情感数据并重绘
+
+        Args:
+            emotion_data: 情感分析数据
+        """
+        debug_logger = get_debug_logger()
+        debug_logger.log_info('EmotionRadarCanvas', '更新情感数据', {
+            'has_data': bool(emotion_data),
+            'dimensions': list(emotion_data.keys()) if emotion_data else []
+        })
+
+        self.emotion_data = emotion_data
+        self.draw_radar()
+
+        debug_logger.log_info('EmotionRadarCanvas', '雷达图重绘完成')
+
+    def draw_radar(self):
+        """
+        绘制雷达图
+        """
+        self.delete('all')  # 清空画布
+
+        width = self.winfo_width()
+        height = self.winfo_height()
+
+        if width <= 1 or height <= 1:
+            return
+
+        # 计算中心点和半径
+        center_x = width // 2
+        center_y = height // 2
+        max_radius = min(width, height) // 2 - 60  # 留出空间显示标签
+
+        if max_radius < 20:
+            return
+
+        # 如果没有数据，显示提示
+        if not self.emotion_data:
+            self.create_text(
+                center_x, center_y,
+                text="暂无情感分析数据\n对话后点击「分析情感关系」按钮",
+                font=('微软雅黑', 10),
+                fill='#999999',
+                justify=tk.CENTER
+            )
+            return
+
+        # 绘制背景网格（5层）
+        for i in range(5, 0, -1):
+            radius = max_radius * (i / 5)
+            self._draw_pentagon(center_x, center_y, radius, fill='', outline=self.colors['grid'], width=1)
+
+            # 绘制刻度值
+            if i % 1 == 0:
+                value = i * 20
+                self.create_text(
+                    center_x + 5, center_y - radius,
+                    text=str(value),
+                    font=('Arial', 8),
+                    fill=self.colors['axis']
+                )
+
+        # 绘制5条轴线
+        for i in range(5):
+            angle = math.radians(90 - i * 72)  # 从顶部开始，顺时针
+            end_x = center_x + max_radius * math.cos(angle)
+            end_y = center_y - max_radius * math.sin(angle)
+            self.create_line(
+                center_x, center_y, end_x, end_y,
+                fill=self.colors['axis'], width=1
+            )
+
+            # 绘制维度标签
+            label_distance = max_radius + 30
+            label_x = center_x + label_distance * math.cos(angle)
+            label_y = center_y - label_distance * math.sin(angle)
+
+            dimension = self.dimensions[i]
+            score = self.emotion_data.get(dimension, 0)
+
+            self.create_text(
+                label_x, label_y,
+                text=f"{dimension}\n{score}",
+                font=('微软雅黑', 9, 'bold'),
+                fill=self.colors['text'],
+                justify=tk.CENTER
+            )
+
+        # 绘制数据多边形
+        points = []
+        for i in range(5):
+            angle = math.radians(90 - i * 72)
+            dimension = self.dimensions[i]
+            score = self.emotion_data.get(dimension, 0)
+            radius = max_radius * (score / 100)
+            x = center_x + radius * math.cos(angle)
+            y = center_y - radius * math.sin(angle)
+            points.extend([x, y])
+
+        # 填充多边形
+        self.create_polygon(
+            points,
+            fill=self.colors['fill'],
+            outline=self.colors['line'],
+            width=2,
+            stipple='gray50'  # 半透明效果
+        )
+
+        # 绘制数据点
+        for i in range(0, len(points), 2):
+            x, y = points[i], points[i + 1]
+            self.create_oval(
+                x - 4, y - 4, x + 4, y + 4,
+                fill=self.colors['line'],
+                outline='white',
+                width=2
+            )
+
+        # 绘制中心信息
+        relationship_type = self.emotion_data.get('relationship_type', '未知')
+        overall_score = self.emotion_data.get('overall_score', 0)
+        emotional_tone = self.emotion_data.get('emotional_tone', '未知')
+
+        self.create_text(
+            center_x, center_y - 10,
+            text=relationship_type,
+            font=('微软雅黑', 12, 'bold'),
+            fill=self.colors['highlight']
+        )
+
+        self.create_text(
+            center_x, center_y + 10,
+            text=f"总评: {overall_score}/100",
+            font=('微软雅黑', 9),
+            fill=self.colors['text']
+        )
+
+        self.create_text(
+            center_x, center_y + 28,
+            text=f"基调: {emotional_tone}",
+            font=('微软雅黑', 8),
+            fill=self.colors['text']
+        )
+
+    def _draw_pentagon(self, center_x, center_y, radius, **kwargs):
+        """
+        绘制正五边形
+
+        Args:
+            center_x: 中心X坐标
+            center_y: 中心Y坐标
+            radius: 半径
+            **kwargs: 其他绘图参数
+        """
+        points = []
+        for i in range(5):
+            angle = math.radians(90 - i * 72)
+            x = center_x + radius * math.cos(angle)
+            y = center_y - radius * math.sin(angle)
+            points.extend([x, y])
+
+        self.create_polygon(points, **kwargs)
+
+    def on_resize(self, event):
+        """
+        窗口大小改变事件处理
+
+        Args:
+            event: 事件对象
+        """
+        self.draw_radar()
 
 
 class TopicTimelineCanvas(Canvas):
@@ -268,18 +474,69 @@ class EnhancedChatDebugGUI:
         main_container = ttk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 上部：主题时间线（固定高度）
-        timeline_frame = ttk.LabelFrame(main_container, text="📊 对话主题时间线", padding=5, height=130)
-        timeline_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
-        timeline_frame.pack_propagate(False)  # 固定高度，防止过大
+        # 上部：可视化区域（时间线和雷达图的标签页，固定高度）
+        visualization_frame = ttk.LabelFrame(main_container, text="📊 数据可视化", padding=5, height=280)
+        visualization_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
+        visualization_frame.pack_propagate(False)  # 固定高度
 
-        # 时间线画布
+        # 创建标签页控件
+        viz_notebook = ttk.Notebook(visualization_frame)
+        viz_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # 标签页1：对话主题时间线
+        timeline_tab = ttk.Frame(viz_notebook)
+        viz_notebook.add(timeline_tab, text="📈 主题时间线")
+
         self.timeline_canvas = TopicTimelineCanvas(
-            timeline_frame,
+            timeline_tab,
             bg='#f8f9fa',
             highlightthickness=0
         )
         self.timeline_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # 标签页2：情感关系雷达图
+        emotion_tab = ttk.Frame(viz_notebook)
+        viz_notebook.add(emotion_tab, text="💖 情感关系")
+
+        # 创建一个水平容器用于雷达图和详细信息
+        emotion_container = ttk.Frame(emotion_tab)
+        emotion_container.pack(fill=tk.BOTH, expand=True)
+
+        # 左侧：雷达图
+        radar_frame = ttk.Frame(emotion_container)
+        radar_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.emotion_canvas = EmotionRadarCanvas(
+            radar_frame,
+            bg='#f8f9fa',
+            highlightthickness=0
+        )
+        self.emotion_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # 右侧：详细信息和控制按钮
+        emotion_info_frame = ttk.Frame(emotion_container, width=250)
+        emotion_info_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        emotion_info_frame.pack_propagate(False)
+
+        # 分析按钮
+        ttk.Button(
+            emotion_info_frame,
+            text="🔍 分析情感关系",
+            command=self.analyze_emotion,
+            width=20
+        ).pack(pady=5)
+
+        # 情感分析详细信息
+        self.emotion_info_text = scrolledtext.ScrolledText(
+            emotion_info_frame,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT,
+            height=12
+        )
+        self.emotion_info_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.emotion_info_text.config(state=tk.DISABLED)
 
         # 主分割窗格
         main_paned = ttk.PanedWindow(main_container, orient=tk.HORIZONTAL)
@@ -795,6 +1052,76 @@ class EnhancedChatDebugGUI:
         self.update_understanding_display()  # 新增：更新理解阶段显示
         self.update_knowledge_display()
         self.update_timeline()
+
+    def analyze_emotion(self):
+        """
+        分析情感关系
+        """
+        if not self.agent:
+            messagebox.showwarning("警告", "聊天代理未初始化")
+            return
+
+        # 检查对话数量
+        history = self.agent.get_conversation_history()
+        if len(history) < 2:
+            messagebox.showinfo("提示", "对话轮数太少，至少需要1轮对话（2条消息）才能进行情感分析")
+            return
+
+        debug_logger = get_debug_logger()
+        debug_logger.log_module('GUI', '用户触发情感分析', {
+            'history_count': len(history)
+        })
+
+        # 在线程中执行分析，避免UI卡顿
+        def analyze_thread():
+            try:
+                self.update_status("分析情感关系中...", "orange")
+                debug_logger.log_info('GUI', '开始情感分析线程')
+
+                # 调用情感分析
+                emotion_data = self.agent.analyze_emotion()
+
+                debug_logger.log_info('GUI', '情感分析线程完成', {
+                    'overall_score': emotion_data.get('overall_score', 0),
+                    'relationship_type': emotion_data.get('relationship_type', '未知')
+                })
+
+                # 更新显示
+                self.root.after(0, lambda: self.update_emotion_display(emotion_data))
+                self.root.after(0, lambda: self.update_status("情感分析完成", "green"))
+                self.root.after(0, lambda: messagebox.showinfo("完成", "情感关系分析已完成！"))
+
+            except Exception as e:
+                debug_logger.log_error('GUI', f'情感分析线程出错: {str(e)}', e)
+                self.root.after(0, lambda: self.update_status("分析失败", "red"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"情感分析时出错：\n{str(e)}"))
+
+        thread = threading.Thread(target=analyze_thread, daemon=True)
+        thread.start()
+
+    def update_emotion_display(self, emotion_data: Dict[str, Any]):
+        """
+        更新情感关系显示
+
+        Args:
+            emotion_data: 情感分析数据
+        """
+        if not emotion_data:
+            return
+
+        debug_logger = get_debug_logger()
+        debug_logger.log_info('GUI', '更新情感显示', {
+            'has_data': bool(emotion_data)
+        })
+
+        # 更新雷达图
+        self.emotion_canvas.update_emotion(emotion_data)
+
+        # 更新详细信息文本
+        info_text = format_emotion_summary(emotion_data)
+        self.update_text_widget(self.emotion_info_text, info_text)
+
+        debug_logger.log_info('GUI', '情感显示更新完成')
 
     def update_memory_status(self):
         """

@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import requests
 from long_term_memory import LongTermMemoryManager
 from debug_logger import get_debug_logger
+from emotion_analyzer import EmotionRelationshipAnalyzer
 
 # 加载环境变量
 load_dotenv()
@@ -337,6 +338,9 @@ class ChatAgent:
         self.llm = SiliconFlowLLM()
         self.system_prompt = self.character.get_system_prompt()
 
+        # 初始化情感关系分析器
+        self.emotion_analyzer = EmotionRelationshipAnalyzer()
+
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
         print(f"短期记忆: {stats['short_term']['rounds']} 轮对话")
@@ -586,6 +590,43 @@ class ChatAgent:
             匹配的知识列表
         """
         return self.memory_manager.knowledge_base.search_knowledge(keyword, knowledge_type)
+
+    def analyze_emotion(self) -> Dict[str, Any]:
+        """
+        分析当前情感关系
+        基于最近10轮对话（20条消息）
+
+        Returns:
+            情感分析结果字典
+        """
+        # 获取最近20条消息（10轮对话）
+        messages = self.memory_manager.get_recent_messages(count=20)
+
+        # 调用情感分析器
+        emotion_data = self.emotion_analyzer.analyze_emotion_relationship(
+            messages=messages,
+            character_name=self.character.name
+        )
+
+        return emotion_data
+
+    def get_emotion_history(self) -> List[Dict[str, Any]]:
+        """
+        获取情感关系历史记录
+
+        Returns:
+            情感历史数据列表
+        """
+        return self.emotion_analyzer.get_emotion_trend()
+
+    def get_latest_emotion(self) -> Dict[str, Any]:
+        """
+        获取最新的情感分析结果
+
+        Returns:
+            最新情感数据
+        """
+        return self.emotion_analyzer.get_latest_emotion()
 
 
 # 测试代码
