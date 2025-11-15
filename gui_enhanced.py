@@ -981,6 +981,20 @@ class EnhancedChatDebugGUI:
             stats = self.agent.get_memory_stats()
             self._last_kb_count = stats['knowledge_base']['total_knowledge']
 
+            # 记录初始情感分析数量
+            emotion_history = self.agent.get_emotion_history()
+            self._last_emotion_count = len(emotion_history)
+
+            # 如果已有情感数据，加载并显示最新的
+            if emotion_history:
+                latest_emotion = self.agent.get_latest_emotion()
+                if latest_emotion:
+                    self.update_emotion_display(latest_emotion)
+                    print(f"✓ 加载已有情感数据: {len(emotion_history)} 条记录")
+                    print(f"  最新关系类型: {latest_emotion.get('relationship_type', '未知')}")
+                    print(f"  情感基调: {latest_emotion.get('emotional_tone', '未知')}")
+                    print(f"  总体评分: {latest_emotion.get('overall_score', 0)}/100")
+
             # 更新所有信息显示
             self.update_character_info()
             self.update_system_info()
@@ -988,6 +1002,13 @@ class EnhancedChatDebugGUI:
 
             # 显示欢迎消息
             self.add_system_message("系统初始化完成！开始对话吧～")
+
+            # 如果有情感数据，显示提示
+            if emotion_history:
+                self.add_system_message(
+                    f"💖 已加载情感分析数据 ({len(emotion_history)} 条) | "
+                    f"当前关系：{latest_emotion.get('relationship_type', '未知')}"
+                )
 
             self.update_status("就绪", "green")
 
@@ -2025,6 +2046,37 @@ class EnhancedChatDebugGUI:
                 extracted_count = new_kb_count - old_kb_count
                 self.add_knowledge_extraction_message(extracted_count)
                 self._last_kb_count = new_kb_count
+
+        # 检查是否进行了自动情感分析（每10轮）
+        short_term_rounds = stats['short_term']['rounds']
+        if short_term_rounds > 0 and short_term_rounds % 10 == 0:
+            # 可能刚进行了情感分析，检查是否有新的情感数据
+            old_emotion_count = getattr(self, '_last_emotion_count', 0)
+            emotion_history = self.agent.get_emotion_history()
+            new_emotion_count = len(emotion_history)
+
+            if new_emotion_count > old_emotion_count:
+                # 有新的情感分析结果，自动刷新显示
+                latest_emotion = self.agent.get_latest_emotion()
+                if latest_emotion:
+                    debug_logger = get_debug_logger()
+                    debug_logger.log_info('GUI', '检测到新的情感分析结果，自动刷新显示', {
+                        'emotion_count': new_emotion_count,
+                        'relationship_type': latest_emotion.get('relationship_type', '未知'),
+                        'overall_score': latest_emotion.get('overall_score', 0)
+                    })
+
+                    # 刷新情感显示
+                    self.update_emotion_display(latest_emotion)
+
+                    # 在聊天窗口显示提示
+                    self.add_system_message(
+                        f"💖 情感分析已更新 | 关系：{latest_emotion.get('relationship_type', '未知')} | "
+                        f"评分：{latest_emotion.get('overall_score', 0)}/100 | "
+                        f"基调：{latest_emotion.get('emotional_tone', '未知')}"
+                    )
+
+                    self._last_emotion_count = new_emotion_count
 
         # 更新显示
         self.refresh_all()

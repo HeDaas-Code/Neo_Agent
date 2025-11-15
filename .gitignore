@@ -6,6 +6,7 @@ longmemory_data.json
 memory_data.json
 knowledge_base.json
 base_knowledge.json
+emotion_data.json
 
 # API密钥和敏感信息
 .env

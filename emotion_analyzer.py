@@ -26,7 +26,8 @@ class EmotionRelationshipAnalyzer:
     def __init__(self,
                  api_key: str = None,
                  api_url: str = None,
-                 model_name: str = None):
+                 model_name: str = None,
+                 emotion_file: str = None):
         """
         初始化情感关系分析器
 
@@ -34,10 +35,12 @@ class EmotionRelationshipAnalyzer:
             api_key: API密钥
             api_url: API地址
             model_name: 模型名称
+            emotion_file: 情感数据文件路径
         """
         self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'deepseek-ai/DeepSeek-V3')
+        self.emotion_file = emotion_file or 'emotion_data.json'
 
         # 情感关系维度
         self.emotion_dimensions = [
@@ -50,6 +53,9 @@ class EmotionRelationshipAnalyzer:
 
         # 情感历史记录
         self.emotion_history: List[Dict[str, Any]] = []
+
+        # 加载已有的情感数据
+        self._load_emotion_data()
 
     def analyze_emotion_relationship(self,
                                     messages: List[Dict[str, str]],
@@ -110,6 +116,9 @@ class EmotionRelationshipAnalyzer:
             # 保存到历史记录
             self.emotion_history.append(emotion_data)
 
+            # 保存到文件
+            self._save_emotion_data()
+
             debug_logger.log_info('EmotionAnalyzer', '情感分析完成', {
                 'overall_score': emotion_data.get('overall_score', 0),
                 'relationship_type': emotion_data.get('relationship_type', '未知'),
@@ -122,6 +131,35 @@ class EmotionRelationshipAnalyzer:
             debug_logger.log_error('EmotionAnalyzer', f'情感分析时出错: {str(e)}', e)
             print(f"情感分析时出错: {e}")
             return self._get_default_emotion_result()
+
+    def _load_emotion_data(self):
+        """
+        从文件加载情感数据
+        """
+        try:
+            if os.path.exists(self.emotion_file):
+                with open(self.emotion_file, 'r', encoding='utf-8') as f:
+                    self.emotion_history = json.load(f)
+                debug_logger.log_info('EmotionAnalyzer', '情感数据加载成功', {
+                    'data_count': len(self.emotion_history)
+                })
+                print(f"✓ 加载情感数据: {len(self.emotion_history)} 条记录")
+        except Exception as e:
+            debug_logger.log_error('EmotionAnalyzer', f'加载情感数据失败: {str(e)}', e)
+            self.emotion_history = []
+
+    def _save_emotion_data(self):
+        """
+        保存情感数据到文件
+        """
+        try:
+            with open(self.emotion_file, 'w', encoding='utf-8') as f:
+                json.dump(self.emotion_history, f, ensure_ascii=False, indent=2)
+            debug_logger.log_info('EmotionAnalyzer', '情感数据保存成功', {
+                'data_count': len(self.emotion_history)
+            })
+        except Exception as e:
+            debug_logger.log_error('EmotionAnalyzer', f'保存情感数据失败: {str(e)}', e)
 
     def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
         """
@@ -359,6 +397,155 @@ class EmotionRelationshipAnalyzer:
             最新情感数据，如果没有则返回None
         """
         return self.emotion_history[-1] if self.emotion_history else None
+
+    def generate_tone_prompt(self) -> str:
+        """
+        根据最新情感分析生成对话语气提示
+
+        Returns:
+            语气提示文本，如果没有情感数据则返回空字符串
+        """
+        latest_emotion = self.get_latest_emotion()
+        if not latest_emotion:
+            debug_logger.log_info('EmotionAnalyzer', '无情感数据，无法生成语气提示')
+            return ""
+
+        debug_logger.log_info('EmotionAnalyzer', '开始生成情感语气提示', {
+            'has_emotion_data': True
+        })
+
+        # 提取关键信息
+        relationship_type = latest_emotion.get('relationship_type', '普通朋友')
+        emotional_tone = latest_emotion.get('emotional_tone', '中性')
+        intimacy = latest_emotion.get('亲密度', 50)
+        trust = latest_emotion.get('信任度', 50)
+        pleasure = latest_emotion.get('愉悦度', 50)
+        resonance = latest_emotion.get('共鸣度', 50)
+        dependence = latest_emotion.get('依赖度', 50)
+        overall_score = latest_emotion.get('overall_score', 50)
+
+        debug_logger.log_info('EmotionAnalyzer', '提取情感维度数据', {
+            'relationship_type': relationship_type,
+            'emotional_tone': emotional_tone,
+            'intimacy': intimacy,
+            'trust': trust,
+            'pleasure': pleasure,
+            'resonance': resonance,
+            'dependence': dependence,
+            'overall_score': overall_score
+        })
+
+        # 构建语气提示
+        prompt_parts = ["\n【当前情感关系状态】"]
+        prompt_parts.append(f"你和用户的关系类型：{relationship_type}")
+        prompt_parts.append(f"整体情感基调：{emotional_tone}")
+        prompt_parts.append(f"关系总评分：{overall_score}/100")
+
+        prompt_parts.append("\n【各维度情感状态】")
+
+        # 亲密度
+        intimacy_desc = ""
+        if intimacy >= 80:
+            intimacy_desc = "非常亲密，可以像密友一样交流"
+        elif intimacy >= 60:
+            intimacy_desc = "比较亲密，可以分享更多个人想法"
+        elif intimacy >= 40:
+            intimacy_desc = "普通熟悉，保持适当距离感"
+        else:
+            intimacy_desc = "还不够熟悉，需要更温和友好"
+        prompt_parts.append(f"• 亲密度: {intimacy}/100 - {intimacy_desc}")
+
+        # 信任度
+        trust_desc = ""
+        if trust >= 80:
+            trust_desc = "用户非常信任你，可以给出更深入的建议"
+        elif trust >= 60:
+            trust_desc = "用户较为信任，可以分享更多见解"
+        elif trust >= 40:
+            trust_desc = "信任度一般，需要更真诚的态度"
+        else:
+            trust_desc = "信任度较低，需要展现更多可靠性"
+        prompt_parts.append(f"• 信任度: {trust}/100 - {trust_desc}")
+
+        # 愉悦度
+        pleasure_desc = ""
+        if pleasure >= 80:
+            pleasure_desc = "对话氛围很好，保持活泼积极"
+        elif pleasure >= 60:
+            pleasure_desc = "对话较愉快，继续保持"
+        elif pleasure >= 40:
+            pleasure_desc = "对话较平淡，可以更有趣些"
+        else:
+            pleasure_desc = "用户可能不太开心，需要更关心体贴"
+        prompt_parts.append(f"• 愉悦度: {pleasure}/100 - {pleasure_desc}")
+
+        # 共鸣度
+        resonance_desc = ""
+        if resonance >= 80:
+            resonance_desc = "很有共鸣，可以深入探讨共同话题"
+        elif resonance >= 60:
+            resonance_desc = "有一定共鸣，继续寻找共同点"
+        elif resonance >= 40:
+            resonance_desc = "共鸣一般，需要更理解用户"
+        else:
+            resonance_desc = "缺乏共鸣，需要更多倾听和理解"
+        prompt_parts.append(f"• 共鸣度: {resonance}/100 - {resonance_desc}")
+
+        # 依赖度
+        dependence_desc = ""
+        if dependence >= 80:
+            dependence_desc = "用户很依赖你，要负责任地给予支持"
+        elif dependence >= 60:
+            dependence_desc = "用户较依赖你，继续提供帮助"
+        elif dependence >= 40:
+            dependence_desc = "依赖度一般，可以提供更多价值"
+        else:
+            dependence_desc = "依赖度较低，需要展现更多能力"
+        prompt_parts.append(f"• 依赖度: {dependence}/100 - {dependence_desc}")
+
+        # 添加对话建议
+        prompt_parts.append("\n【对话语气建议】")
+
+        # 根据情感基调调整语气
+        if emotional_tone == "积极":
+            prompt_parts.append("• 保持积极乐观的态度，继续营造愉快氛围")
+        elif emotional_tone == "消极":
+            prompt_parts.append("• 注意用户情绪，给予更多关心和支持")
+        else:
+            prompt_parts.append("• 保持友好平和的态度")
+
+        # 根据关系类型调整语气
+        if relationship_type in ["知己", "亲密朋友", "好友"]:
+            prompt_parts.append("• 可以使用更亲昵的语气，像老朋友一样交流")
+            prompt_parts.append("• 可以分享更多个人想法和情感")
+        elif relationship_type in ["朋友", "熟人"]:
+            prompt_parts.append("• 保持友好但不过分亲密的语气")
+            prompt_parts.append("• 适度分享，注意边界")
+        elif relationship_type in ["初识", "陌生人"]:
+            prompt_parts.append("• 保持礼貌友好，但不要太过热情")
+            prompt_parts.append("• 逐步建立信任，不要急于深入")
+
+        # 根据综合评分调整
+        if overall_score >= 80:
+            prompt_parts.append("• 关系很好，可以更自在地表达")
+        elif overall_score >= 60:
+            prompt_parts.append("• 关系不错，继续保持和发展")
+        elif overall_score >= 40:
+            prompt_parts.append("• 关系一般，需要更用心经营")
+        else:
+            prompt_parts.append("• 关系需要改善，要更关注用户需求")
+
+        prompt_parts.append("\n⚠️ 请根据以上情感状态调整你的回复语气和态度，使对话更自然、更贴合当前关系。")
+
+        tone_prompt = '\n'.join(prompt_parts)
+
+        debug_logger.log_info('EmotionAnalyzer', '情感语气提示生成完成', {
+            'prompt_length': len(tone_prompt),
+            'relationship_type': relationship_type,
+            'overall_score': overall_score
+        })
+
+        return tone_prompt
 
     def export_emotion_data(self, filepath: str):
         """
