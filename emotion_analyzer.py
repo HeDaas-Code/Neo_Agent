@@ -1,6 +1,7 @@
 """
 情感关系分析模块
 基于近10轮对话，使用LLM分析与对话人的情感关系
+使用数据库替代JSON文件存储
 """
 
 import os
@@ -9,6 +10,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
+from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 
 load_dotenv()
@@ -21,26 +23,29 @@ class EmotionRelationshipAnalyzer:
     """
     情感关系分析器
     分析用户和AI角色之间的情感关系变化
+    使用数据库存储替代JSON文件
     """
 
     def __init__(self,
+                 db_manager: DatabaseManager = None,
                  api_key: str = None,
                  api_url: str = None,
-                 model_name: str = None,
-                 emotion_file: str = None):
+                 model_name: str = None):
         """
         初始化情感关系分析器
 
         Args:
+            db_manager: 数据库管理器实例（如果为None则创建新实例）
             api_key: API密钥
             api_url: API地址
             model_name: 模型名称
-            emotion_file: 情感数据文件路径
         """
+        # 使用共享的数据库管理器
+        self.db = db_manager or DatabaseManager()
+
         self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'deepseek-ai/DeepSeek-V3')
-        self.emotion_file = emotion_file or 'emotion_data.json'
 
         # 情感关系维度
         self.emotion_dimensions = [
@@ -51,11 +56,14 @@ class EmotionRelationshipAnalyzer:
             "依赖度"       # 对对方的依赖程度
         ]
 
-        # 情感历史记录
-        self.emotion_history: List[Dict[str, Any]] = []
+        # 检查是否需要从JSON迁移数据
+        if os.path.exists('emotion_data.json'):
+            print("○ 检测到旧的情感数据JSON文件，正在迁移...")
+            self._migrate_from_json('emotion_data.json')
+            os.rename('emotion_data.json', 'emotion_data.json.bak')
+            print("✓ 情感数据已迁移，JSON文件已备份")
 
-        # 加载已有的情感数据
-        self._load_emotion_data()
+        print("✓ 情感关系分析器已初始化（使用数据库存储）")
 
     def analyze_emotion_relationship(self,
                                     messages: List[Dict[str, str]],
@@ -113,11 +121,8 @@ class EmotionRelationshipAnalyzer:
             emotion_data['timestamp'] = datetime.now().isoformat()
             emotion_data['message_count'] = len(recent_messages)
 
-            # 保存到历史记录
-            self.emotion_history.append(emotion_data)
-
-            # 保存到文件
-            self._save_emotion_data()
+            # 保存到数据库
+            self._save_emotion_to_db(emotion_data)
 
             debug_logger.log_info('EmotionAnalyzer', '情感分析完成', {
                 'overall_score': emotion_data.get('overall_score', 0),
@@ -132,34 +137,62 @@ class EmotionRelationshipAnalyzer:
             print(f"情感分析时出错: {e}")
             return self._get_default_emotion_result()
 
-    def _load_emotion_data(self):
+    def _save_emotion_to_db(self, emotion_data: Dict[str, Any]):
         """
-        从文件加载情感数据
-        """
-        try:
-            if os.path.exists(self.emotion_file):
-                with open(self.emotion_file, 'r', encoding='utf-8') as f:
-                    self.emotion_history = json.load(f)
-                debug_logger.log_info('EmotionAnalyzer', '情感数据加载成功', {
-                    'data_count': len(self.emotion_history)
-                })
-                print(f"✓ 加载情感数据: {len(self.emotion_history)} 条记录")
-        except Exception as e:
-            debug_logger.log_error('EmotionAnalyzer', f'加载情感数据失败: {str(e)}', e)
-            self.emotion_history = []
+        保存情感分析结果到数据库
 
-    def _save_emotion_data(self):
-        """
-        保存情感数据到文件
+        Args:
+            emotion_data: 情感分析数据
         """
         try:
-            with open(self.emotion_file, 'w', encoding='utf-8') as f:
-                json.dump(self.emotion_history, f, ensure_ascii=False, indent=2)
-            debug_logger.log_info('EmotionAnalyzer', '情感数据保存成功', {
-                'data_count': len(self.emotion_history)
-            })
+            self.db.add_emotion_analysis(
+                relationship_type=emotion_data.get('relationship_type', '未知'),
+                emotional_tone=emotion_data.get('emotional_tone', '未知'),
+                overall_score=emotion_data.get('overall_score', 0),
+                intimacy=emotion_data.get('亲密度', 0),
+                trust=emotion_data.get('信任度', 0),
+                pleasure=emotion_data.get('愉悦度', 0),
+                resonance=emotion_data.get('共鸣度', 0),
+                dependence=emotion_data.get('依赖度', 0),
+                analysis_summary=emotion_data.get('analysis', '')
+            )
+            debug_logger.log_info('EmotionAnalyzer', '情感数据已保存到数据库')
         except Exception as e:
             debug_logger.log_error('EmotionAnalyzer', f'保存情感数据失败: {str(e)}', e)
+            print(f"✗ 保存情感数据到数据库时出错: {e}")
+
+    def _migrate_from_json(self, json_file: str):
+        """
+        从JSON文件迁移情感数据到数据库
+
+        Args:
+            json_file: JSON文件路径
+        """
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                emotion_history = json.load(f)
+
+            count = 0
+            for emotion_data in emotion_history:
+                try:
+                    self.db.add_emotion_analysis(
+                        relationship_type=emotion_data.get('relationship_type', '未知'),
+                        emotional_tone=emotion_data.get('emotional_tone', '未知'),
+                        overall_score=emotion_data.get('overall_score', 0),
+                        intimacy=emotion_data.get('亲密度', 0),
+                        trust=emotion_data.get('信任度', 0),
+                        pleasure=emotion_data.get('愉悦度', 0),
+                        resonance=emotion_data.get('共鸣度', 0),
+                        dependence=emotion_data.get('依赖度', 0),
+                        analysis_summary=emotion_data.get('analysis', '')
+                    )
+                    count += 1
+                except Exception as e:
+                    print(f"✗ 迁移情感数据条目失败: {e}")
+
+            print(f"✓ 迁移情感数据: {count}/{len(emotion_history)} 条")
+        except Exception as e:
+            print(f"✗ 从JSON迁移情感数据失败: {e}")
 
     def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
         """
@@ -382,21 +415,58 @@ class EmotionRelationshipAnalyzer:
 
     def get_emotion_trend(self) -> List[Dict[str, Any]]:
         """
-        获取情感关系变化趋势
+        获取情感关系变化趋势（从数据库）
 
         Returns:
             历史情感数据列表
         """
-        return self.emotion_history
+        emotion_history = self.db.get_emotion_history()
+
+        # 转换为旧格式以保持兼容性
+        result = []
+        for emotion in emotion_history:
+            result.append({
+                "亲密度": emotion.get('intimacy', 0),
+                "信任度": emotion.get('trust', 0),
+                "愉悦度": emotion.get('pleasure', 0),
+                "共鸣度": emotion.get('resonance', 0),
+                "依赖度": emotion.get('dependence', 0),
+                "overall_score": emotion.get('overall_score', 0),
+                "relationship_type": emotion.get('relationship_type', '未知'),
+                "emotional_tone": emotion.get('emotional_tone', '未知'),
+                "analysis": emotion.get('analysis_summary', ''),
+                "timestamp": emotion.get('created_at', ''),
+                "uuid": emotion.get('uuid', '')
+            })
+
+        return result
 
     def get_latest_emotion(self) -> Optional[Dict[str, Any]]:
         """
-        获取最新的情感分析结果
+        获取最新的情感分析结果（从数据库）
 
         Returns:
             最新情感数据，如果没有则返回None
         """
-        return self.emotion_history[-1] if self.emotion_history else None
+        latest = self.db.get_latest_emotion()
+
+        if not latest:
+            return None
+
+        # 转换为旧格式以保持兼容性
+        return {
+            "亲密度": latest.get('intimacy', 0),
+            "信任度": latest.get('trust', 0),
+            "愉悦度": latest.get('pleasure', 0),
+            "共鸣度": latest.get('resonance', 0),
+            "依赖度": latest.get('dependence', 0),
+            "overall_score": latest.get('overall_score', 0),
+            "relationship_type": latest.get('relationship_type', '未知'),
+            "emotional_tone": latest.get('emotional_tone', '未知'),
+            "analysis": latest.get('analysis_summary', ''),
+            "timestamp": latest.get('created_at', ''),
+            "uuid": latest.get('uuid', '')
+        }
 
     def generate_tone_prompt(self) -> str:
         """
