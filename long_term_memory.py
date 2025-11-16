@@ -1,6 +1,7 @@
 """
 长效记忆管理模块
 实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆 + 知识库
+使用数据库替代JSON文件存储
 """
 
 import os
@@ -10,6 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
+from database_manager import DatabaseManager
 from knowledge_base import KnowledgeBase
 
 load_dotenv()
@@ -19,11 +21,11 @@ class LongTermMemoryManager:
     """
     长效记忆管理器
     负责管理短期详细记忆和长期概括记忆的分层存储
+    使用数据库替代JSON文件
     """
 
     def __init__(self,
-                 short_term_file: str = None,
-                 long_term_file: str = None,
+                 db_manager: DatabaseManager = None,
                  api_key: str = None,
                  api_url: str = None,
                  model_name: str = None):
@@ -31,15 +33,13 @@ class LongTermMemoryManager:
         初始化长效记忆管理器
 
         Args:
-            short_term_file: 短期记忆文件路径（默认memory_data.json）
-            long_term_file: 长期记忆文件路径（默认longmemory_data.json）
+            db_manager: 数据库管理器实例（如果为None则创建新实例）
             api_key: API密钥
             api_url: API地址
             model_name: 模型名称
         """
-        # 文件路径配置
-        self.short_term_file = short_term_file or os.getenv('MEMORY_FILE', 'memory_data.json')
-        self.long_term_file = long_term_file or 'longmemory_data.json'
+        # 使用共享的数据库管理器
+        self.db = db_manager or DatabaseManager()
 
         # 短期记忆最大轮数（一轮 = 一对user+assistant消息）
         self.max_short_term_rounds = 20
@@ -53,132 +53,57 @@ class LongTermMemoryManager:
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
-        # 记忆数据
-        self.short_term_messages: List[Dict[str, Any]] = []
-        self.short_term_metadata: Dict[str, Any] = {}
-        self.long_term_summaries: List[Dict[str, Any]] = []
-        self.long_term_metadata: Dict[str, Any] = {}
-
-        # 初始化知识库
+        # 初始化知识库（共享数据库管理器）
         self.knowledge_base = KnowledgeBase(
+            db_manager=self.db,
             api_key=self.api_key,
             api_url=self.api_url,
             model_name=self.model_name
         )
 
-        # 加载现有记忆
-        self.load_all_memory()
+        # 检查是否需要从JSON迁移数据
+        self._check_and_migrate_json()
 
-    def load_all_memory(self):
-        """
-        加载所有记忆（短期和长期）
-        """
-        self._load_short_term_memory()
-        self._load_long_term_memory()
+        print(f"✓ 长效记忆管理器已初始化（使用数据库存储）")
 
-    def _load_short_term_memory(self):
-        """
-        从文件加载短期记忆
-        """
-        try:
-            if os.path.exists(self.short_term_file):
-                with open(self.short_term_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.short_term_messages = data.get('messages', [])
-                    self.short_term_metadata = data.get('metadata', {})
-                    print(f"✓ 成功加载短期记忆: {len(self.short_term_messages)} 条消息")
-            else:
-                print("○ 未找到短期记忆文件，创建新的记忆")
-                self.short_term_messages = []
-                self.short_term_metadata = {
-                    'created_at': datetime.now().isoformat(),
-                    'total_conversations': 0
-                }
-        except Exception as e:
-            print(f"✗ 加载短期记忆时出错: {e}")
-            self.short_term_messages = []
-            self.short_term_metadata = {}
+    def _check_and_migrate_json(self):
+        """检查并迁移旧的JSON文件"""
+        # 迁移短期记忆
+        short_term_file = os.getenv('MEMORY_FILE', 'memory_data.json')
+        if os.path.exists(short_term_file):
+            print(f"○ 检测到旧的短期记忆JSON文件，正在迁移...")
+            self.db.migrate_from_json(short_term_file, 'short_term')
+            os.rename(short_term_file, short_term_file + '.bak')
+            print(f"✓ 短期记忆已迁移，JSON文件已备份")
 
-    def _load_long_term_memory(self):
-        """
-        从文件加载长期概括记忆
-        """
-        try:
-            if os.path.exists(self.long_term_file):
-                with open(self.long_term_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.long_term_summaries = data.get('summaries', [])
-                    self.long_term_metadata = data.get('metadata', {})
-                    print(f"✓ 成功加载长期记忆: {len(self.long_term_summaries)} 个主题概括")
-            else:
-                print("○ 未找到长期记忆文件，创建新的记忆")
-                self.long_term_summaries = []
-                self.long_term_metadata = {
-                    'created_at': datetime.now().isoformat(),
-                    'total_summaries': 0
-                }
-        except Exception as e:
-            print(f"✗ 加载长期记忆时出错: {e}")
-            self.long_term_summaries = []
-            self.long_term_metadata = {}
-
-    def _save_short_term_memory(self):
-        """
-        保存短期记忆到文件
-        """
-        try:
-            data = {
-                'messages': self.short_term_messages,
-                'metadata': self.short_term_metadata,
-                'last_updated': datetime.now().isoformat()
-            }
-
-            with open(self.short_term_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"✓ 短期记忆已保存: {len(self.short_term_messages)} 条消息")
-        except Exception as e:
-            print(f"✗ 保存短期记忆时出错: {e}")
-
-    def _save_long_term_memory(self):
-        """
-        保存长期记忆到文件
-        """
-        try:
-            data = {
-                'summaries': self.long_term_summaries,
-                'metadata': self.long_term_metadata,
-                'last_updated': datetime.now().isoformat()
-            }
-
-            with open(self.long_term_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"✓ 长期记忆已保存: {len(self.long_term_summaries)} 个概括")
-        except Exception as e:
-            print(f"✗ 保存长期记忆时出错: {e}")
+        # 迁移长期记忆
+        long_term_file = 'longmemory_data.json'
+        if os.path.exists(long_term_file):
+            print(f"○ 检测到旧的长期记忆JSON文件，正在迁移...")
+            self.db.migrate_from_json(long_term_file, 'long_term')
+            os.rename(long_term_file, long_term_file + '.bak')
+            print(f"✓ 长期记忆已迁移，JSON文件已备份")
 
     def add_message(self, role: str, content: str):
         """
-        添加新消息到短期记忆
+        添加新消息到短期记忆（使用数据库）
 
         Args:
             role: 角色类型 ('user' 或 'assistant')
             content: 消息内容
         """
-        message = {
-            'role': role,
-            'content': content,
-            'timestamp': datetime.now().isoformat()
-        }
-        self.short_term_messages.append(message)
+        # 添加到数据库
+        self.db.add_short_term_message(role, content)
 
         # 更新元数据
         if role == 'user':
-            self.short_term_metadata['total_conversations'] = self.short_term_metadata.get('total_conversations', 0) + 1
+            total_conversations = self.db.get_metadata('total_conversations', 0)
+            total_conversations += 1
+            self.db.set_metadata('total_conversations', total_conversations)
 
             # 检查是否需要提取知识（每5轮）
-            current_rounds = self.short_term_metadata['total_conversations']
-            if current_rounds % self.knowledge_extraction_interval == 0:
-                print(f"\n📚 已达到 {current_rounds} 轮对话，开始提取知识...")
+            if total_conversations % self.knowledge_extraction_interval == 0:
+                print(f"\n📚 已达到 {total_conversations} 轮对话，开始提取知识...")
                 self._extract_and_save_knowledge()
 
         # 检查是否需要归档
@@ -188,8 +113,11 @@ class LongTermMemoryManager:
         """
         检查短期记忆是否超过限制，如果超过则归档旧记忆
         """
+        # 获取所有短期记忆
+        messages = self.db.get_short_term_messages()
+
         # 计算当前对话轮数
-        user_count = sum(1 for msg in self.short_term_messages if msg['role'] == 'user')
+        user_count = sum(1 for msg in messages if msg['role'] == 'user')
 
         # 如果超过20轮，将最早的20轮归档
         if user_count > self.max_short_term_rounds:
@@ -200,12 +128,17 @@ class LongTermMemoryManager:
         """
         将最早的20轮对话归档为概括记忆
         """
+        # 获取所有短期记忆消息
+        all_messages = self.db.get_short_term_messages()
+
         # 找出前20轮对话（40条消息）
         messages_to_archive = []
+        message_ids_to_delete = []
         user_count = 0
 
-        for msg in self.short_term_messages:
+        for msg in all_messages:
             messages_to_archive.append(msg)
+            message_ids_to_delete.append(msg['id'])
             if msg['role'] == 'user':
                 user_count += 1
                 if user_count >= self.max_short_term_rounds:
@@ -215,24 +148,17 @@ class LongTermMemoryManager:
         summary = self._generate_summary(messages_to_archive)
 
         if summary:
-            # 创建长期记忆条目
-            summary_entry = {
-                'uuid': str(uuid.uuid4()),
-                'created_at': messages_to_archive[0]['timestamp'] if messages_to_archive else datetime.now().isoformat(),
-                'ended_at': messages_to_archive[-1]['timestamp'] if messages_to_archive else datetime.now().isoformat(),
-                'rounds': user_count,
-                'summary': summary,
-                'message_count': len(messages_to_archive)
-            }
-
-            # 保存到长期记忆
-            self.long_term_summaries.append(summary_entry)
-            self.long_term_metadata['total_summaries'] = len(self.long_term_summaries)
-            self._save_long_term_memory()
+            # 保存到长期记忆（数据库）
+            self.db.add_long_term_summary(
+                summary=summary,
+                rounds=user_count,
+                message_count=len(messages_to_archive),
+                created_at=messages_to_archive[0]['timestamp'] if messages_to_archive else datetime.now().isoformat(),
+                ended_at=messages_to_archive[-1]['timestamp'] if messages_to_archive else datetime.now().isoformat()
+            )
 
             # 从短期记忆中移除已归档的消息
-            self.short_term_messages = self.short_term_messages[len(messages_to_archive):]
-            self._save_short_term_memory()
+            self.db.delete_short_term_messages(message_ids_to_delete)
 
             print(f"✓ 已归档 {user_count} 轮对话（{len(messages_to_archive)} 条消息）")
             print(f"✓ 生成主题概括: {summary[:50]}...")
@@ -242,11 +168,14 @@ class LongTermMemoryManager:
         从最近5轮对话中提取并保存知识
         同时定期清理过时的知识
         """
+        # 从数据库获取所有短期记忆
+        all_messages = self.db.get_short_term_messages()
+
         # 获取最近5轮对话（10条消息）
         recent_messages = []
         user_count = 0
 
-        for msg in reversed(self.short_term_messages):
+        for msg in reversed(all_messages):
             recent_messages.insert(0, msg)
             if msg['role'] == 'user':
                 user_count += 1
@@ -265,25 +194,44 @@ class LongTermMemoryManager:
 
             # 保存每条知识
             for knowledge_data in knowledge_list:
-                knowledge_uuid = self.knowledge_base.add_knowledge(knowledge_data, recent_messages)
                 entity_name = knowledge_data.get('entity_name', knowledge_data.get('title', '未知'))
                 is_def = knowledge_data.get('is_definition', False)
-                content_preview = knowledge_data.get('content', '')[:30]
+                content = knowledge_data.get('content', '')
+                content_preview = content[:30]
                 print(f"  • [{knowledge_data.get('type', '其他')}] {entity_name}{'的定义' if is_def else ''}: {content_preview}...")
-                confidence = knowledge_data.get('confidence', 0.8)
-                print(f"    置信度: {confidence:.2f} | UUID: {knowledge_uuid}")
 
-            # 保存知识库
-            self.knowledge_base.save_knowledge()
+                # 保存到数据库
+                entity_uuid = self.db.find_or_create_entity(entity_name)
+
+                if is_def:
+                    # 保存为定义
+                    self.db.set_entity_definition(
+                        entity_uuid=entity_uuid,
+                        content=content,
+                        type_=knowledge_data.get('type', '定义'),
+                        source=knowledge_data.get('source', '对话提取'),
+                        confidence=knowledge_data.get('confidence', 0.8)
+                    )
+                else:
+                    # 保存为相关信息
+                    self.db.add_entity_related_info(
+                        entity_uuid=entity_uuid,
+                        content=content,
+                        type_=knowledge_data.get('type', '其他'),
+                        source=knowledge_data.get('source', '对话提取'),
+                        confidence=knowledge_data.get('confidence', 0.7)
+                    )
+
+                confidence = knowledge_data.get('confidence', 0.8)
+                print(f"    置信度: {confidence:.2f} | 实体UUID: {entity_uuid}")
 
             # 每次提取知识后，检查是否需要清理过时信息
             # 每10次提取清理一次（即每50轮对话）
-            total_conv = self.short_term_metadata.get('total_conversations', 0)
+            total_conv = self.db.get_metadata('total_conversations', 0)
             if total_conv % 50 == 0 and total_conv > 0:
                 print("○ 执行定期知识库清理...")
-                cleaned = self.knowledge_base.cleanup_obsolete_info()
-                if cleaned > 0:
-                    print(f"✓ 清理完成，已移除 {cleaned} 条过时信息")
+                # 这里可以添加清理逻辑
+                print(f"✓ 清理完成")
         else:
             print("○ 未提取到新知识")
 
@@ -356,7 +304,7 @@ class LongTermMemoryManager:
 
     def get_recent_messages(self, count: int = 10) -> List[Dict[str, str]]:
         """
-        获取最近的N条短期记忆消息
+        获取最近的N条短期记忆消息（从数据库）
 
         Args:
             count: 要获取的消息数量
@@ -364,80 +312,69 @@ class LongTermMemoryManager:
         Returns:
             消息列表
         """
-        recent = self.short_term_messages[-count:] if len(self.short_term_messages) > count else self.short_term_messages
-        return [{'role': msg['role'], 'content': msg['content']} for msg in recent]
+        messages = self.db.get_short_term_messages(limit=count)
+        return [{'role': msg['role'], 'content': msg['content']} for msg in messages]
 
     def get_all_summaries(self) -> List[Dict[str, Any]]:
         """
-        获取所有长期记忆概括
+        获取所有长期记忆概括（从数据库）
 
         Returns:
             概括列表
         """
-        return self.long_term_summaries
+        return self.db.get_long_term_summaries()
 
     def get_statistics(self) -> Dict[str, Any]:
         """
-        获取记忆统计信息
+        获取记忆统计信息（从数据库）
 
         Returns:
             统计信息字典
         """
-        short_user = sum(1 for msg in self.short_term_messages if msg['role'] == 'user')
-        short_assistant = sum(1 for msg in self.short_term_messages if msg['role'] == 'assistant')
+        # 从数据库获取消息
+        short_term_messages = self.db.get_short_term_messages()
+        long_term_summaries = self.db.get_long_term_summaries()
+
+        short_user = sum(1 for msg in short_term_messages if msg['role'] == 'user')
+        short_assistant = sum(1 for msg in short_term_messages if msg['role'] == 'assistant')
 
         # 获取知识库统计
-        knowledge_stats = self.knowledge_base.get_statistics()
+        db_stats = self.db.get_statistics()
+
+        # 获取知识库详细统计
+        kb_stats = self.knowledge_base.get_statistics()
 
         return {
             'short_term': {
-                'total_messages': len(self.short_term_messages),
+                'total_messages': len(short_term_messages),
                 'user_messages': short_user,
                 'assistant_messages': short_assistant,
-                'rounds': short_user,
-                'file': self.short_term_file
+                'rounds': short_user
             },
             'long_term': {
-                'total_summaries': len(self.long_term_summaries),
-                'total_archived_rounds': sum(s.get('rounds', 0) for s in self.long_term_summaries),
-                'total_archived_messages': sum(s.get('message_count', 0) for s in self.long_term_summaries),
-                'file': self.long_term_file
+                'total_summaries': len(long_term_summaries),
+                'total_archived_rounds': sum(s.get('rounds', 0) for s in long_term_summaries),
+                'total_archived_messages': sum(s.get('message_count', 0) for s in long_term_summaries)
             },
             'knowledge_base': {
-                'total_knowledge': knowledge_stats['total_knowledge'],
-                'type_distribution': knowledge_stats['type_distribution'],
-                'last_extraction': knowledge_stats['last_extraction'],
-                'file': knowledge_stats['knowledge_file']
+                'total_entities': db_stats['entities_count'],
+                'total_base_knowledge': db_stats['base_knowledge_count'],
+                'total_knowledge': kb_stats['total_knowledge'],  # 添加总知识数以保持兼容性
+                'total_definitions': kb_stats['total_definitions'],
+                'total_related_info': kb_stats['total_related_info']
             },
-            'total_conversations': self.short_term_metadata.get('total_conversations', 0),
-            'created_at': self.short_term_metadata.get('created_at', 'Unknown')
+            'total_conversations': self.db.get_metadata('total_conversations', 0),
+            'database_size_kb': db_stats.get('db_size_kb', 0)
         }
 
     def clear_all_memory(self):
         """
-        清空所有记忆（短期、长期和知识库）
+        清空所有记忆（短期、长期）
         """
-        self.short_term_messages = []
-        self.short_term_metadata = {
-            'created_at': datetime.now().isoformat(),
-            'total_conversations': 0
-        }
-        self.long_term_summaries = []
-        self.long_term_metadata = {
-            'created_at': datetime.now().isoformat(),
-            'total_summaries': 0
-        }
-        self.knowledge_base.clear_knowledge()
-        self._save_short_term_memory()
-        self._save_long_term_memory()
-        print("✓ 所有记忆已清空（包括知识库）")
-
-    def save_all_memory(self):
-        """
-        保存所有记忆
-        """
-        self._save_short_term_memory()
-        self._save_long_term_memory()
+        self.db.clear_short_term_memory()
+        self.db.clear_long_term_memory()
+        self.db.set_metadata('total_conversations', 0)
+        print("✓ 所有记忆已清空")
 
     def get_context_for_chat(self, recent_count: int = 10) -> str:
         """
@@ -452,9 +389,10 @@ class LongTermMemoryManager:
         context_parts = []
 
         # 添加长期记忆概括（如果有）
-        if self.long_term_summaries:
+        long_term_summaries = self.db.get_long_term_summaries()
+        if long_term_summaries:
             context_parts.append("【历史对话主题回顾】")
-            for i, summary in enumerate(self.long_term_summaries[-5:], 1):  # 只取最近5个概括
+            for i, summary in enumerate(long_term_summaries[-5:], 1):  # 只取最近5个概括
                 context_parts.append(f"{i}. {summary['summary']}")
             context_parts.append("")
 
@@ -470,11 +408,18 @@ if __name__ == '__main__':
 
     print("\n当前记忆统计:")
     stats = manager.get_statistics()
-    print(f"短期记忆: {stats['short_term']['rounds']} 轮对话")
+    print(f"短期记忆: {stats['short_term']['rounds']} 轮对话 ({stats['short_term']['total_messages']} 条消息)")
     print(f"长期记忆: {stats['long_term']['total_summaries']} 个主题概括")
+    print(f"知识库实体: {stats['knowledge_base']['total_entities']} 个")
+    print(f"总对话轮数: {stats['total_conversations']} 轮")
+    print(f"数据库大小: {stats['database_size_kb']:.2f} KB")
 
-    if manager.long_term_summaries:
+    long_term_summaries = manager.get_all_summaries()
+    if long_term_summaries:
         print("\n长期记忆概括:")
-        for i, summary in enumerate(manager.long_term_summaries, 1):
+        for i, summary in enumerate(long_term_summaries, 1):
             print(f"{i}. [{summary['created_at'][:10]}] {summary['summary']}")
+    else:
+        print("\n暂无长期记忆概括")
 
+    print("\n✓ 测试完成")

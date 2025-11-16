@@ -912,7 +912,26 @@ class EnhancedChatDebugGUI:
             self.debug_logger = get_debug_logger()
             self.debug_logger.add_listener(self.on_debug_log_added)
 
-        # 选项卡7: 控制面板
+        # 选项卡7: 数据库管理
+        db_tab = ttk.Frame(notebook)
+        notebook.add(db_tab, text="💾 数据库管理")
+
+        # 导入并创建数据库管理GUI
+        try:
+            from database_gui import DatabaseManagerGUI
+            # 获取数据库管理器实例
+            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'db'):
+                db_manager = self.agent.db
+            else:
+                from database_manager import DatabaseManager
+                db_manager = DatabaseManager()
+
+            self.db_gui = DatabaseManagerGUI(db_tab, db_manager)
+        except Exception as e:
+            ttk.Label(db_tab, text=f"数据库管理界面加载失败:\n{str(e)}",
+                     font=("微软雅黑", 10), foreground="red").pack(pady=50)
+
+        # 选项卡8: 控制面板
         control_tab = ttk.Frame(notebook)
         notebook.add(control_tab, text="⚙️ 控制面板")
 
@@ -1048,11 +1067,8 @@ class EnhancedChatDebugGUI:
 
         info.append("")
         info.append("【系统配置】")
-        info.append(f"  短期记忆文件: {self.agent.memory_manager.short_term_file}")
-        info.append(f"  长期记忆文件: {self.agent.memory_manager.long_term_file}")
-        info.append(f"  知识库文件: {self.agent.memory_manager.knowledge_base.knowledge_file}")
-        if hasattr(self.agent.memory_manager.knowledge_base, 'base_knowledge'):
-            info.append(f"  基础知识库文件: {self.agent.memory_manager.knowledge_base.base_knowledge.base_knowledge_file}")
+        # 显示数据库路径而不是JSON文件路径
+        info.append(f"  数据库文件: {self.agent.memory_manager.db.db_path}")
         info.append(f"  最大短期轮数: {self.agent.memory_manager.max_short_term_rounds}")
         info.append(f"  知识提取间隔: {self.agent.memory_manager.knowledge_extraction_interval} 轮")
         info.append(f"  API模型: {self.agent.llm.model_name}")

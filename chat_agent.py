@@ -1,6 +1,7 @@
 """
 智能对话代理模块
 基于LangChain实现的连续对话智能体，支持角色扮演和长效记忆
+使用数据库管理器统一管理数据
 """
 
 import os
@@ -10,6 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 import requests
+from database_manager import DatabaseManager
 from long_term_memory import LongTermMemoryManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import EmotionRelationshipAnalyzer
@@ -330,21 +332,25 @@ class ChatAgent:
 
     def __init__(self):
         """
-        初始化聊天代理
+        初始化聊天代理（使用共享数据库管理器）
         """
-        # 使用新的长效记忆管理器
-        self.memory_manager = LongTermMemoryManager()
+        # 创建共享的数据库管理器
+        self.db = DatabaseManager()
+
+        # 使用新的长效记忆管理器（共享数据库）
+        self.memory_manager = LongTermMemoryManager(db_manager=self.db)
         self.character = CharacterProfile()
         self.llm = SiliconFlowLLM()
         self.system_prompt = self.character.get_system_prompt()
 
-        # 初始化情感关系分析器
-        self.emotion_analyzer = EmotionRelationshipAnalyzer()
+        # 初始化情感关系分析器（共享数据库）
+        self.emotion_analyzer = EmotionRelationshipAnalyzer(db_manager=self.db)
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
         print(f"短期记忆: {stats['short_term']['rounds']} 轮对话")
         print(f"长期记忆: {stats['long_term']['total_summaries']} 个主题概括")
+        print(f"知识库: {stats['knowledge_base']['total_knowledge']} 条知识")
 
     def chat(self, user_input: str) -> str:
         """
@@ -501,13 +507,10 @@ class ChatAgent:
             'response_length': len(response)
         })
 
-        # 添加助手回复到记忆
+        # 添加助手回复到记忆（自动保存到数据库）
         self.memory_manager.add_message('assistant', response)
 
-        # 保存记忆
-        self.memory_manager.save_all_memory()
-
-        debug_logger.log_module('ChatAgent', '对话处理完成', '已保存记忆')
+        debug_logger.log_module('ChatAgent', '对话处理完成', '已自动保存到数据库')
 
         return response
 
@@ -618,7 +621,7 @@ class ChatAgent:
 
     def get_conversation_history(self, count: int = None) -> List[Dict[str, Any]]:
         """
-        获取对话历史
+        获取对话历史（从数据库）
 
         Args:
             count: 要获取的消息数量，None表示全部
@@ -626,11 +629,8 @@ class ChatAgent:
         Returns:
             对话历史列表
         """
-        messages = self.memory_manager.short_term_messages
-        if count is None:
-            return messages
-        else:
-            return messages[-count:] if len(messages) > count else messages
+        messages = self.memory_manager.db.get_short_term_messages(limit=count)
+        return messages
 
     def get_long_term_summaries(self) -> List[Dict[str, Any]]:
         """

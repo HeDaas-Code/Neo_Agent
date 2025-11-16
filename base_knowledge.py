@@ -8,35 +8,38 @@
 """
 
 import os
-import json
 from typing import Dict, List, Any
-from datetime import datetime
+from database_manager import DatabaseManager
 
 
 class BaseKnowledge:
     """
     基础知识库管理器
     管理智能体的核心基础知识，这些知识具有绝对权威性
+    使用数据库存储替代JSON文件
     """
 
-    def __init__(self, base_knowledge_file: str = None):
+    def __init__(self, db_manager: DatabaseManager = None):
         """
         初始化基础知识库
 
         Args:
-            base_knowledge_file: 基础知识库文件路径（默认base_knowledge.json）
+            db_manager: 数据库管理器实例（如果为None则创建新实例）
         """
-        self.base_knowledge_file = base_knowledge_file or 'base_knowledge.json'
+        self.db = db_manager or DatabaseManager()
 
-        # 基础知识字典：{实体名��: 知识内容}
-        self.base_facts: Dict[str, Dict[str, Any]] = {}
-
-        # 加载基础知识库
-        self.load_base_knowledge()
-
-        # 如果没有基础知识，初始化默认知识
-        if not self.base_facts:
+        # 检查是否需要初始化默认知识
+        base_facts = self.db.get_all_base_facts()
+        if not base_facts:
             self._initialize_default_knowledge()
+
+        # 检查是否需要从JSON迁移数据
+        if os.path.exists('base_knowledge.json'):
+            print("○ 检测到旧的JSON文件，正在迁移到数据库...")
+            self.db.migrate_from_json('base_knowledge.json', 'base_knowledge')
+            # 迁移完成后可以选择重命名或删除JSON文件
+            os.rename('base_knowledge.json', 'base_knowledge.json.bak')
+            print("✓ JSON文件已备份为 base_knowledge.json.bak")
 
     def _initialize_default_knowledge(self):
         """
@@ -53,46 +56,8 @@ class BaseKnowledge:
             immutable=True
         )
 
-        self.save_base_knowledge()
         print("✓ 默认基础知识已初始化")
 
-    def load_base_knowledge(self):
-        """
-        从文件加载基础知识库
-        """
-        try:
-            if os.path.exists(self.base_knowledge_file):
-                with open(self.base_knowledge_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.base_facts = data.get('base_facts', {})
-                    print(f"✓ 成功加载基础知识库: {len(self.base_facts)} 条基础事实")
-            else:
-                print("○ 未找到基础知识库文件，将创建新的基础知识库")
-                self.base_facts = {}
-        except Exception as e:
-            print(f"✗ 加载基础知识库时出错: {e}")
-            self.base_facts = {}
-
-    def save_base_knowledge(self):
-        """
-        保存基础知识库到文件
-        """
-        try:
-            data = {
-                'base_facts': self.base_facts,
-                'metadata': {
-                    'total_facts': len(self.base_facts),
-                    'last_updated': datetime.now().isoformat(),
-                    'version': '1.0',
-                    'description': '基础知识库 - 存储最高优先级的不可更改事实'
-                }
-            }
-
-            with open(self.base_knowledge_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"✓ 基础知识库已保存: {len(self.base_facts)} 条基础事实")
-        except Exception as e:
-            print(f"✗ 保存基础知识库时出错: {e}")
 
     def add_base_fact(self,
                       entity_name: str,
@@ -114,31 +79,26 @@ class BaseKnowledge:
             是否添加成功
         """
         try:
-            # 标准化实体名称
-            normalized_name = entity_name.strip()
-
             # 检查是否已存在
-            if normalized_name in self.base_facts:
-                print(f"⚠ 基础事实已存在: {normalized_name}")
-                print(f"  现有内容: {self.base_facts[normalized_name]['content']}")
+            existing = self.db.get_base_fact(entity_name)
+            if existing:
+                print(f"⚠ 基础事实已存在: {entity_name}")
+                print(f"  现有内容: {existing['content']}")
                 print(f"  → 基础知识不可覆盖，保持原有内容")
                 return False
 
             # 添加基础事实
-            self.base_facts[normalized_name] = {
-                'entity_name': entity_name,
-                'content': fact_content,
-                'category': category,
-                'description': description,
-                'immutable': immutable,
-                'priority': 100,  # 最高优先级
-                'confidence': 1.0,  # 100%置信度
-                'created_at': datetime.now().isoformat()
-            }
+            result = self.db.add_base_fact(
+                entity_name=entity_name,
+                content=fact_content,
+                category=category,
+                description=description,
+                immutable=immutable
+            )
 
-            print(f"✓ 已添加基础事实: {entity_name} -> {fact_content}")
-            self.save_base_knowledge()
-            return True
+            if result:
+                print(f"✓ 已添加基础事实: {entity_name} -> {fact_content}")
+            return result
 
         except Exception as e:
             print(f"✗ 添加基础事实时出错: {e}")
@@ -154,18 +114,7 @@ class BaseKnowledge:
         Returns:
             基础事实字典，如果不存在返回None
         """
-        # 首先尝试精确匹配
-        normalized_name = entity_name.strip()
-        if normalized_name in self.base_facts:
-            return self.base_facts[normalized_name]
-
-        # 如果精确匹配失败，尝试不区分大小写的匹配
-        lower_name = normalized_name.lower()
-        for key, value in self.base_facts.items():
-            if key.lower() == lower_name:
-                return value
-
-        return None
+        return self.db.get_base_fact(entity_name)
 
     def check_conflict_with_base(self, entity_name: str, new_content: str) -> bool:
         """
@@ -178,12 +127,11 @@ class BaseKnowledge:
         Returns:
             True表示存在冲突，False表示无冲突
         """
-        normalized_name = entity_name.strip()
+        base_fact = self.db.get_base_fact(entity_name)
 
-        if normalized_name not in self.base_facts:
+        if not base_fact:
             return False
 
-        base_fact = self.base_facts[normalized_name]
 
         # 如果新内容与基础事实不同，则存在冲突
         if new_content.strip() != base_fact['content'].strip():
@@ -203,7 +151,7 @@ class BaseKnowledge:
         Returns:
             基础事实列表
         """
-        return list(self.base_facts.values())
+        return self.db.get_all_base_facts()
 
     def generate_base_knowledge_prompt(self) -> str:
         """
@@ -213,7 +161,9 @@ class BaseKnowledge:
         Returns:
             基础知识提示词文本
         """
-        if not self.base_facts:
+        base_facts = self.get_all_base_facts()
+
+        if not base_facts:
             return ""
 
         prompt_parts = [
@@ -227,7 +177,7 @@ class BaseKnowledge:
 
         # 按分类组织基础知识
         by_category = {}
-        for fact in self.base_facts.values():
+        for fact in base_facts:
             category = fact.get('category', '通用')
             if category not in by_category:
                 by_category[category] = []
@@ -254,17 +204,18 @@ class BaseKnowledge:
         Returns:
             统计信息字典
         """
+        base_facts = self.get_all_base_facts()
+
         # 按分类统计
         by_category = {}
-        for fact in self.base_facts.values():
+        for fact in base_facts:
             category = fact.get('category', '通用')
             by_category[category] = by_category.get(category, 0) + 1
 
         return {
-            'total_facts': len(self.base_facts),
+            'total_facts': len(base_facts),
             'category_distribution': by_category,
-            'file_path': self.base_knowledge_file,
-            'all_immutable': all(f.get('immutable', True) for f in self.base_facts.values())
+            'all_immutable': all(f.get('immutable', True) for f in base_facts)
         }
 
     def remove_base_fact(self, entity_name: str) -> bool:
@@ -277,23 +228,7 @@ class BaseKnowledge:
         Returns:
             是否删除成功
         """
-        normalized_name = entity_name.strip()
-
-        if normalized_name in self.base_facts:
-            fact = self.base_facts[normalized_name]
-
-            # 检查是否不可变
-            if fact.get('immutable', True):
-                print(f"⚠ 该基础事实被标记为不可变，不能删除: {entity_name}")
-                return False
-
-            del self.base_facts[normalized_name]
-            self.save_base_knowledge()
-            print(f"✓ 已删除基础事实: {entity_name}")
-            return True
-        else:
-            print(f"✗ 基础事实不存在: {entity_name}")
-            return False
+        return self.db.delete_base_fact(entity_name)
 
 
 if __name__ == '__main__':
