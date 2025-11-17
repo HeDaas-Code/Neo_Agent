@@ -2,6 +2,20 @@
 
 基于LangChain和Python开发的智能对话代理系统，支持角色扮演、三层记忆管理（短期+长期+知识库）、基础知识库、情感关系分析和Debug日志追踪。
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
+## 📚 文档导航
+
+- **[快速开始](#安装步骤)** - 5分钟快速上手
+- **[贡献指南](CONTRIBUTING.md)** - 如何参与项目开发
+- **[更新日志](CHANGELOG.md)** - 版本历史和变更记录
+- **[API文档](docs/API.md)** - 完整的API参考手册
+- **[部署指南](docs/DEPLOYMENT.md)** - 本地、生产、云端部署
+- **[开发指南](docs/DEVELOPMENT.md)** - 开发者深入指南
+- **[使用示例](docs/EXAMPLES.md)** - 丰富的代码示例
+- **[故障排查](docs/TROUBLESHOOTING.md)** - 常见问题解决方案
+
 ## 功能特性
 
 ### 🎭 角色扮演
@@ -67,9 +81,15 @@
 ## 项目结构
 
 ```
-LC_Project/
+Neo_Agent/
 ├── .env                       # 配置文件（API密钥、角色设定、Debug模式等）
+├── example.env                # 配置文件模板
 ├── requirements.txt           # Python依赖包
+├── LICENSE                    # MIT许可证
+├── README.md                  # 项目主文档
+├── CONTRIBUTING.md            # 贡献指南
+├── CHANGELOG.md               # 变更日志
+│
 ├── chat_agent.py              # 聊天代理核心模块
 ├── long_term_memory.py        # 长效记忆管理模块
 ├── knowledge_base.py          # 知识库管理模块
@@ -79,9 +99,16 @@ LC_Project/
 ├── database_manager.py        # 数据库管理模块
 ├── debug_logger.py            # Debug日志管理器
 ├── gui_enhanced.py            # 增强版GUI界面（推荐使用）
-├── chat_agent.db              # 短期记忆数据文件（自动生成）
+│
+├── chat_agent.db              # 数据库文件（自动生成）
 ├── debug.log                  # Debug日志文件（自动生成）
-└── README.md                  # 本文件
+│
+└── docs/                      # 详细文档目录
+    ├── API.md                 # API参考文档
+    ├── DEPLOYMENT.md          # 部署指南
+    ├── DEVELOPMENT.md         # 开发者指南
+    ├── EXAMPLES.md            # 使用示例
+    └── TROUBLESHOOTING.md     # 故障排查指南
 ```
 
 ## 安装步骤
@@ -1395,5 +1422,53 @@ chat_agent.db #数据库
 - 简单记忆系统
 - 基础GUI界面
 
+---
 
+## 📖 更多文档
+
+想要深入了解 Neo_Agent？查看我们的详细文档：
+
+### 新手入门
+- 📘 **[快速开始](#安装步骤)** - 5分钟快速上手指南
+- 📙 **[使用示例](docs/EXAMPLES.md)** - 丰富的实际应用场景和代码示例
+- 📗 **[故障排查](docs/TROUBLESHOOTING.md)** - 遇到问题？这里有解决方案
+
+### 开发者文档
+- 📕 **[API参考](docs/API.md)** - 完整的API接口文档
+- 📔 **[开发指南](docs/DEVELOPMENT.md)** - 深入了解项目架构和开发流程
+- 📓 **[贡献指南](CONTRIBUTING.md)** - 如何为项目做出贡献
+
+### 部署和运维
+- 📒 **[部署指南](docs/DEPLOYMENT.md)** - 本地、生产、Docker、云端部署
+- 📃 **[变更日志](CHANGELOG.md)** - 版本历史和更新记录
+
+## 🤝 参与贡献
+
+我们欢迎各种形式的贡献！无论是：
+
+- 🐛 报告Bug
+- 💡 提出新功能建议
+- 📝 改进文档
+- 🔧 提交代码修复
+- ⭐ Star本项目
+
+请阅读我们的 [贡献指南](CONTRIBUTING.md) 了解详情。
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 🙏 致谢
+
+感谢所有为本项目做出贡献的开发者和用户！
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
+
+Made with ❤️ by [HeDaas-Code](https://github.com/HeDaas-Code)
+
+</div>
 
