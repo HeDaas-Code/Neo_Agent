@@ -1,0 +1,382 @@
+"""
+智能体视觉工具模块
+通过读取数据库中的环境描述来模拟智能体的伪视觉功能
+当用户询问周围环境时，智能体自动决定是否使用此工具
+"""
+
+import os
+import re
+import time
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+from dotenv import load_dotenv
+import requests
+from database_manager import DatabaseManager
+from debug_logger import get_debug_logger
+
+load_dotenv()
+
+# 获取debug日志记录器
+debug_logger = get_debug_logger()
+
+
+class AgentVisionTool:
+    """
+    智能体视觉工具类
+    负责检测用户查询是否涉及环境，并从数据库读取相应的环境描述
+    """
+
+    def __init__(self, db_manager: DatabaseManager = None):
+        """
+        初始化视觉工具
+
+        Args:
+            db_manager: 数据库管理器实例
+        """
+        self.db = db_manager or DatabaseManager()
+        
+        # API配置（用于智能判断是否需要使用视觉工具）
+        self.api_key = os.getenv('SILICONFLOW_API_KEY')
+        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
+        self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+        
+        # 环境相关关键词（用于快速判断）
+        self.environment_keywords = [
+            '周围', '周边', '环境', '这里', '附近', '哪里', '什么地方',
+            '看到', '看见', '观察', '眼前', '面前', '旁边', '身边',
+            '房间', '屋子', '地方', '场景', '景色', '风景',
+            '有什么', '有哪些', '能看到', '可以看到'
+        ]
+        
+        debug_logger.log_module('AgentVisionTool', '视觉工具初始化完成', {
+            'keywords_count': len(self.environment_keywords)
+        })
+
+    def should_use_vision(self, user_query: str) -> bool:
+        """
+        判断是否需要使用视觉工具（基于关键词快速判断）
+
+        Args:
+            user_query: 用户查询
+
+        Returns:
+            是否需要使用视觉
+        """
+        debug_logger.log_module('AgentVisionTool', '检查是否需要使用视觉工具', {
+            'query_length': len(user_query)
+        })
+        
+        # 快速关键词匹配
+        query_lower = user_query.lower()
+        for keyword in self.environment_keywords:
+            if keyword in query_lower:
+                debug_logger.log_info('AgentVisionTool', '检测到环境相关关键词', {
+                    'keyword': keyword,
+                    'query': user_query
+                })
+                return True
+        
+        debug_logger.log_info('AgentVisionTool', '未检测到环境相关关键词', {
+            'query': user_query
+        })
+        return False
+
+    def get_vision_context(self, user_query: str) -> Optional[Dict[str, Any]]:
+        """
+        获取视觉上下文（环境描述）
+
+        Args:
+            user_query: 用户查询
+
+        Returns:
+            视觉上下文字典，包含环境描述和物体信息
+        """
+        debug_logger.log_module('AgentVisionTool', '开始获取视觉上下文', {
+            'query': user_query
+        })
+        
+        # 检查是否需要使用视觉
+        if not self.should_use_vision(user_query):
+            debug_logger.log_info('AgentVisionTool', '不需要使用视觉工具', {
+                'reason': '未检测到环境相关查询'
+            })
+            return None
+        
+        # 获取当前激活的环境
+        environment = self.db.get_active_environment()
+        if not environment:
+            debug_logger.log_info('AgentVisionTool', '没有激活的环境', {
+                'suggestion': '请先创建并激活一个环境'
+            })
+            return None
+        
+        debug_logger.log_info('AgentVisionTool', '找到激活的环境', {
+            'env_name': environment['name'],
+            'env_uuid': environment['uuid'][:8] + '...'
+        })
+        
+        # 获取环境中的物体
+        objects = self.db.get_environment_objects(environment['uuid'], visible_only=True)
+        
+        debug_logger.log_info('AgentVisionTool', '获取环境物体', {
+            'objects_count': len(objects)
+        })
+        
+        # 构建视觉上下文
+        vision_context = {
+            'environment': environment,
+            'objects': objects,
+            'object_count': len(objects),
+            'query': user_query,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # 记录视觉工具使用
+        objects_viewed = ', '.join([obj['name'] for obj in objects])
+        context_text = self._format_vision_context(vision_context)
+        
+        self.db.log_vision_tool_usage(
+            query=user_query,
+            environment_uuid=environment['uuid'],
+            objects_viewed=objects_viewed,
+            context_provided=context_text[:500],  # 只保存前500字符
+            triggered_by='auto'
+        )
+        
+        debug_logger.log_info('AgentVisionTool', '视觉上下文获取完成', {
+            'environment': environment['name'],
+            'objects_count': len(objects),
+            'context_length': len(context_text)
+        })
+        
+        return vision_context
+
+    def _format_vision_context(self, vision_context: Dict[str, Any]) -> str:
+        """
+        格式化视觉上下文为文本描述
+
+        Args:
+            vision_context: 视觉上下文字典
+
+        Returns:
+            格式化的文本描述
+        """
+        if not vision_context:
+            return ""
+        
+        environment = vision_context['environment']
+        objects = vision_context['objects']
+        
+        context_parts = ["【智能体视觉感知】"]
+        context_parts.append(f"\n环境名称: {environment['name']}")
+        context_parts.append(f"\n整体描述: {environment['overall_description']}")
+        
+        # 添加感官细节
+        if environment.get('atmosphere'):
+            context_parts.append(f"氛围: {environment['atmosphere']}")
+        if environment.get('lighting'):
+            context_parts.append(f"光照: {environment['lighting']}")
+        if environment.get('sounds'):
+            context_parts.append(f"声音: {environment['sounds']}")
+        if environment.get('smells'):
+            context_parts.append(f"气味: {environment['smells']}")
+        
+        # 添加物体信息
+        if objects:
+            context_parts.append(f"\n可见物体（共{len(objects)}个）:")
+            for obj in objects:
+                obj_desc = f"\n  🔹 {obj['name']}"
+                obj_desc += f"\n     描述: {obj['description']}"
+                if obj.get('position'):
+                    obj_desc += f"\n     位置: {obj['position']}"
+                if obj.get('properties'):
+                    obj_desc += f"\n     属性: {obj['properties']}"
+                if obj.get('interaction_hints'):
+                    obj_desc += f"\n     交互: {obj['interaction_hints']}"
+                context_parts.append(obj_desc)
+        else:
+            context_parts.append("\n当前环境中没有可见物体。")
+        
+        context_parts.append("\n\n💡 请基于以上视觉感知信息回答用户的问题。")
+        
+        return '\n'.join(context_parts)
+
+    def format_vision_prompt(self, vision_context: Dict[str, Any]) -> str:
+        """
+        将视觉上下文格式化为系统提示词
+
+        Args:
+            vision_context: 视觉上下文字典
+
+        Returns:
+            格式化的提示词
+        """
+        return self._format_vision_context(vision_context)
+
+    def get_vision_summary(self, vision_context: Dict[str, Any]) -> str:
+        """
+        获取视觉上下文的简要摘要（用于显示）
+
+        Args:
+            vision_context: 视觉上下文字典
+
+        Returns:
+            简要摘要
+        """
+        if not vision_context:
+            return "未获取到视觉信息"
+        
+        env = vision_context['environment']
+        obj_count = vision_context['object_count']
+        
+        summary = f"👁️ [视觉感知] 环境: {env['name']}"
+        if obj_count > 0:
+            summary += f" | 可见物体: {obj_count}个"
+        
+        return summary
+
+    def create_default_environment(self) -> str:
+        """
+        创建默认环境（用于初始化或测试）
+
+        Returns:
+            环境UUID
+        """
+        debug_logger.log_module('AgentVisionTool', '创建默认环境')
+        
+        env_uuid = self.db.create_environment(
+            name="小可的房间",
+            overall_description="这是一个温馨舒适的学生卧室，约15平方米。墙壁刷成淡粉色，地板铺着浅色木地板。房间整洁有序，充满学习的氛围。",
+            atmosphere="温馨、宁静、充满书香气息",
+            lighting="柔和的自然光从窗户洒入，桌上的台灯散发着暖黄色的光",
+            sounds="偶尔能听到窗外鸟鸣和微风拂过树叶的沙沙声",
+            smells="空气中弥漫着淡淡的书香和薰衣草香薰的味道"
+        )
+        
+        # 设置为激活环境
+        self.db.set_active_environment(env_uuid)
+        
+        # 添加一些默认物体
+        default_objects = [
+            {
+                "name": "书桌",
+                "description": "一张简约的白色书桌，约120cm宽，上面摆放着各种学习用品",
+                "position": "靠窗的位置",
+                "properties": "材质: 实木, 颜色: 白色, 状态: 整洁",
+                "interaction_hints": "可以在这里学习、写作业、看书",
+                "priority": 90
+            },
+            {
+                "name": "书架",
+                "description": "一个四层的白色书架，摆满了各类书籍，尤其是历史类书籍特别多",
+                "position": "书桌右侧的墙边",
+                "properties": "材质: 木质, 层数: 4层, 书籍数量: 约100本",
+                "interaction_hints": "可以挑选书籍阅读，历史类书籍最多",
+                "priority": 85
+            },
+            {
+                "name": "床",
+                "description": "一张单人床，铺着淡粉色的床单和被套，上面放着几个可爱的抱枕",
+                "position": "房间左侧靠墙",
+                "properties": "大小: 单人床(1.2m), 颜色: 粉色系, 状态: 整理好的",
+                "interaction_hints": "可以休息、睡觉",
+                "priority": 80
+            },
+            {
+                "name": "台灯",
+                "description": "一盏护眼台灯，设计简洁，可以调节亮度和色温",
+                "position": "书桌右上角",
+                "properties": "品牌: 明基, 类型: LED护眼灯, 状态: 关闭",
+                "interaction_hints": "可以开启用于学习照明",
+                "priority": 70
+            },
+            {
+                "name": "笔记本电脑",
+                "description": "一台轻薄的笔记本电脑，银色外壳，通常用于查资料和学习",
+                "position": "书桌中央",
+                "properties": "品牌: 华为, 颜色: 银色, 状态: 合上的",
+                "interaction_hints": "可以打开用于学习、查资料",
+                "priority": 85
+            },
+            {
+                "name": "窗户",
+                "description": "一扇宽大的窗户，透过窗户可以看到外面的树木和天空",
+                "position": "书桌后方",
+                "properties": "类型: 推拉窗, 尺寸: 大型, 状态: 半开",
+                "interaction_hints": "可以打开通风，欣赏外面的景色",
+                "priority": 75
+            },
+            {
+                "name": "挂钟",
+                "description": "一个圆形的挂钟，简约的设计，静音机芯",
+                "position": "门的上方墙壁",
+                "properties": "类型: 石英钟, 颜色: 白色, 特点: 静音",
+                "interaction_hints": "可以查看时间",
+                "priority": 60
+            }
+        ]
+        
+        for obj_data in default_objects:
+            self.db.add_environment_object(
+                environment_uuid=env_uuid,
+                name=obj_data['name'],
+                description=obj_data['description'],
+                position=obj_data.get('position', ''),
+                properties=obj_data.get('properties', ''),
+                interaction_hints=obj_data.get('interaction_hints', ''),
+                priority=obj_data.get('priority', 50)
+            )
+        
+        debug_logger.log_info('AgentVisionTool', '默认环境创建完成', {
+            'env_uuid': env_uuid[:8] + '...',
+            'objects_count': len(default_objects)
+        })
+        
+        print(f"✓ 默认环境创建完成: 小可的房间（{len(default_objects)}个物体）")
+        
+        return env_uuid
+
+
+# 测试代码
+if __name__ == '__main__':
+    print("=" * 60)
+    print("智能体视觉工具测试")
+    print("=" * 60)
+    
+    # 创建视觉工具实例
+    vision_tool = AgentVisionTool()
+    
+    # 创建默认环境
+    print("\n创建默认环境:")
+    env_uuid = vision_tool.create_default_environment()
+    
+    # 测试视觉工具
+    print("\n" + "=" * 60)
+    print("测试视觉工具")
+    print("=" * 60)
+    
+    test_queries = [
+        "周围有什么？",
+        "我能看到什么？",
+        "房间里有哪些东西？",
+        "今天天气怎么样？",  # 不应该触发视觉
+        "帮我讲个历史故事",  # 不应该触发视觉
+    ]
+    
+    for query in test_queries:
+        print(f"\n测试查询: {query}")
+        should_use = vision_tool.should_use_vision(query)
+        print(f"  是否使用视觉: {'是' if should_use else '否'}")
+        
+        if should_use:
+            vision_context = vision_tool.get_vision_context(query)
+            if vision_context:
+                summary = vision_tool.get_vision_summary(vision_context)
+                print(f"  {summary}")
+                print(f"\n  视觉上下文预览:")
+                prompt = vision_tool.format_vision_prompt(vision_context)
+                print(f"  {prompt[:300]}...")
+    
+    print("\n" + "=" * 60)
+    print("✓ 测试完成")
+    print("=" * 60)
