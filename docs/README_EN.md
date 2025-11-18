@@ -17,6 +17,8 @@ Rich practical application scenarios and code examples to help you quickly maste
 - Basic conversation examples
 - Knowledge extraction and management
 - Emotional analysis applications
+- Environment perception and switching (NEW!)
+- Vision tool usage (NEW!)
 - Customer service assistant
 - Learning companion application
 - Web API integration
@@ -32,8 +34,27 @@ Complete API interface documentation, including detailed descriptions of all mod
 - KnowledgeBase - Knowledge base
 - EmotionAnalyzer - Emotion analysis
 - BaseKnowledge - Base knowledge
+- AgentVision - Agent pseudo-vision (NEW!)
 - DatabaseManager - Data management
 - DebugLogger - Debug logging
+
+**[Agent Pseudo-Vision Feature](../VISION_FEATURE_README_EN.md)**  
+Learn about the agent's pseudo-vision perception system.
+
+- Environment perception and description
+- Object management and visibility
+- Smart trigger mechanism
+- Database structure
+- Usage guide and best practices
+
+**[Environment Switching Feature](../ENVIRONMENT_SWITCHING_EN.md)**  
+Learn how to switch between multiple environments and manage connection relationships.
+
+- Environment connection system
+- Smart switch detection
+- Permission verification mechanism
+- GUI management interface
+- API reference and testing
 
 ### Developer Documentation
 
@@ -79,6 +100,7 @@ Having problems? Here are detailed solutions.
 - Memory system issues
 - Knowledge base issues
 - Emotional analysis issues
+- Environment and vision related issues (NEW!)
 - GUI issues
 - Performance optimization
 - Data management
@@ -86,6 +108,7 @@ Having problems? Here are detailed solutions.
 **[Changelog](../CHANGELOG_EN.md)**  
 Version history and update records.
 
+- v6.0 - Environment Switching and Pseudo-Vision Version (NEW!)
 - v5.0 - Emotional Relationship Analysis Version
 - v4.0 - Debug and Base Knowledge Version
 - v3.0 - Knowledge Base Version
