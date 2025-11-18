@@ -80,6 +80,17 @@
 - **实时更新**：记忆归档、知识提取、情感分析时自动更新界面
 - **多标签页**：系统信息、短期记忆、长期记忆、理解阶段、知识库、环境管理、Debug日志、控制面板
 
+### 👁️ 智能体伪视觉系统（v6.0 NEW!）
+- **环境感知**：通过数据库预设模拟智能体的视觉能力
+- **智能触发**：自动识别15+个环境相关关键词（周围、看到、观察等）
+- **结构化描述**：两层环境描述（整体环境 + 详细物体）
+- **多感官信息**：包含视觉、听觉、嗅觉等多维度感知
+- **物体管理**：支持添加、编辑、删除环境中的物体
+- **优先级系统**：根据物体重要性调整显示顺序
+- **可见性控制**：灵活控制物体对智能体的可见性
+- **使用记录**：自动记录视觉工具的使用历史
+- **详细文档**：参见 [伪视觉功能文档](VISION_FEATURE_README.md)
+
 ### 🌐 环境切换系统（v6.0 NEW!）
 - **智能环境管理**：支持创建和管理多个环境
 - **环境连接系统**：通过UUID记录环境间的连接关系
@@ -99,29 +110,48 @@ Neo_Agent/
 ├── example.env                # 配置文件模板
 ├── requirements.txt           # Python依赖包
 ├── LICENSE                    # MIT许可证
-├── README.md                  # 项目主文档
-├── CONTRIBUTING.md            # 贡献指南
-├── CHANGELOG.md               # 变更日志
+├── README.md                  # 项目主文档（中文）
+├── README_EN.md               # 项目主文档（英文）
+├── CONTRIBUTING.md            # 贡献指南（中文）
+├── CONTRIBUTING_EN.md         # 贡献指南（英文）
+├── CHANGELOG.md               # 变更日志（中文）
+├── CHANGELOG_EN.md            # 变更日志（英文）
+├── ENVIRONMENT_SWITCHING.md   # 环境切换功能文档（中文）
+├── ENVIRONMENT_SWITCHING_EN.md # 环境切换功能文档（英文）
+├── VISION_FEATURE_README.md   # 伪视觉功能文档（中文）
+├── VISION_FEATURE_README_EN.md # 伪视觉功能文档（英文）
+├── VISION_DEMO.md             # 视觉功能演示（中文）
+├── VISION_DEMO_EN.md          # 视觉功能演示（英文）
+├── VISION_ARCHITECTURE.txt    # 视觉系统架构说明
 │
 ├── chat_agent.py              # 聊天代理核心模块
 ├── long_term_memory.py        # 长效记忆管理模块
 ├── knowledge_base.py          # 知识库管理模块
 ├── base_knowledge.py          # 基础知识库模块
 ├── emotion_analyzer.py        # 情感关系分析模块
+├── agent_vision.py            # 智能体伪视觉模块（NEW!）
 ├── database_gui.py            # 数据库GUI界面模块
 ├── database_manager.py        # 数据库管理模块
 ├── debug_logger.py            # Debug日志管理器
 ├── gui_enhanced.py            # 增强版GUI界面（推荐使用）
+├── test_environment_switching.py # 环境切换功能测试
 │
 ├── chat_agent.db              # 数据库文件（自动生成）
 ├── debug.log                  # Debug日志文件（自动生成）
 │
 └── docs/                      # 详细文档目录
-    ├── API.md                 # API参考文档
-    ├── DEPLOYMENT.md          # 部署指南
-    ├── DEVELOPMENT.md         # 开发者指南
-    ├── EXAMPLES.md            # 使用示例
-    └── TROUBLESHOOTING.md     # 故障排查指南
+    ├── README.md              # 文档中心（中文）
+    ├── README_EN.md           # 文档中心（英文）
+    ├── API.md                 # API参考文档（中文）
+    ├── API_EN.md              # API参考文档（英文）
+    ├── DEPLOYMENT.md          # 部署指南（中文）
+    ├── DEPLOYMENT_EN.md       # 部署指南（英文）
+    ├── DEVELOPMENT.md         # 开发者指南（中文）
+    ├── DEVELOPMENT_EN.md      # 开发者指南（英文）
+    ├── EXAMPLES.md            # 使用示例（中文）
+    ├── EXAMPLES_EN.md         # 使用示例（英文）
+    ├── TROUBLESHOOTING.md     # 故障排查指南（中文）
+    └── TROUBLESHOOTING_EN.md  # 故障排查指南（英文）
 ```
 
 ## 安装步骤
