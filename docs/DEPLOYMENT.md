@@ -1,5 +1,7 @@
 # 部署指南
 
+**中文** | [English](DEPLOYMENT_EN.md)
+
 本文档详细说明如何在不同环境中部署 Neo_Agent 智能对话系统。
 
 ## 目录
