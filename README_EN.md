@@ -10,6 +10,7 @@ An intelligent dialogue agent system based on LangChain and Python, supporting r
 ## 📚 Documentation Navigation
 
 - **[Quick Start](#installation-steps)** - Get started in 5 minutes
+- **[Documentation Center](docs/README_EN.md)** - Complete documentation index (Chinese and English)
 - **[Contributing Guide](CONTRIBUTING_EN.md)** - How to participate in project development
 - **[Changelog](CHANGELOG_EN.md)** - Version history and change log
 - **[API Documentation](docs/API_EN.md)** - Complete API reference manual
@@ -17,6 +18,8 @@ An intelligent dialogue agent system based on LangChain and Python, supporting r
 - **[Development Guide](docs/DEVELOPMENT_EN.md)** - In-depth developer guide
 - **[Usage Examples](docs/EXAMPLES_EN.md)** - Rich code examples
 - **[Troubleshooting](docs/TROUBLESHOOTING_EN.md)** - Common problem solutions
+- **[Pseudo-Vision Feature](VISION_FEATURE_README_EN.md)** - Agent vision perception system
+- **[Environment Switching](ENVIRONMENT_SWITCHING_EN.md)** - Environment switching and connection management
 
 ## Features
 
@@ -354,7 +357,20 @@ MAX_SHORT_TERM_ROUNDS=30  # Change to archive every 30 rounds
 
 ## Version History
 
-### v5.0 (2025-01-15) - Emotional Relationship Analysis Version ⭐NEW
+### v6.0 (2025-01-18) - Environment Switching and Pseudo-Vision Version ⭐NEW
+- ✨ Added agent pseudo-vision system
+- ✨ Environment perception and multi-sensory description (visual, auditory, olfactory)
+- ✨ Smart trigger mechanism (15+ environment keywords)
+- ✨ Object management system (priority, visibility control)
+- ✨ Added environment switching feature
+- ✨ Environment connection system (support multiple connection types and directions)
+- ✨ Smart switch detection and permission verification
+- ✨ Environment relationship visualization (relationship map)
+- ✨ Enhanced GUI environment management interface
+- ✨ Usage records and log tracking
+- 📝 Complete feature documentation (Chinese and English)
+
+### v5.0 (2025-01-15) - Emotional Relationship Analysis Version
 - ✅ Added emotional relationship analysis system
 - ✅ Automatic emotional analysis (triggered every 10 rounds)
 - ✅ 5-dimensional emotional assessment (intimacy, trust, pleasure, resonance, dependence)
