@@ -231,6 +231,23 @@ class DatabaseManager:
                 )
             ''')
 
+            # 12. 环境连接关系表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS environment_connections (
+                    uuid TEXT PRIMARY KEY,
+                    from_environment_uuid TEXT NOT NULL,
+                    to_environment_uuid TEXT NOT NULL,
+                    connection_type TEXT DEFAULT 'normal',
+                    direction TEXT DEFAULT 'bidirectional',
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (from_environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE CASCADE,
+                    FOREIGN KEY (to_environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE CASCADE,
+                    UNIQUE(from_environment_uuid, to_environment_uuid)
+                )
+            ''')
+
             # 创建索引以提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_base_knowledge_normalized ON base_knowledge(normalized_name)')
@@ -239,6 +256,8 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_environment_active ON environment_descriptions(is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_objects_environment ON environment_objects(environment_uuid)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_vision_logs_created ON vision_tool_logs(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_connections_from ON environment_connections(from_environment_uuid)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_connections_to ON environment_connections(to_environment_uuid)')
 
             conn.commit()
         if INIT_Database_PreParation_Complete == False:
@@ -1390,6 +1409,182 @@ class DatabaseManager:
                 ORDER BY created_at DESC 
                 LIMIT ?
             ''', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== 环境连接关系方法 ====================
+
+    def create_environment_connection(self, from_env_uuid: str, to_env_uuid: str,
+                                     connection_type: str = "normal",
+                                     direction: str = "bidirectional",
+                                     description: str = "") -> str:
+        """
+        创建环境之间的连接关系
+
+        Args:
+            from_env_uuid: 起始环境UUID
+            to_env_uuid: 目标环境UUID
+            connection_type: 连接类型 (normal, door, portal, stairs, etc.)
+            direction: 连接方向 (bidirectional, one_way)
+            description: 连接描述
+
+        Returns:
+            连接UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 创建环境连接: {from_env_uuid[:8]}... -> {to_env_uuid[:8]}...")
+
+        # 检查两个环境是否相同
+        if from_env_uuid == to_env_uuid:
+            raise ValueError("不能创建环境到自身的连接")
+
+        conn_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO environment_connections 
+                    (uuid, from_environment_uuid, to_environment_uuid, connection_type, direction, description, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (conn_uuid, from_env_uuid, to_env_uuid, connection_type, direction, description, now, now))
+
+                if self.debug:
+                    print(f"🐛 [DEBUG] ✓ 环境连接创建成功: {conn_uuid[:8]}...")
+
+                return conn_uuid
+        except sqlite3.IntegrityError:
+            if self.debug:
+                print(f"🐛 [DEBUG] ⚠ 环境连接已存在")
+            raise ValueError("该环境连接已存在")
+
+    def get_environment_connections(self, env_uuid: str, direction: str = "both") -> List[Dict[str, Any]]:
+        """
+        获取环境的所有连接
+
+        Args:
+            env_uuid: 环境UUID
+            direction: 查询方向 ("from" - 从此环境出发, "to" - 到达此环境, "both" - 双向)
+
+        Returns:
+            连接列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if direction == "from":
+                cursor.execute('''
+                    SELECT * FROM environment_connections 
+                    WHERE from_environment_uuid = ?
+                    ORDER BY created_at DESC
+                ''', (env_uuid,))
+            elif direction == "to":
+                cursor.execute('''
+                    SELECT * FROM environment_connections 
+                    WHERE to_environment_uuid = ?
+                    ORDER BY created_at DESC
+                ''', (env_uuid,))
+            else:  # both
+                cursor.execute('''
+                    SELECT * FROM environment_connections 
+                    WHERE from_environment_uuid = ? OR to_environment_uuid = ?
+                    ORDER BY created_at DESC
+                ''', (env_uuid, env_uuid))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_connected_environments(self, env_uuid: str) -> List[Dict[str, Any]]:
+        """
+        获取与指定环境连通的所有环境
+
+        Args:
+            env_uuid: 环境UUID
+
+        Returns:
+            连通的环境列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 查找所有连接（双向或单向）
+            cursor.execute('''
+                SELECT DISTINCT
+                    CASE 
+                        WHEN from_environment_uuid = ? THEN to_environment_uuid
+                        WHEN to_environment_uuid = ? AND direction = 'bidirectional' THEN from_environment_uuid
+                    END as connected_uuid
+                FROM environment_connections
+                WHERE (from_environment_uuid = ? OR (to_environment_uuid = ? AND direction = 'bidirectional'))
+            ''', (env_uuid, env_uuid, env_uuid, env_uuid))
+            
+            connected_uuids = [row['connected_uuid'] for row in cursor.fetchall() if row['connected_uuid']]
+            
+            # 获取这些环境的详细信息
+            if not connected_uuids:
+                return []
+            
+            placeholders = ','.join('?' * len(connected_uuids))
+            cursor.execute(f'''
+                SELECT * FROM environment_descriptions 
+                WHERE uuid IN ({placeholders})
+            ''', connected_uuids)
+            
+            return [dict(row) for row in cursor.fetchall()]
+
+    def can_move_to_environment(self, from_env_uuid: str, to_env_uuid: str) -> bool:
+        """
+        检查是否可以从一个环境移动到另一个环境
+
+        Args:
+            from_env_uuid: 起始环境UUID
+            to_env_uuid: 目标环境UUID
+
+        Returns:
+            是否可以移动
+        """
+        if from_env_uuid == to_env_uuid:
+            return True  # 同一个环境，总是可以的
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 检查是否存在直接连接
+            cursor.execute('''
+                SELECT COUNT(*) as count FROM environment_connections
+                WHERE from_environment_uuid = ? AND to_environment_uuid = ?
+                   OR (to_environment_uuid = ? AND from_environment_uuid = ? AND direction = 'bidirectional')
+            ''', (from_env_uuid, to_env_uuid, from_env_uuid, to_env_uuid))
+            
+            result = cursor.fetchone()
+            return result['count'] > 0
+
+    def delete_environment_connection(self, conn_uuid: str) -> bool:
+        """
+        删除环境连接
+
+        Args:
+            conn_uuid: 连接UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM environment_connections WHERE uuid = ?', (conn_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除环境连接时出错: {e}")
+            return False
+
+    def get_all_environment_connections(self) -> List[Dict[str, Any]]:
+        """
+        获取所有环境连接
+
+        Returns:
+            所有连接列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_connections ORDER BY created_at DESC')
             return [dict(row) for row in cursor.fetchall()]
 
     # ==================== Debug辅助方法 ====================
