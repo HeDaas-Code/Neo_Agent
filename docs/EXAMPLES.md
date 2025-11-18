@@ -1,5 +1,7 @@
 # 使用示例
 
+**中文** | [English](EXAMPLES_EN.md)
+
 本文档提供 Neo_Agent 的各种使用场景和代码示例。
 
 ## 目录

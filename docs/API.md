@@ -1,5 +1,7 @@
 # API 文档
 
+**中文** | [English](API_EN.md)
+
 本文档详细说明 Neo_Agent 项目中各个模块的 API 接口和使用方法。
 
 ## 目录

@@ -1,5 +1,7 @@
 # 故障排查指南
 
+**中文** | [English](TROUBLESHOOTING_EN.md)
+
 本文档帮助您快速诊断和解决使用 Neo_Agent 时遇到的常见问题。
 
 ## 目录

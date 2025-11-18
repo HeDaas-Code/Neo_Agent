@@ -1,5 +1,7 @@
 # 贡献指南
 
+**中文** | [English](CONTRIBUTING_EN.md)
+
 感谢您对 Neo_Agent 项目的关注！我们欢迎所有形式的贡献，包括但不限于：
 
 - 🐛 报告错误

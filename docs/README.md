@@ -1,5 +1,7 @@
 # Neo_Agent 文档中心
 
+**中文** | [English](README_EN.md)
+
 欢迎来到 Neo_Agent 智能对话代理系统的文档中心！
 
 ## 📚 文档导航

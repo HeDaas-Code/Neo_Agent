@@ -1,5 +1,7 @@
 # 智能对话代理系统 v5.0
 
+**中文** | [English](README_EN.md)
+
 基于LangChain和Python开发的智能对话代理系统，支持角色扮演、三层记忆管理（短期+长期+知识库）、基础知识库、情感关系分析和Debug日志追踪。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
