@@ -2288,6 +2288,23 @@ class EnhancedChatDebugGUI:
                     
                     display_text += f"创建时间: {env['created_at']}\n"
                     
+                    # 获取环境连接信息
+                    connections = self.agent.db.get_environment_connections(env['uuid'])
+                    if connections:
+                        display_text += f"\n连接关系: {len(connections)}个\n"
+                        for conn in connections[:3]:  # 只显示前3个连接
+                            if conn['from_environment_uuid'] == env['uuid']:
+                                other_env = self.agent.db.get_environment(conn['to_environment_uuid'])
+                                direction_symbol = "→" if conn['direction'] == 'one_way' else "⟷"
+                                display_text += f"  {direction_symbol} {other_env['name'] if other_env else '未知'} ({conn['connection_type']})\n"
+                            elif conn['to_environment_uuid'] == env['uuid'] and conn['direction'] == 'bidirectional':
+                                other_env = self.agent.db.get_environment(conn['from_environment_uuid'])
+                                display_text += f"  ⟷ {other_env['name'] if other_env else '未知'} ({conn['connection_type']})\n"
+                        if len(connections) > 3:
+                            display_text += f"  ... 还有 {len(connections) - 3} 个连接\n"
+                    else:
+                        display_text += "\n连接关系: 无（孤立环境）\n"
+                    
                     # 获取环境中的物体
                     objects = self.agent.db.get_environment_objects(env['uuid'])
                     display_text += f"\n物体数量: {len(objects)}\n"

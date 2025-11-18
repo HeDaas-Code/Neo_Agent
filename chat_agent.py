@@ -375,7 +375,28 @@ class ChatAgent:
         # 1. 从用户输入中提取相关主体并检索知识
         relevant_knowledge = self.memory_manager.knowledge_base.get_relevant_knowledge_for_query(user_input)
 
-        # 2. 检查是否需要使用视觉工具
+        # 2. 检测环境切换意图
+        switch_intent = self.vision_tool.detect_environment_switch_intent(user_input)
+        if switch_intent and switch_intent.get('can_switch'):
+            # 用户想要切换环境
+            from_env = switch_intent['from_env']
+            to_env = switch_intent['to_env']
+            
+            # 执行切换
+            success = self.vision_tool.switch_environment(to_env['uuid'])
+            if success:
+                switch_msg = f"\n🚪 [环境切换] 已从「{from_env['name']}」移动到「{to_env['name']}」"
+                print(switch_msg)
+                debug_logger.log_info('ChatAgent', '环境切换成功', {
+                    'from': from_env['name'],
+                    'to': to_env['name']
+                })
+                # 添加系统消息提示切换成功
+                self.memory_manager.add_message('system', switch_msg)
+            else:
+                debug_logger.log_info('ChatAgent', '环境切换失败')
+
+        # 3. 检查是否需要使用视觉工具
         vision_context = self.vision_tool.get_vision_context(user_input)
         if vision_context:
             # 显示视觉工具使用提示
