@@ -1492,6 +1492,11 @@ chat_agent.db #数据库
 - 📙 **[使用示例](docs/EXAMPLES.md)** - 丰富的实际应用场景和代码示例
 - 📗 **[故障排查](docs/TROUBLESHOOTING.md)** - 遇到问题？这里有解决方案
 
+### 功能特性文档
+- 👁️ **[伪视觉功能](VISION_FEATURE_README.md)** - 智能体视觉感知系统详解
+- 🌐 **[环境切换功能](ENVIRONMENT_SWITCHING.md)** - 环境切换与连接管理
+- 🎬 **[视觉功能演示](VISION_DEMO.md)** - 实际使用场景和效果展示
+
 ### 开发者文档
 - 📕 **[API参考](docs/API.md)** - 完整的API接口文档
 - 📔 **[开发指南](docs/DEVELOPMENT.md)** - 深入了解项目架构和开发流程

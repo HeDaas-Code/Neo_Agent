@@ -428,6 +428,11 @@ Want to learn more about Neo_Agent? Check out our detailed documentation:
 - 📙 **[Usage Examples](docs/EXAMPLES_EN.md)** - Rich practical application scenarios and code examples
 - 📗 **[Troubleshooting](docs/TROUBLESHOOTING_EN.md)** - Having problems? Here are solutions
 
+### Feature Documentation
+- 👁️ **[Pseudo-Vision Feature](VISION_FEATURE_README_EN.md)** - Agent vision perception system details
+- 🌐 **[Environment Switching Feature](ENVIRONMENT_SWITCHING_EN.md)** - Environment switching and connection management
+- 🎬 **[Vision Feature Demo](VISION_DEMO_EN.md)** - Real usage scenarios and effects demonstration
+
 ### Developer Documentation
 - 📕 **[API Reference](docs/API_EN.md)** - Complete API interface documentation
 - 📔 **[Development Guide](docs/DEVELOPMENT_EN.md)** - In-depth understanding of project architecture and development process
