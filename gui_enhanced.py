@@ -826,7 +826,67 @@ class EnhancedChatDebugGUI:
         self.knowledge_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.knowledge_display.config(state=tk.DISABLED)
 
-        # 选项卡6: Debug日志（仅在debug模式下显示）
+        # 选项卡6: 环境管理（智能体视觉）
+        environment_tab = ttk.Frame(notebook)
+        notebook.add(environment_tab, text="👁️ 环境管理")
+
+        # 环境管理工具栏
+        env_toolbar = ttk.Frame(environment_tab)
+        env_toolbar.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(
+            env_toolbar,
+            text="智能体视觉环境配置",
+            font=("微软雅黑", 10, "bold")
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            env_toolbar,
+            text="🔄 刷新",
+            command=self.refresh_environment_display,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar,
+            text="➕ 新建环境",
+            command=self.create_new_environment,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar,
+            text="➕ 添加物体",
+            command=self.add_new_object,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar,
+            text="📋 使用记录",
+            command=self.show_vision_logs,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar,
+            text="🏠 创建默认环境",
+            command=self.create_default_environment,
+            width=15
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 环境显示区域
+        self.environment_display = scrolledtext.ScrolledText(
+            environment_tab,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9",
+            relief=tk.FLAT
+        )
+        self.environment_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.environment_display.config(state=tk.DISABLED)
+
+        # 选项卡7: Debug日志（仅在debug模式下显示）
         debug_mode = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
         if debug_mode:
             debug_tab = ttk.Frame(notebook)
@@ -1088,6 +1148,7 @@ class EnhancedChatDebugGUI:
         self.update_long_term_display()
         self.update_understanding_display()  # 新增：更新理解阶段显示
         self.update_knowledge_display()
+        self.refresh_environment_display()  # 新增：更新环境显示
         self.update_timeline()
 
     def analyze_emotion(self):
@@ -2157,6 +2218,305 @@ class EnhancedChatDebugGUI:
         if result:
             self.initialize_agent()
             messagebox.showinfo("成功", "代理已重新加载")
+
+    # ==================== 环境管理相关方法 ====================
+
+    def refresh_environment_display(self):
+        """
+        刷新环境显示
+        """
+        try:
+            # 获取所有环境
+            environments = self.agent.db.get_all_environments()
+            active_env = self.agent.db.get_active_environment()
+            
+            display_text = "【智能体视觉环境配置】\n\n"
+            
+            if not environments:
+                display_text += "暂无环境配置。\n\n"
+                display_text += "💡 提示:\n"
+                display_text += "- 点击「创建默认环境」快速创建一个示例环境\n"
+                display_text += "- 点击「新建环境」手动创建自定义环境\n"
+                display_text += "- 环境配置后，当用户询问周围环境时，智能体会自动使用视觉工具\n"
+            else:
+                display_text += f"共有 {len(environments)} 个环境配置\n"
+                if active_env:
+                    display_text += f"当前激活: {active_env['name']}\n"
+                display_text += "=" * 60 + "\n\n"
+                
+                for env in environments:
+                    is_active = env['uuid'] == active_env['uuid'] if active_env else False
+                    status_icon = "🟢" if is_active else "⚪"
+                    
+                    display_text += f"{status_icon} 【环境: {env['name']}】\n"
+                    display_text += f"UUID: {env['uuid'][:8]}...\n"
+                    display_text += f"整体描述: {env['overall_description']}\n"
+                    
+                    if env.get('atmosphere'):
+                        display_text += f"氛围: {env['atmosphere']}\n"
+                    if env.get('lighting'):
+                        display_text += f"光照: {env['lighting']}\n"
+                    if env.get('sounds'):
+                        display_text += f"声音: {env['sounds']}\n"
+                    if env.get('smells'):
+                        display_text += f"气味: {env['smells']}\n"
+                    
+                    display_text += f"创建时间: {env['created_at']}\n"
+                    
+                    # 获取环境中的物体
+                    objects = self.agent.db.get_environment_objects(env['uuid'])
+                    display_text += f"\n物体数量: {len(objects)}\n"
+                    
+                    if objects:
+                        display_text += "物体列表:\n"
+                        for obj in objects:
+                            visibility = "👁️" if obj['is_visible'] else "👁️‍🗨️"
+                            display_text += f"  {visibility} {obj['name']} (优先级: {obj['priority']})\n"
+                            display_text += f"     {obj['description']}\n"
+                            if obj.get('position'):
+                                display_text += f"     位置: {obj['position']}\n"
+                    
+                    display_text += "\n" + "=" * 60 + "\n\n"
+            
+            self.update_text_widget(self.environment_display, display_text)
+        except Exception as e:
+            self.update_text_widget(self.environment_display, f"刷新环境显示时出错: {e}")
+
+    def create_new_environment(self):
+        """
+        创建新环境
+        """
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("创建新环境")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 环境名称
+        ttk.Label(dialog, text="环境名称:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        name_entry = ttk.Entry(dialog, width=70)
+        name_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 整体描述
+        ttk.Label(dialog, text="整体描述:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        desc_text = scrolledtext.ScrolledText(dialog, height=6, width=70, wrap=tk.WORD)
+        desc_text.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
+        
+        # 氛围
+        ttk.Label(dialog, text="氛围:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        atmosphere_entry = ttk.Entry(dialog, width=70)
+        atmosphere_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 光照
+        ttk.Label(dialog, text="光照:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        lighting_entry = ttk.Entry(dialog, width=70)
+        lighting_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 声音
+        ttk.Label(dialog, text="声音:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        sounds_entry = ttk.Entry(dialog, width=70)
+        sounds_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 气味
+        ttk.Label(dialog, text="气味:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        smells_entry = ttk.Entry(dialog, width=70)
+        smells_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+        
+        def save_environment():
+            name = name_entry.get().strip()
+            desc = desc_text.get("1.0", tk.END).strip()
+            
+            if not name or not desc:
+                messagebox.showerror("错误", "环境名称和整体描述不能为空！")
+                return
+            
+            try:
+                env_uuid = self.agent.db.create_environment(
+                    name=name,
+                    overall_description=desc,
+                    atmosphere=atmosphere_entry.get().strip(),
+                    lighting=lighting_entry.get().strip(),
+                    sounds=sounds_entry.get().strip(),
+                    smells=smells_entry.get().strip()
+                )
+                
+                # 如果是第一个环境，自动设为激活
+                all_envs = self.agent.db.get_all_environments()
+                if len(all_envs) == 1:
+                    self.agent.db.set_active_environment(env_uuid)
+                
+                messagebox.showinfo("成功", f"环境创建成功！\nUUID: {env_uuid[:8]}...")
+                dialog.destroy()
+                self.refresh_environment_display()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建环境失败: {e}")
+        
+        ttk.Button(button_frame, text="保存", command=save_environment, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def add_new_object(self):
+        """
+        添加新物体到当前激活的环境
+        """
+        # 检查是否有激活的环境
+        active_env = self.agent.db.get_active_environment()
+        if not active_env:
+            messagebox.showerror("错误", "请先创建并激活一个环境！")
+            return
+        
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"添加物体到环境: {active_env['name']}")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 物体名称
+        ttk.Label(dialog, text="物体名称:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        name_entry = ttk.Entry(dialog, width=70)
+        name_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 物体描述
+        ttk.Label(dialog, text="物体描述:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        desc_text = scrolledtext.ScrolledText(dialog, height=6, width=70, wrap=tk.WORD)
+        desc_text.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
+        
+        # 位置
+        ttk.Label(dialog, text="位置:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        position_entry = ttk.Entry(dialog, width=70)
+        position_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 属性
+        ttk.Label(dialog, text="属性:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        properties_entry = ttk.Entry(dialog, width=70)
+        properties_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 交互提示
+        ttk.Label(dialog, text="交互提示:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        hints_entry = ttk.Entry(dialog, width=70)
+        hints_entry.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 优先级
+        priority_frame = ttk.Frame(dialog)
+        priority_frame.pack(pady=10, padx=10, fill=tk.X)
+        ttk.Label(priority_frame, text="优先级 (0-100):", font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        priority_var = tk.IntVar(value=50)
+        priority_spinbox = ttk.Spinbox(priority_frame, from_=0, to=100, textvariable=priority_var, width=10)
+        priority_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+        
+        def save_object():
+            name = name_entry.get().strip()
+            desc = desc_text.get("1.0", tk.END).strip()
+            
+            if not name or not desc:
+                messagebox.showerror("错误", "物体名称和描述不能为空！")
+                return
+            
+            try:
+                obj_uuid = self.agent.db.add_environment_object(
+                    environment_uuid=active_env['uuid'],
+                    name=name,
+                    description=desc,
+                    position=position_entry.get().strip(),
+                    properties=properties_entry.get().strip(),
+                    interaction_hints=hints_entry.get().strip(),
+                    priority=priority_var.get()
+                )
+                
+                messagebox.showinfo("成功", f"物体添加成功！\nUUID: {obj_uuid[:8]}...")
+                dialog.destroy()
+                self.refresh_environment_display()
+            except Exception as e:
+                messagebox.showerror("错误", f"添加物体失败: {e}")
+        
+        ttk.Button(button_frame, text="保存", command=save_object, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def show_vision_logs(self):
+        """
+        显示视觉工具使用记录
+        """
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("视觉工具使用记录")
+        dialog.geometry("800x600")
+        dialog.transient(self.root)
+        
+        # 工具栏
+        toolbar = ttk.Frame(dialog)
+        toolbar.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(toolbar, text="最近50条记录", font=("微软雅黑", 10, "bold")).pack(side=tk.LEFT)
+        
+        # 日志显示
+        log_text = scrolledtext.ScrolledText(dialog, wrap=tk.WORD, font=("微软雅黑", 9))
+        log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        try:
+            logs = self.agent.db.get_vision_tool_logs(limit=50)
+            
+            if not logs:
+                log_text.insert(tk.END, "暂无视觉工具使用记录\n\n")
+                log_text.insert(tk.END, "💡 提示: 当用户询问周围环境时，视觉工具会自动触发并记录")
+            else:
+                log_text.insert(tk.END, f"共有 {len(logs)} 条记录\n")
+                log_text.insert(tk.END, "=" * 80 + "\n\n")
+                
+                for i, log in enumerate(logs, 1):
+                    log_text.insert(tk.END, f"【记录 {i}】\n")
+                    log_text.insert(tk.END, f"时间: {log['created_at']}\n")
+                    log_text.insert(tk.END, f"触发方式: {log['triggered_by']}\n")
+                    log_text.insert(tk.END, f"用户查询: {log['query']}\n")
+                    
+                    if log.get('environment_uuid'):
+                        env = self.agent.db.get_environment(log['environment_uuid'])
+                        env_name = env['name'] if env else "已删除的环境"
+                        log_text.insert(tk.END, f"环境: {env_name}\n")
+                    
+                    if log.get('objects_viewed'):
+                        log_text.insert(tk.END, f"查看的物体: {log['objects_viewed']}\n")
+                    
+                    if log.get('context_provided'):
+                        preview = log['context_provided'][:100]
+                        log_text.insert(tk.END, f"上下文预览: {preview}...\n")
+                    
+                    log_text.insert(tk.END, "\n" + "-" * 80 + "\n\n")
+        except Exception as e:
+            log_text.insert(tk.END, f"加载日志时出错: {e}")
+        
+        log_text.config(state=tk.DISABLED)
+        
+        # 关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
+
+    def create_default_environment(self):
+        """
+        创建默认环境（小可的房间）
+        """
+        result = messagebox.askyesno(
+            "确认",
+            "将创建默认示例环境「小可的房间」\n包含7个预设物体\n\n确定要创建吗？"
+        )
+        
+        if result:
+            try:
+                env_uuid = self.agent.vision_tool.create_default_environment()
+                messagebox.showinfo(
+                    "成功",
+                    f"默认环境创建成功！\n\n环境: 小可的房间\nUUID: {env_uuid[:8]}...\n物体数量: 7个\n\n该环境已自动设为激活状态。"
+                )
+                self.refresh_environment_display()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建默认环境失败: {e}")
 
     def show_about(self):
         """

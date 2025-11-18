@@ -15,6 +15,7 @@ from database_manager import DatabaseManager
 from long_term_memory import LongTermMemoryManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import EmotionRelationshipAnalyzer
+from agent_vision import AgentVisionTool
 
 # 加载环境变量
 load_dotenv()
@@ -345,6 +346,9 @@ class ChatAgent:
 
         # 初始化情感关系分析器（共享数据库）
         self.emotion_analyzer = EmotionRelationshipAnalyzer(db_manager=self.db)
+        
+        # 初始化智能体视觉工具（共享数据库）
+        self.vision_tool = AgentVisionTool(db_manager=self.db)
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -371,12 +375,25 @@ class ChatAgent:
         # 1. 从用户输入中提取相关主体并检索知识
         relevant_knowledge = self.memory_manager.knowledge_base.get_relevant_knowledge_for_query(user_input)
 
+        # 2. 检查是否需要使用视觉工具
+        vision_context = self.vision_tool.get_vision_context(user_input)
+        if vision_context:
+            # 显示视觉工具使用提示
+            vision_summary = self.vision_tool.get_vision_summary(vision_context)
+            print(f"\n{vision_summary}")
+            debug_logger.log_info('ChatAgent', '视觉工具已触发', {
+                'environment': vision_context['environment']['name'],
+                'objects_count': vision_context['object_count']
+            })
+
         # 记录理解阶段的结果（用于调试）
         self._last_understanding = relevant_knowledge
+        self._last_vision_context = vision_context
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
-            'knowledge_count': len(relevant_knowledge.get('knowledge_items', []))
+            'knowledge_count': len(relevant_knowledge.get('knowledge_items', [])),
+            'vision_used': vision_context is not None
         })
 
         # 添加用户消息到记忆
@@ -482,6 +499,17 @@ class ChatAgent:
                 'entities_count': len(relevant_knowledge['entities_found']),
                 'base_knowledge_count': len(relevant_knowledge.get('base_knowledge_items', [])),
                 'total_knowledge': len(all_knowledge)
+            })
+
+        # 添加视觉上下文（如果视觉工具被触发）
+        if vision_context:
+            vision_prompt = self.vision_tool.format_vision_prompt(vision_context)
+            messages.append({'role': 'system', 'content': vision_prompt})
+            debug_logger.log_prompt('ChatAgent', 'system', vision_prompt, {
+                'stage': '智能体视觉感知',
+                'environment': vision_context['environment']['name'],
+                'objects_count': vision_context['object_count'],
+                'prompt_length': len(vision_prompt)
             })
 
         # 添加长期记忆上下文
@@ -594,6 +622,15 @@ class ChatAgent:
             理解阶段结果字典
         """
         return getattr(self, '_last_understanding', None)
+
+    def get_last_vision_context(self) -> Dict[str, Any]:
+        """
+        获取上一次视觉感知的结果（用于调试）
+
+        Returns:
+            视觉上下文字典
+        """
+        return getattr(self, '_last_vision_context', None)
 
     def get_character_info(self) -> Dict[str, str]:
         """

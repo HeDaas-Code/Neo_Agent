@@ -183,11 +183,62 @@ class DatabaseManager:
                 )
             ''')
 
+            # 9. 环境描述表（用于智能体伪视觉）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS environment_descriptions (
+                    uuid TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    overall_description TEXT NOT NULL,
+                    atmosphere TEXT,
+                    lighting TEXT,
+                    sounds TEXT,
+                    smells TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
+            # 10. 环境物体表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS environment_objects (
+                    uuid TEXT PRIMARY KEY,
+                    environment_uuid TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    position TEXT,
+                    properties TEXT,
+                    interaction_hints TEXT,
+                    priority INTEGER DEFAULT 50,
+                    is_visible INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE CASCADE
+                )
+            ''')
+
+            # 11. 视觉工具使用记录表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vision_tool_logs (
+                    uuid TEXT PRIMARY KEY,
+                    query TEXT NOT NULL,
+                    environment_uuid TEXT,
+                    objects_viewed TEXT,
+                    context_provided TEXT,
+                    triggered_by TEXT DEFAULT 'auto',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE SET NULL
+                )
+            ''')
+
             # 创建索引以提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_base_knowledge_normalized ON base_knowledge(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_short_term_timestamp ON short_term_memory(timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_long_term_created ON long_term_memory(created_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_environment_active ON environment_descriptions(is_active)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_objects_environment ON environment_objects(environment_uuid)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_vision_logs_created ON vision_tool_logs(created_at)')
 
             conn.commit()
         if INIT_Database_PreParation_Complete == False:
@@ -994,6 +1045,351 @@ class DatabaseManager:
                 WHERE name LIKE ? OR normalized_name LIKE ?
                 ORDER BY created_at DESC
             ''', (f'%{keyword}%', f'%{keyword}%'))
+            return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== 环境描述相关方法（智能体伪视觉） ====================
+
+    def create_environment(self, name: str, overall_description: str,
+                          atmosphere: str = "", lighting: str = "",
+                          sounds: str = "", smells: str = "") -> str:
+        """
+        创建新环境描述
+
+        Args:
+            name: 环境名称
+            overall_description: 整体描述
+            atmosphere: 氛围
+            lighting: 光照
+            sounds: 声音
+            smells: 气味
+
+        Returns:
+            环境UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 创建环境: {name}")
+
+        env_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO environment_descriptions 
+                (uuid, name, overall_description, atmosphere, lighting, sounds, smells, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (env_uuid, name, overall_description, atmosphere, lighting, sounds, smells, now, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] ✓ 环境创建成功: {name} | UUID: {env_uuid[:8]}...")
+
+        return env_uuid
+
+    def get_environment(self, env_uuid: str) -> Optional[Dict[str, Any]]:
+        """
+        获取环境描述
+
+        Args:
+            env_uuid: 环境UUID
+
+        Returns:
+            环境描述字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_descriptions WHERE uuid = ?', (env_uuid,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_active_environment(self) -> Optional[Dict[str, Any]]:
+        """
+        获取当前激活的环境
+
+        Returns:
+            环境描述字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM environment_descriptions 
+                WHERE is_active = 1 
+                ORDER BY updated_at DESC 
+                LIMIT 1
+            ''')
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_all_environments(self) -> List[Dict[str, Any]]:
+        """
+        获取所有环境描述
+
+        Returns:
+            环境描述列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_descriptions ORDER BY created_at DESC')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_environment(self, env_uuid: str, **kwargs) -> bool:
+        """
+        更新环境描述
+
+        Args:
+            env_uuid: 环境UUID
+            **kwargs: 要更新的字段
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            if not kwargs:
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            set_clause += ", updated_at = ?"
+            values = list(kwargs.values()) + [datetime.now().isoformat(), env_uuid]
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'''
+                    UPDATE environment_descriptions 
+                    SET {set_clause}
+                    WHERE uuid = ?
+                ''', values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 更新环境时出错: {e}")
+            return False
+
+    def set_active_environment(self, env_uuid: str) -> bool:
+        """
+        设置激活的环境（会将其他环境设为非激活）
+
+        Args:
+            env_uuid: 环境UUID
+
+        Returns:
+            是否设置成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # 先将所有环境设为非激活
+                cursor.execute('UPDATE environment_descriptions SET is_active = 0')
+                # 再激活指定环境
+                cursor.execute('UPDATE environment_descriptions SET is_active = 1 WHERE uuid = ?', (env_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 设置激活环境时出错: {e}")
+            return False
+
+    def delete_environment(self, env_uuid: str) -> bool:
+        """
+        删除环境描述（会级联删除相关物体）
+
+        Args:
+            env_uuid: 环境UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM environment_descriptions WHERE uuid = ?', (env_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除环境时出错: {e}")
+            return False
+
+    def add_environment_object(self, environment_uuid: str, name: str, description: str,
+                              position: str = "", properties: str = "",
+                              interaction_hints: str = "", priority: int = 50) -> str:
+        """
+        添加环境物体
+
+        Args:
+            environment_uuid: 环境UUID
+            name: 物体名称
+            description: 物体描述
+            position: 位置
+            properties: 属性（JSON字符串）
+            interaction_hints: 交互提示
+            priority: 优先级（越高越重要）
+
+        Returns:
+            物体UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 添加环境物体: {name} 到环境 {environment_uuid[:8]}...")
+
+        obj_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO environment_objects 
+                (uuid, environment_uuid, name, description, position, properties, 
+                 interaction_hints, priority, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (obj_uuid, environment_uuid, name, description, position, properties,
+                  interaction_hints, priority, now, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] ✓ 物体添加成功: {name} | UUID: {obj_uuid[:8]}...")
+
+        return obj_uuid
+
+    def get_environment_objects(self, environment_uuid: str, visible_only: bool = True) -> List[Dict[str, Any]]:
+        """
+        获取环境中的所有物体
+
+        Args:
+            environment_uuid: 环境UUID
+            visible_only: 是否只返回可见物体
+
+        Returns:
+            物体列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if visible_only:
+                cursor.execute('''
+                    SELECT * FROM environment_objects 
+                    WHERE environment_uuid = ? AND is_visible = 1 
+                    ORDER BY priority DESC, name ASC
+                ''', (environment_uuid,))
+            else:
+                cursor.execute('''
+                    SELECT * FROM environment_objects 
+                    WHERE environment_uuid = ? 
+                    ORDER BY priority DESC, name ASC
+                ''', (environment_uuid,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_object(self, obj_uuid: str) -> Optional[Dict[str, Any]]:
+        """
+        获取物体信息
+
+        Args:
+            obj_uuid: 物体UUID
+
+        Returns:
+            物体字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_objects WHERE uuid = ?', (obj_uuid,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def update_object(self, obj_uuid: str, **kwargs) -> bool:
+        """
+        更新物体信息
+
+        Args:
+            obj_uuid: 物体UUID
+            **kwargs: 要更新的字段
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            if not kwargs:
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            set_clause += ", updated_at = ?"
+            values = list(kwargs.values()) + [datetime.now().isoformat(), obj_uuid]
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'''
+                    UPDATE environment_objects 
+                    SET {set_clause}
+                    WHERE uuid = ?
+                ''', values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 更新物体时出错: {e}")
+            return False
+
+    def delete_object(self, obj_uuid: str) -> bool:
+        """
+        删除物体
+
+        Args:
+            obj_uuid: 物体UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM environment_objects WHERE uuid = ?', (obj_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除物体时出错: {e}")
+            return False
+
+    def log_vision_tool_usage(self, query: str, environment_uuid: Optional[str] = None,
+                             objects_viewed: str = "", context_provided: str = "",
+                             triggered_by: str = "auto") -> str:
+        """
+        记录视觉工具使用
+
+        Args:
+            query: 用户查询
+            environment_uuid: 环境UUID
+            objects_viewed: 查看的物体（逗号分隔）
+            context_provided: 提供的上下文
+            triggered_by: 触发方式（auto/manual）
+
+        Returns:
+            日志UUID
+        """
+        log_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO vision_tool_logs 
+                (uuid, query, environment_uuid, objects_viewed, context_provided, triggered_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (log_uuid, query, environment_uuid, objects_viewed, context_provided, triggered_by, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] 视觉工具使用已记录: {log_uuid[:8]}...")
+
+        return log_uuid
+
+    def get_vision_tool_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        获取视觉工具使用日志
+
+        Args:
+            limit: 返回的日志条数限制
+
+        Returns:
+            日志列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM vision_tool_logs 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
     # ==================== Debug辅助方法 ====================
