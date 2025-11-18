@@ -1,5 +1,7 @@
 # 更新日志
 
+**中文** | [English](CHANGELOG_EN.md)
+
 本文档记录了项目的所有重要变更。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
