@@ -336,6 +336,120 @@ class AgentVisionTool:
         
         return env_uuid
 
+    def detect_environment_switch_intent(self, user_query: str) -> Optional[Dict[str, Any]]:
+        """
+        检测用户是否有切换环境的意图
+
+        Args:
+            user_query: 用户查询
+
+        Returns:
+            如果检测到切换意图，返回包含目标环境等信息的字典，否则返回None
+        """
+        debug_logger.log_module('AgentVisionTool', '检测环境切换意图', {
+            'query': user_query
+        })
+
+        # 环境切换关键词
+        switch_keywords = [
+            '去', '走', '移动', '前往', '过去', '进入', '离开', '出去',
+            '回到', '返回', '切换', '换到', '转移'
+        ]
+
+        query_lower = user_query.lower()
+        has_switch_keyword = any(keyword in query_lower for keyword in switch_keywords)
+
+        if not has_switch_keyword:
+            debug_logger.log_info('AgentVisionTool', '未检测到切换关键词')
+            return None
+
+        # 获取当前环境
+        current_env = self.db.get_active_environment()
+        if not current_env:
+            debug_logger.log_info('AgentVisionTool', '没有当前激活的环境')
+            return None
+
+        # 获取所有连通的环境
+        connected_envs = self.db.get_connected_environments(current_env['uuid'])
+        if not connected_envs:
+            debug_logger.log_info('AgentVisionTool', '当前环境没有连通的环境')
+            return None
+
+        # 尝试匹配环境名称
+        matched_env = None
+        for env in connected_envs:
+            if env['name'] in user_query:
+                matched_env = env
+                break
+
+        if matched_env:
+            debug_logger.log_info('AgentVisionTool', '检测到环境切换意图', {
+                'from': current_env['name'],
+                'to': matched_env['name']
+            })
+            return {
+                'intent': 'switch_environment',
+                'from_env': current_env,
+                'to_env': matched_env,
+                'can_switch': True
+            }
+
+        debug_logger.log_info('AgentVisionTool', '未匹配到目标环境')
+        return None
+
+    def switch_environment(self, to_env_uuid: str) -> bool:
+        """
+        切换到指定环境
+
+        Args:
+            to_env_uuid: 目标环境UUID
+
+        Returns:
+            是否切换成功
+        """
+        debug_logger.log_module('AgentVisionTool', '执行环境切换', {
+            'to_env_uuid': to_env_uuid[:8] + '...'
+        })
+
+        current_env = self.db.get_active_environment()
+        if not current_env:
+            debug_logger.log_info('AgentVisionTool', '没有当前激活的环境')
+            return False
+
+        # 检查是否可以切换（是否连通）
+        if not self.db.can_move_to_environment(current_env['uuid'], to_env_uuid):
+            debug_logger.log_info('AgentVisionTool', '不能切换到目标环境', {
+                'reason': '环境不连通'
+            })
+            return False
+
+        # 执行切换
+        success = self.db.set_active_environment(to_env_uuid)
+        if success:
+            to_env = self.db.get_environment(to_env_uuid)
+            debug_logger.log_info('AgentVisionTool', '环境切换成功', {
+                'from': current_env['name'],
+                'to': to_env['name'] if to_env else 'Unknown'
+            })
+            print(f"✓ 环境已切换: {current_env['name']} → {to_env['name'] if to_env else 'Unknown'}")
+        else:
+            debug_logger.log_info('AgentVisionTool', '环境切换失败')
+
+        return success
+
+    def get_available_environments_for_switch(self) -> List[Dict[str, Any]]:
+        """
+        获取可以切换到的环境列表
+
+        Returns:
+            可切换环境列表
+        """
+        current_env = self.db.get_active_environment()
+        if not current_env:
+            return []
+
+        return self.db.get_connected_environments(current_env['uuid'])
+
 
 # 测试代码
 if __name__ == '__main__':

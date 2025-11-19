@@ -10,6 +10,7 @@ An intelligent dialogue agent system based on LangChain and Python, supporting r
 ## 📚 Documentation Navigation
 
 - **[Quick Start](#installation-steps)** - Get started in 5 minutes
+- **[Documentation Center](docs/README_EN.md)** - Complete documentation index (Chinese and English)
 - **[Contributing Guide](CONTRIBUTING_EN.md)** - How to participate in project development
 - **[Changelog](CHANGELOG_EN.md)** - Version history and change log
 - **[API Documentation](docs/API_EN.md)** - Complete API reference manual
@@ -17,6 +18,8 @@ An intelligent dialogue agent system based on LangChain and Python, supporting r
 - **[Development Guide](docs/DEVELOPMENT_EN.md)** - In-depth developer guide
 - **[Usage Examples](docs/EXAMPLES_EN.md)** - Rich code examples
 - **[Troubleshooting](docs/TROUBLESHOOTING_EN.md)** - Common problem solutions
+- **[Pseudo-Vision Feature](VISION_FEATURE_README_EN.md)** - Agent vision perception system
+- **[Environment Switching](ENVIRONMENT_SWITCHING_EN.md)** - Environment switching and connection management
 
 ## Features
 
@@ -78,7 +81,29 @@ An intelligent dialogue agent system based on LangChain and Python, supporting r
 - **Knowledge Base Panel**: Display all knowledge points in a structured way
 - **Click Interaction**: Click timeline nodes to view detailed summary information
 - **Real-time Update**: Automatically update interface when memory is archived, knowledge is extracted, and emotional analysis is performed
-- **Multiple Tabs**: System information, short-term memory, long-term memory, understanding stage, knowledge base, debug log, control panel
+- **Multiple Tabs**: System information, short-term memory, long-term memory, understanding stage, knowledge base, environment management, debug log, control panel
+
+### 👁️ Agent Pseudo-Vision System (v6.0 NEW!)
+- **Environment Perception**: Simulate agent's visual capabilities through database presets
+- **Smart Trigger**: Automatically recognize 15+ environment-related keywords (around, see, observe, etc.)
+- **Structured Description**: Two-layer environment description (overall environment + detailed objects)
+- **Multi-sensory Information**: Includes visual, auditory, olfactory and other multi-dimensional perception
+- **Object Management**: Support adding, editing, deleting objects in environment
+- **Priority System**: Adjust display order based on object importance
+- **Visibility Control**: Flexible control of object visibility to agent
+- **Usage Records**: Automatically record vision tool usage history
+- **Detailed Documentation**: See [Pseudo-Vision Feature Documentation](VISION_FEATURE_README_EN.md)
+
+### 🌐 Environment Switching System (v6.0 NEW!)
+- **Smart Environment Management**: Support creating and managing multiple environments
+- **Environment Connection System**: Record connection relationships between environments through UUID
+- **Smart Switch Detection**: Automatically detect user's environment switching intent
+- **Permission Verification**: Only allow switching to connected environments
+- **Visualization Management**: Graphically display environment relationships
+- **GUI Enhancement**: Optimized environment management interface with hierarchical object addition
+- **Connection Types**: Support multiple connection types such as doors, stairs, corridors, etc.
+- **Direction Control**: Support one-way and bidirectional connections
+- **Detailed Documentation**: See [Environment Switching Feature Documentation](ENVIRONMENT_SWITCHING_EN.md)
 
 ## Project Structure
 
@@ -94,16 +119,25 @@ Neo_Agent/
 ├── CONTRIBUTING_EN.md         # Contributing guide (English)
 ├── CHANGELOG.md               # Changelog (Chinese)
 ├── CHANGELOG_EN.md            # Changelog (English)
+├── ENVIRONMENT_SWITCHING.md   # Environment switching documentation (Chinese)
+├── ENVIRONMENT_SWITCHING_EN.md # Environment switching documentation (English)
+├── VISION_FEATURE_README.md   # Pseudo-vision feature documentation (Chinese)
+├── VISION_FEATURE_README_EN.md # Pseudo-vision feature documentation (English)
+├── VISION_DEMO.md             # Vision feature demo (Chinese)
+├── VISION_DEMO_EN.md          # Vision feature demo (English)
+├── VISION_ARCHITECTURE.txt    # Vision system architecture description
 │
 ├── chat_agent.py              # Chat agent core module
 ├── long_term_memory.py        # Long-term memory management module
 ├── knowledge_base.py          # Knowledge base management module
 ├── base_knowledge.py          # Base knowledge base module
 ├── emotion_analyzer.py        # Emotional relationship analysis module
+├── agent_vision.py            # Agent pseudo-vision module (NEW!)
 ├── database_gui.py            # Database GUI interface module
 ├── database_manager.py        # Database management module
 ├── debug_logger.py            # Debug log manager
 ├── gui_enhanced.py            # Enhanced GUI interface (recommended)
+├── test_environment_switching.py # Environment switching feature test
 │
 ├── chat_agent.db              # Database file (auto-generated)
 ├── debug.log                  # Debug log file (auto-generated)
@@ -323,7 +357,20 @@ MAX_SHORT_TERM_ROUNDS=30  # Change to archive every 30 rounds
 
 ## Version History
 
-### v5.0 (2025-01-15) - Emotional Relationship Analysis Version ⭐NEW
+### v6.0 (2025-01-18) - Environment Switching and Pseudo-Vision Version ⭐NEW
+- ✨ Added agent pseudo-vision system
+- ✨ Environment perception and multi-sensory description (visual, auditory, olfactory)
+- ✨ Smart trigger mechanism (15+ environment keywords)
+- ✨ Object management system (priority, visibility control)
+- ✨ Added environment switching feature
+- ✨ Environment connection system (support multiple connection types and directions)
+- ✨ Smart switch detection and permission verification
+- ✨ Environment relationship visualization (relationship map)
+- ✨ Enhanced GUI environment management interface
+- ✨ Usage records and log tracking
+- 📝 Complete feature documentation (Chinese and English)
+
+### v5.0 (2025-01-15) - Emotional Relationship Analysis Version
 - ✅ Added emotional relationship analysis system
 - ✅ Automatic emotional analysis (triggered every 10 rounds)
 - ✅ 5-dimensional emotional assessment (intimacy, trust, pleasure, resonance, dependence)
@@ -380,6 +427,11 @@ Want to learn more about Neo_Agent? Check out our detailed documentation:
 - 📘 **[Quick Start](#installation-steps)** - 5-minute quick start guide
 - 📙 **[Usage Examples](docs/EXAMPLES_EN.md)** - Rich practical application scenarios and code examples
 - 📗 **[Troubleshooting](docs/TROUBLESHOOTING_EN.md)** - Having problems? Here are solutions
+
+### Feature Documentation
+- 👁️ **[Pseudo-Vision Feature](VISION_FEATURE_README_EN.md)** - Agent vision perception system details
+- 🌐 **[Environment Switching Feature](ENVIRONMENT_SWITCHING_EN.md)** - Environment switching and connection management
+- 🎬 **[Vision Feature Demo](VISION_DEMO_EN.md)** - Real usage scenarios and effects demonstration
 
 ### Developer Documentation
 - 📕 **[API Reference](docs/API_EN.md)** - Complete API interface documentation

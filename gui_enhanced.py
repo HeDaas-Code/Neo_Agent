@@ -830,49 +830,74 @@ class EnhancedChatDebugGUI:
         environment_tab = ttk.Frame(notebook)
         notebook.add(environment_tab, text="👁️ 环境管理")
 
-        # 环境管理工具栏
-        env_toolbar = ttk.Frame(environment_tab)
-        env_toolbar.pack(fill=tk.X, padx=5, pady=5)
+        # 环境管理工具栏 - 第一行
+        env_toolbar1 = ttk.Frame(environment_tab)
+        env_toolbar1.pack(fill=tk.X, padx=5, pady=5)
 
         ttk.Label(
-            env_toolbar,
+            env_toolbar1,
             text="智能体视觉环境配置",
             font=("微软雅黑", 10, "bold")
         ).pack(side=tk.LEFT, padx=5)
 
         ttk.Button(
-            env_toolbar,
+            env_toolbar1,
             text="🔄 刷新",
             command=self.refresh_environment_display,
-            width=12
+            width=10
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            env_toolbar,
+            env_toolbar1,
             text="➕ 新建环境",
             command=self.create_new_environment,
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            env_toolbar,
+            env_toolbar1,
             text="➕ 添加物体",
             command=self.add_new_object,
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            env_toolbar,
-            text="📋 使用记录",
-            command=self.show_vision_logs,
+            env_toolbar1,
+            text="🏠 创建默认环境",
+            command=self.create_default_environment,
+            width=15
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 环境管理工具栏 - 第二行（新增）
+        env_toolbar2 = ttk.Frame(environment_tab)
+        env_toolbar2.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        ttk.Button(
+            env_toolbar2,
+            text="🔀 切换环境",
+            command=self.switch_active_environment_dialog,
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
-            env_toolbar,
-            text="🏠 创建默认环境",
-            command=self.create_default_environment,
-            width=15
+            env_toolbar2,
+            text="🔗 管理连接",
+            command=self.manage_environment_connections,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar2,
+            text="🗺️ 关系图",
+            command=self.show_environment_relationship_map,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar2,
+            text="📋 使用记录",
+            command=self.show_vision_logs,
+            width=12
         ).pack(side=tk.LEFT, padx=2)
 
         # 环境显示区域
@@ -2263,6 +2288,23 @@ class EnhancedChatDebugGUI:
                     
                     display_text += f"创建时间: {env['created_at']}\n"
                     
+                    # 获取环境连接信息
+                    connections = self.agent.db.get_environment_connections(env['uuid'])
+                    if connections:
+                        display_text += f"\n连接关系: {len(connections)}个\n"
+                        for conn in connections[:3]:  # 只显示前3个连接
+                            if conn['from_environment_uuid'] == env['uuid']:
+                                other_env = self.agent.db.get_environment(conn['to_environment_uuid'])
+                                direction_symbol = "→" if conn['direction'] == 'one_way' else "⟷"
+                                display_text += f"  {direction_symbol} {other_env['name'] if other_env else '未知'} ({conn['connection_type']})\n"
+                            elif conn['to_environment_uuid'] == env['uuid'] and conn['direction'] == 'bidirectional':
+                                other_env = self.agent.db.get_environment(conn['from_environment_uuid'])
+                                display_text += f"  ⟷ {other_env['name'] if other_env else '未知'} ({conn['connection_type']})\n"
+                        if len(connections) > 3:
+                            display_text += f"  ... 还有 {len(connections) - 3} 个连接\n"
+                    else:
+                        display_text += "\n连接关系: 无（孤立环境）\n"
+                    
                     # 获取环境中的物体
                     objects = self.agent.db.get_environment_objects(env['uuid'])
                     display_text += f"\n物体数量: {len(objects)}\n"
@@ -2517,6 +2559,450 @@ class EnhancedChatDebugGUI:
                 self.refresh_environment_display()
             except Exception as e:
                 messagebox.showerror("错误", f"创建默认环境失败: {e}")
+
+    def manage_environment_connections(self):
+        """
+        管理环境连接关系
+        """
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("环境连接管理")
+        dialog.geometry("900x600")
+        dialog.transient(self.root)
+        
+        # 标题
+        title_label = ttk.Label(
+            dialog,
+            text="🔗 环境连接管理",
+            font=("微软雅黑", 12, "bold")
+        )
+        title_label.pack(pady=10)
+        
+        # 工具栏
+        toolbar = ttk.Frame(dialog)
+        toolbar.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Button(
+            toolbar,
+            text="➕ 新建连接",
+            command=self.create_environment_connection_dialog,
+            width=15
+        ).pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(
+            toolbar,
+            text="🔄 刷新",
+            command=lambda: self.refresh_connections_display(connections_text),
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(
+            toolbar,
+            text="🗺️ 查看关系图",
+            command=self.show_environment_relationship_map,
+            width=15
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # 连接列表显示区域
+        connections_text = scrolledtext.ScrolledText(
+            dialog,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            bg="#f9f9f9"
+        )
+        connections_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 初始加载
+        self.refresh_connections_display(connections_text)
+        
+        # 关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
+
+    def refresh_connections_display(self, text_widget):
+        """
+        刷新连接显示
+        """
+        try:
+            text_widget.config(state=tk.NORMAL)
+            text_widget.delete(1.0, tk.END)
+            
+            connections = self.agent.db.get_all_environment_connections()
+            
+            if not connections:
+                text_widget.insert(tk.END, "暂无环境连接。\n\n")
+                text_widget.insert(tk.END, "💡 提示: 点击「新建连接」创建环境之间的连接关系。")
+            else:
+                text_widget.insert(tk.END, f"共有 {len(connections)} 个环境连接\n")
+                text_widget.insert(tk.END, "=" * 80 + "\n\n")
+                
+                for i, conn in enumerate(connections, 1):
+                    from_env = self.agent.db.get_environment(conn['from_environment_uuid'])
+                    to_env = self.agent.db.get_environment(conn['to_environment_uuid'])
+                    
+                    text_widget.insert(tk.END, f"【连接 {i}】\n")
+                    text_widget.insert(tk.END, f"UUID: {conn['uuid'][:8]}...\n")
+                    text_widget.insert(tk.END, f"起点: {from_env['name'] if from_env else '未知'}\n")
+                    text_widget.insert(tk.END, f"终点: {to_env['name'] if to_env else '未知'}\n")
+                    
+                    # 方向图示
+                    if conn['direction'] == 'bidirectional':
+                        direction_str = f"{from_env['name'] if from_env else '?'} ⟷ {to_env['name'] if to_env else '?'}"
+                    else:
+                        direction_str = f"{from_env['name'] if from_env else '?'} → {to_env['name'] if to_env else '?'}"
+                    text_widget.insert(tk.END, f"方向: {direction_str}\n")
+                    
+                    text_widget.insert(tk.END, f"类型: {conn['connection_type']}\n")
+                    if conn.get('description'):
+                        text_widget.insert(tk.END, f"描述: {conn['description']}\n")
+                    text_widget.insert(tk.END, f"创建时间: {conn['created_at']}\n")
+                    text_widget.insert(tk.END, "\n" + "-" * 80 + "\n\n")
+            
+            text_widget.config(state=tk.DISABLED)
+        except Exception as e:
+            text_widget.config(state=tk.NORMAL)
+            text_widget.insert(tk.END, f"刷新连接显示时出错: {e}")
+            text_widget.config(state=tk.DISABLED)
+
+    def create_environment_connection_dialog(self):
+        """
+        创建环境连接对话框
+        """
+        # 获取所有环境
+        environments = self.agent.db.get_all_environments()
+        if len(environments) < 2:
+            messagebox.showerror("错误", "至少需要2个环境才能创建连接！\n请先创建更多环境。")
+            return
+        
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("创建环境连接")
+        dialog.geometry("500x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 起始环境
+        ttk.Label(dialog, text="起始环境:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        from_env_var = tk.StringVar()
+        from_env_combo = ttk.Combobox(dialog, textvariable=from_env_var, width=50, state="readonly")
+        from_env_combo['values'] = [f"{env['name']} ({env['uuid'][:8]}...)" for env in environments]
+        from_env_combo.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 目标环境
+        ttk.Label(dialog, text="目标环境:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        to_env_var = tk.StringVar()
+        to_env_combo = ttk.Combobox(dialog, textvariable=to_env_var, width=50, state="readonly")
+        to_env_combo['values'] = [f"{env['name']} ({env['uuid'][:8]}...)" for env in environments]
+        to_env_combo.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 连接类型
+        ttk.Label(dialog, text="连接类型:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        conn_type_var = tk.StringVar(value="normal")
+        conn_type_combo = ttk.Combobox(dialog, textvariable=conn_type_var, width=50, state="readonly")
+        conn_type_combo['values'] = ['normal', 'door', 'portal', 'stairs', 'corridor', 'window', 'other']
+        conn_type_combo.pack(pady=5, padx=10, fill=tk.X)
+        
+        # 方向
+        ttk.Label(dialog, text="连接方向:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        direction_var = tk.StringVar(value="bidirectional")
+        direction_frame = ttk.Frame(dialog)
+        direction_frame.pack(pady=5, padx=10, fill=tk.X)
+        ttk.Radiobutton(direction_frame, text="双向 (⟷)", variable=direction_var, value="bidirectional").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(direction_frame, text="单向 (→)", variable=direction_var, value="one_way").pack(side=tk.LEFT, padx=10)
+        
+        # 描述
+        ttk.Label(dialog, text="连接描述:", font=("微软雅黑", 10)).pack(pady=(10, 0), padx=10, anchor=tk.W)
+        desc_text = scrolledtext.ScrolledText(dialog, height=4, width=50, wrap=tk.WORD)
+        desc_text.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
+        
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+        
+        def save_connection():
+            from_idx = from_env_combo.current()
+            to_idx = to_env_combo.current()
+            
+            if from_idx < 0 or to_idx < 0:
+                messagebox.showerror("错误", "请选择起始环境和目标环境！")
+                return
+            
+            if from_idx == to_idx:
+                messagebox.showerror("错误", "起始环境和目标环境不能相同！")
+                return
+            
+            from_env = environments[from_idx]
+            to_env = environments[to_idx]
+            
+            try:
+                conn_uuid = self.agent.db.create_environment_connection(
+                    from_env_uuid=from_env['uuid'],
+                    to_env_uuid=to_env['uuid'],
+                    connection_type=conn_type_var.get(),
+                    direction=direction_var.get(),
+                    description=desc_text.get("1.0", tk.END).strip()
+                )
+                
+                messagebox.showinfo("成功", f"环境连接创建成功！\n\n{from_env['name']} → {to_env['name']}\nUUID: {conn_uuid[:8]}...")
+                dialog.destroy()
+            except ValueError as e:
+                messagebox.showerror("错误", str(e))
+            except Exception as e:
+                messagebox.showerror("错误", f"创建连接失败: {e}")
+        
+        ttk.Button(button_frame, text="保存", command=save_connection, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def show_environment_relationship_map(self):
+        """
+        显示环境关系图
+        """
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("环境关系图")
+        dialog.geometry("800x600")
+        dialog.transient(self.root)
+        
+        # 标题
+        title_label = ttk.Label(
+            dialog,
+            text="🗺️ 环境关系图",
+            font=("微软雅黑", 12, "bold")
+        )
+        title_label.pack(pady=10)
+        
+        # 创建Canvas显示关系图
+        canvas_frame = ttk.Frame(dialog)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        canvas = Canvas(canvas_frame, bg='#f8f9fa', highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # 绘制关系图
+        self.draw_environment_relationship_map(canvas)
+        
+        # 关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
+
+    def draw_environment_relationship_map(self, canvas):
+        """
+        在Canvas上绘制环境关系图
+        """
+        try:
+            # 获取所有环境和连接
+            environments = self.agent.db.get_all_environments()
+            connections = self.agent.db.get_all_environment_connections()
+            
+            if not environments:
+                canvas.create_text(
+                    400, 300,
+                    text="暂无环境数据",
+                    font=('微软雅黑', 12),
+                    fill='#999999'
+                )
+                return
+            
+            # 计算布局
+            width = canvas.winfo_width() if canvas.winfo_width() > 1 else 800
+            height = canvas.winfo_height() if canvas.winfo_height() > 1 else 600
+            
+            # 使用简单的圆形布局
+            center_x = width // 2
+            center_y = height // 2
+            radius = min(width, height) // 3
+            
+            # 计算每个环境的位置
+            env_positions = {}
+            angle_step = 2 * 3.14159 / len(environments)
+            for i, env in enumerate(environments):
+                angle = i * angle_step
+                x = center_x + radius * math.cos(angle)
+                y = center_y + radius * math.sin(angle)
+                env_positions[env['uuid']] = (x, y)
+            
+            # 绘制连接线
+            for conn in connections:
+                from_uuid = conn['from_environment_uuid']
+                to_uuid = conn['to_environment_uuid']
+                
+                if from_uuid in env_positions and to_uuid in env_positions:
+                    from_pos = env_positions[from_uuid]
+                    to_pos = env_positions[to_uuid]
+                    
+                    # 绘制线条
+                    if conn['direction'] == 'bidirectional':
+                        canvas.create_line(
+                            from_pos[0], from_pos[1],
+                            to_pos[0], to_pos[1],
+                            fill='#4ECDC4', width=2,
+                            arrow=tk.BOTH, arrowshape=(10, 12, 5)
+                        )
+                    else:
+                        canvas.create_line(
+                            from_pos[0], from_pos[1],
+                            to_pos[0], to_pos[1],
+                            fill='#45B7D1', width=2,
+                            arrow=tk.LAST, arrowshape=(10, 12, 5)
+                        )
+            
+            # 获取当前激活的环境
+            active_env = self.agent.db.get_active_environment()
+            active_uuid = active_env['uuid'] if active_env else None
+            
+            # 绘制环境节点
+            for env in environments:
+                x, y = env_positions[env['uuid']]
+                
+                # 节点颜色
+                if env['uuid'] == active_uuid:
+                    color = '#FF6B6B'  # 激活的环境用红色
+                else:
+                    color = '#98D8C8'
+                
+                # 绘制圆形节点
+                radius_node = 30
+                canvas.create_oval(
+                    x - radius_node, y - radius_node,
+                    x + radius_node, y + radius_node,
+                    fill=color, outline='white', width=3
+                )
+                
+                # 绘制环境名称
+                canvas.create_text(
+                    x, y + radius_node + 20,
+                    text=env['name'],
+                    font=('微软雅黑', 9, 'bold'),
+                    fill='#333333'
+                )
+                
+                # 如果是激活的环境，添加标记
+                if env['uuid'] == active_uuid:
+                    canvas.create_text(
+                        x, y,
+                        text="✓",
+                        font=('Arial', 16, 'bold'),
+                        fill='white'
+                    )
+            
+            # 添加图例
+            legend_x = 20
+            legend_y = 20
+            canvas.create_text(legend_x, legend_y, text="图例:", font=('微软雅黑', 9, 'bold'), anchor=tk.W)
+            canvas.create_oval(legend_x, legend_y + 20, legend_x + 20, legend_y + 40, fill='#FF6B6B', outline='white', width=2)
+            canvas.create_text(legend_x + 30, legend_y + 30, text="当前环境", font=('微软雅黑', 8), anchor=tk.W)
+            canvas.create_oval(legend_x, legend_y + 50, legend_x + 20, legend_y + 70, fill='#98D8C8', outline='white', width=2)
+            canvas.create_text(legend_x + 30, legend_y + 60, text="其他环境", font=('微软雅黑', 8), anchor=tk.W)
+            
+        except Exception as e:
+            canvas.create_text(
+                400, 300,
+                text=f"绘制关系图时出错: {e}",
+                font=('微软雅黑', 10),
+                fill='red'
+            )
+
+    def switch_active_environment_dialog(self):
+        """
+        切换当前激活环境的对话框
+        """
+        # 获取所有环境
+        environments = self.agent.db.get_all_environments()
+        if not environments:
+            messagebox.showerror("错误", "没有可用的环境！\n请先创建环境。")
+            return
+        
+        current_env = self.agent.db.get_active_environment()
+        
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("切换环境")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(
+            dialog,
+            text="选择要切换到的环境:",
+            font=("微软雅黑", 10, "bold")
+        ).pack(pady=10)
+        
+        if current_env:
+            ttk.Label(
+                dialog,
+                text=f"当前环境: {current_env['name']}",
+                font=("微软雅黑", 9),
+                foreground="#0066cc"
+            ).pack(pady=5)
+        
+        # 环境列表
+        listbox_frame = ttk.Frame(dialog)
+        listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        env_listbox = tk.Listbox(
+            listbox_frame,
+            font=("微软雅黑", 9),
+            yscrollcommand=scrollbar.set
+        )
+        env_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=env_listbox.yview)
+        
+        # 填充环境列表
+        env_map = {}
+        for i, env in enumerate(environments):
+            label = f"{env['name']}"
+            if current_env and env['uuid'] == current_env['uuid']:
+                label += " (当前)"
+            env_listbox.insert(tk.END, label)
+            env_map[i] = env
+        
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        
+        def do_switch():
+            selection = env_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请选择一个环境！")
+                return
+            
+            selected_env = env_map[selection[0]]
+            
+            # 如果是当前环境，不需要切换
+            if current_env and selected_env['uuid'] == current_env['uuid']:
+                messagebox.showinfo("提示", "已经在该环境中了！")
+                dialog.destroy()
+                return
+            
+            # 如果有当前环境，检查是否可以切换
+            if current_env:
+                can_switch = self.agent.db.can_move_to_environment(
+                    current_env['uuid'],
+                    selected_env['uuid']
+                )
+                if not can_switch:
+                    result = messagebox.askyesno(
+                        "警告",
+                        f"环境「{current_env['name']}」与「{selected_env['name']}」没有建立连接！\n\n是否仍然要切换？"
+                    )
+                    if not result:
+                        return
+            
+            # 执行切换
+            try:
+                success = self.agent.db.set_active_environment(selected_env['uuid'])
+                if success:
+                    messagebox.showinfo("成功", f"已切换到环境: {selected_env['name']}")
+                    self.refresh_environment_display()
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("错误", "切换环境失败！")
+            except Exception as e:
+                messagebox.showerror("错误", f"切换环境时出错: {e}")
+        
+        ttk.Button(button_frame, text="切换", command=do_switch, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
     def show_about(self):
         """
