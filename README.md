@@ -36,6 +36,13 @@ Neo Agent 是一个基于 LangChain 的智能对话代理系统，支持角色�
 - **备份恢复**：完整的数据导入导出
 - **查询优化**：高效的数据检索
 
+### 📅 事件驱动系统
+- **通知型事件**：智能体即时理解并说明外部信息
+- **任务型事件**：多智能体协作完成复杂任务
+- **中断性提问**：任务执行中向用户提问
+- **旁白式提示**：实时展示任务处理进度
+- **可视化管理**：GUI界面管理和触发事件
+
 ### 🔧 扩展功能
 - **伪视觉能力**：通过环境描述模拟视觉感知
 - **调试日志**：详细的系统运行日志
@@ -101,21 +108,25 @@ python gui_enhanced.py
 - [开发指南](DEVELOPMENT.md) - 项目结构和开发说明
 - [API 文档](API.md) - 详细的 API 接口说明
 - [架构设计](ARCHITECTURE.md) - 系统架构和设计原理
+- [事件系统文档](EVENT_SYSTEM.md) - 事件驱动模块使用指南
 
 ## 🏗️ 项目结构
 
 ```
 Neo_Agent/
-├── gui_enhanced.py           # 主GUI界面
-├── chat_agent.py            # 对话代理核心
-├── database_manager.py      # 数据库管理
-├── long_term_memory.py      # 长效记忆管理
-├── knowledge_base.py        # 知识库管理
-├── emotion_analyzer.py      # 情感分析
-├── agent_vision.py          # 视觉工具
-├── debug_logger.py          # 调试日志
-├── database_gui.py          # 数据库GUI管理
-├── base_knowledge.py        # 基础知识管理
+├── gui_enhanced.py              # 主GUI界面
+├── chat_agent.py               # 对话代理核心
+├── database_manager.py         # 数据库管理
+├── long_term_memory.py         # 长效记忆管理
+├── knowledge_base.py           # 知识库管理
+├── emotion_analyzer.py         # 情感分析
+├── agent_vision.py             # 视觉工具
+├── event_manager.py            # 事件管理
+├── multi_agent_coordinator.py  # 多智能体协作
+├── interrupt_question_tool.py  # 中断性提问工具
+├── debug_logger.py             # 调试日志
+├── database_gui.py             # 数据库GUI管理
+├── base_knowledge.py           # 基础知识管理
 ├── requirements.txt         # 项目依赖
 ├── example.env             # 环境变量示例
 └── README.md               # 项目说明

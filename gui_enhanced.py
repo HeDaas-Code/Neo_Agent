@@ -5,7 +5,7 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, Canvas
+from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog
 from datetime import datetime
 import threading
 import math
