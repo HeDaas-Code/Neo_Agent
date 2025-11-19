@@ -16,6 +16,9 @@ from long_term_memory import LongTermMemoryManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import EmotionRelationshipAnalyzer
 from agent_vision import AgentVisionTool
+from event_manager import EventManager, EventType, EventStatus, NotificationEvent, TaskEvent
+from interrupt_question_tool import InterruptQuestionTool
+from multi_agent_coordinator import MultiAgentCoordinator
 
 # 加载环境变量
 load_dotenv()
@@ -349,12 +352,28 @@ class ChatAgent:
         
         # 初始化智能体视觉工具（共享数据库）
         self.vision_tool = AgentVisionTool(db_manager=self.db)
+        
+        # 初始化事件管理器（共享数据库）
+        self.event_manager = EventManager(db_manager=self.db)
+        
+        # 初始化中断性提问工具
+        self.interrupt_question_tool = InterruptQuestionTool()
+        
+        # 初始化多智能体协调器
+        self.multi_agent_coordinator = MultiAgentCoordinator(
+            question_tool=self.interrupt_question_tool
+        )
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
         print(f"短期记忆: {stats['short_term']['rounds']} 轮对话")
         print(f"长期记忆: {stats['long_term']['total_summaries']} 个主题概括")
         print(f"知识库: {stats['knowledge_base']['total_knowledge']} 条知识")
+        
+        # 显示事件统计
+        event_stats = self.event_manager.get_statistics()
+        print(f"事件系统: {event_stats['total_events']} 个事件 "
+              f"(待处理: {event_stats['pending']}, 已完成: {event_stats['completed']})")
 
     def chat(self, user_input: str) -> str:
         """
@@ -766,6 +785,202 @@ class ChatAgent:
             最新情感数据
         """
         return self.emotion_analyzer.get_latest_emotion()
+
+    def process_notification_event(self, event: NotificationEvent) -> str:
+        """
+        处理通知型事件
+        智能体需要立即理解事件含义并向用户说明
+
+        Args:
+            event: 通知型事件
+
+        Returns:
+            智能体的说明
+        """
+        debug_logger.log_module('ChatAgent', '处理通知型事件', {
+            'event_id': event.event_id,
+            'title': event.title
+        })
+
+        # 更新事件状态为处理中
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.PROCESSING,
+            '智能体开始理解事件'
+        )
+
+        # 构建理解提示词
+        understanding_prompt = f"""【收到新的通知事件】
+
+事件标题：{event.title}
+事件描述：{event.description}
+优先级：{event.priority.name}
+
+请你作为{self.character.name}，立即理解这个事件的含义，并用自然的语气向用户说明这个事件。
+说明要包括：
+1. 事件的核心内容
+2. 可能的影响或重要性
+3. 如有必要，你的看法或建议
+
+请保持你的角色人设，用符合你性格的方式表达。"""
+
+        # 调用LLM理解和说明
+        messages = [
+            {'role': 'system', 'content': self.system_prompt},
+            {'role': 'user', 'content': understanding_prompt}
+        ]
+
+        explanation = self.llm.chat(messages)
+
+        # 记录到事件日志
+        self.event_manager.add_event_log(
+            event.event_id,
+            'notification_explained',
+            explanation
+        )
+
+        # 更新事件状态为已完成
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.COMPLETED,
+            '通知事件已说明'
+        )
+
+        debug_logger.log_info('ChatAgent', '通知型事件处理完成', {
+            'event_id': event.event_id,
+            'explanation_length': len(explanation)
+        })
+
+        return explanation
+
+    def process_task_event(self, event: TaskEvent) -> Dict[str, Any]:
+        """
+        处理任务型事件
+        使用多智能体协作完成任务
+
+        Args:
+            event: 任务型事件
+
+        Returns:
+            处理结果
+        """
+        debug_logger.log_module('ChatAgent', '处理任务型事件', {
+            'event_id': event.event_id,
+            'title': event.title
+        })
+
+        # 更新事件状态为处理中
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.PROCESSING,
+            '智能体开始处理任务'
+        )
+
+        # 准备角色上下文
+        character_context = self.character.get_info_dict()
+
+        # 使用多智能体协调器处理任务
+        result = self.multi_agent_coordinator.process_task_event(
+            event,
+            character_context
+        )
+
+        # 记录处理结果
+        self.event_manager.add_event_log(
+            event.event_id,
+            'task_processed',
+            f"处理结果: {result.get('message', '未知')}"
+        )
+
+        # 更新事件状态
+        if result.get('success'):
+            self.event_manager.update_event_status(
+                event.event_id,
+                EventStatus.COMPLETED,
+                '任务已成功完成'
+            )
+        else:
+            self.event_manager.update_event_status(
+                event.event_id,
+                EventStatus.FAILED,
+                f"任务失败: {result.get('error', '未知错误')}"
+            )
+
+        debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
+            'event_id': event.event_id,
+            'success': result.get('success', False)
+        })
+
+        return result
+
+    def handle_event(self, event_id: str) -> str:
+        """
+        处理事件（统一入口）
+        根据事件类型调用相应的处理方法
+
+        Args:
+            event_id: 事件ID
+
+        Returns:
+            处理结果消息
+        """
+        # 获取事件
+        event = self.event_manager.get_event(event_id)
+
+        if not event:
+            return f"❌ 错误：未找到事件 {event_id}"
+
+        debug_logger.log_module('ChatAgent', '开始处理事件', {
+            'event_id': event_id,
+            'type': event.event_type.value,
+            'title': event.title
+        })
+
+        try:
+            if event.event_type == EventType.NOTIFICATION:
+                # 处理通知型事件
+                explanation = self.process_notification_event(event)
+                return f"📢 【通知事件】{event.title}\n\n{explanation}"
+
+            elif event.event_type == EventType.TASK:
+                # 处理任务型事件
+                result = self.process_task_event(event)
+                
+                if result.get('success'):
+                    return f"✅ 【任务完成】{event.title}\n\n{result.get('message', '任务已成功完成')}"
+                else:
+                    return f"❌ 【任务失败】{event.title}\n\n{result.get('error', '任务执行失败')}"
+
+            else:
+                return f"❌ 错误：未知的事件类型 {event.event_type.value}"
+
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'处理事件失败: {str(e)}', e)
+            self.event_manager.update_event_status(
+                event_id,
+                EventStatus.FAILED,
+                f'处理异常: {str(e)}'
+            )
+            return f"❌ 处理事件时发生错误：{str(e)}"
+
+    def get_pending_events(self) -> List[Dict[str, Any]]:
+        """
+        获取待处理的事件列表
+
+        Returns:
+            事件列表
+        """
+        events = self.event_manager.get_pending_events()
+        return [event.to_dict() for event in events]
+
+    def get_event_statistics(self) -> Dict[str, Any]:
+        """
+        获取事件统计信息
+
+        Returns:
+            统计信息
+        """
+        return self.event_manager.get_statistics()
 
 
 # 测试代码
