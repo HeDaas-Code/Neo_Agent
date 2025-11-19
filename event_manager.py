@@ -174,35 +174,35 @@ class EventManager:
 
     def _initialize_database(self):
         """初始化数据库表"""
-        # 创建事件表
-        self.db.conn.execute('''
-            CREATE TABLE IF NOT EXISTS events (
-                event_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                event_type TEXT NOT NULL,
-                priority INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT,
-                completed_at TEXT,
-                metadata TEXT
-            )
-        ''')
+        with self.db.get_connection() as conn:
+            # 创建事件表
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    event_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    event_type TEXT NOT NULL,
+                    priority INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT,
+                    completed_at TEXT,
+                    metadata TEXT
+                )
+            ''')
+            
+            # 创建事件处理日志表
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS event_logs (
+                    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL,
+                    log_type TEXT NOT NULL,
+                    log_content TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (event_id) REFERENCES events(event_id)
+                )
+            ''')
         
-        # 创建事件处理日志表
-        self.db.conn.execute('''
-            CREATE TABLE IF NOT EXISTS event_logs (
-                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT NOT NULL,
-                log_type TEXT NOT NULL,
-                log_content TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (event_id) REFERENCES events(event_id)
-            )
-        ''')
-        
-        self.db.conn.commit()
         debug_logger.log_info('EventManager', '数据库表初始化完成')
 
     def create_event(
@@ -250,22 +250,22 @@ class EventManager:
 
         # 保存到数据库
         import json
-        self.db.conn.execute('''
-            INSERT INTO events (
-                event_id, title, description, event_type, 
-                priority, status, created_at, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            event.event_id,
-            event.title,
-            event.description,
-            event.event_type.value,
-            event.priority.value,
-            event.status.value,
-            event.created_at,
-            json.dumps(event.metadata, ensure_ascii=False)
-        ))
-        self.db.conn.commit()
+        with self.db.get_connection() as conn:
+            conn.execute('''
+                INSERT INTO events (
+                    event_id, title, description, event_type, 
+                    priority, status, created_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                event.event_id,
+                event.title,
+                event.description,
+                event.event_type.value,
+                event.priority.value,
+                event.status.value,
+                event.created_at,
+                json.dumps(event.metadata, ensure_ascii=False)
+            ))
 
         debug_logger.log_info('EventManager', '事件创建成功', {
             'event_id': event.event_id
@@ -283,25 +283,26 @@ class EventManager:
         Returns:
             事件对象，不存在时返回None
         """
-        cursor = self.db.conn.execute(
-            'SELECT * FROM events WHERE event_id = ?',
-            (event_id,)
-        )
-        row = cursor.fetchone()
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                'SELECT * FROM events WHERE event_id = ?',
+                (event_id,)
+            )
+            row = cursor.fetchone()
 
-        if row:
-            import json
-            data = {
-                'event_id': row[0],
-                'title': row[1],
-                'description': row[2],
-                'event_type': row[3],
-                'priority': row[4],
-                'status': row[5],
-                'created_at': row[6],
-                'metadata': json.loads(row[9]) if row[9] else {}
-            }
-            return Event.from_dict(data)
+            if row:
+                import json
+                data = {
+                    'event_id': row[0],
+                    'title': row[1],
+                    'description': row[2],
+                    'event_type': row[3],
+                    'priority': row[4],
+                    'status': row[5],
+                    'created_at': row[6],
+                    'metadata': json.loads(row[9]) if row[9] else {}
+                }
+                return Event.from_dict(data)
 
         return None
 
@@ -315,27 +316,28 @@ class EventManager:
         Returns:
             事件列表
         """
-        cursor = self.db.conn.execute('''
-            SELECT * FROM events 
-            WHERE status = ?
-            ORDER BY priority DESC, created_at ASC
-            LIMIT ?
-        ''', (EventStatus.PENDING.value, limit))
+        with self.db.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT * FROM events 
+                WHERE status = ?
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+            ''', (EventStatus.PENDING.value, limit))
 
-        events = []
-        import json
-        for row in cursor.fetchall():
-            data = {
-                'event_id': row[0],
-                'title': row[1],
-                'description': row[2],
-                'event_type': row[3],
-                'priority': row[4],
-                'status': row[5],
-                'created_at': row[6],
-                'metadata': json.loads(row[9]) if row[9] else {}
-            }
-            events.append(Event.from_dict(data))
+            events = []
+            import json
+            for row in cursor.fetchall():
+                data = {
+                    'event_id': row[0],
+                    'title': row[1],
+                    'description': row[2],
+                    'event_type': row[3],
+                    'priority': row[4],
+                    'status': row[5],
+                    'created_at': row[6],
+                    'metadata': json.loads(row[9]) if row[9] else {}
+                }
+                events.append(Event.from_dict(data))
 
         return events
 
@@ -370,22 +372,23 @@ class EventManager:
         query += ' ORDER BY created_at DESC LIMIT ?'
         params.append(limit)
 
-        cursor = self.db.conn.execute(query, params)
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(query, params)
 
-        events = []
-        import json
-        for row in cursor.fetchall():
-            data = {
-                'event_id': row[0],
-                'title': row[1],
-                'description': row[2],
-                'event_type': row[3],
-                'priority': row[4],
-                'status': row[5],
-                'created_at': row[6],
-                'metadata': json.loads(row[9]) if row[9] else {}
-            }
-            events.append(Event.from_dict(data))
+            events = []
+            import json
+            for row in cursor.fetchall():
+                data = {
+                    'event_id': row[0],
+                    'title': row[1],
+                    'description': row[2],
+                    'event_type': row[3],
+                    'priority': row[4],
+                    'status': row[5],
+                    'created_at': row[6],
+                    'metadata': json.loads(row[9]) if row[9] else {}
+                }
+                events.append(Event.from_dict(data))
 
         return events
 
@@ -409,22 +412,21 @@ class EventManager:
         try:
             now = datetime.now().isoformat()
             
-            # 更新事件状态
-            self.db.conn.execute('''
-                UPDATE events 
-                SET status = ?, updated_at = ?
-                WHERE event_id = ?
-            ''', (status.value, now, event_id))
-
-            # 如果是完成状态，记录完成时间
-            if status == EventStatus.COMPLETED:
-                self.db.conn.execute('''
+            with self.db.get_connection() as conn:
+                # 更新事件状态
+                conn.execute('''
                     UPDATE events 
-                    SET completed_at = ?
+                    SET status = ?, updated_at = ?
                     WHERE event_id = ?
-                ''', (now, event_id))
+                ''', (status.value, now, event_id))
 
-            self.db.conn.commit()
+                # 如果是完成状态，记录完成时间
+                if status == EventStatus.COMPLETED:
+                    conn.execute('''
+                        UPDATE events 
+                        SET completed_at = ?
+                        WHERE event_id = ?
+                    ''', (now, event_id))
 
             # 添加日志
             if log_message:
@@ -455,11 +457,11 @@ class EventManager:
             log_type: 日志类型
             log_content: 日志内容
         """
-        self.db.conn.execute('''
-            INSERT INTO event_logs (event_id, log_type, log_content, created_at)
-            VALUES (?, ?, ?, ?)
-        ''', (event_id, log_type, log_content, datetime.now().isoformat()))
-        self.db.conn.commit()
+        with self.db.get_connection() as conn:
+            conn.execute('''
+                INSERT INTO event_logs (event_id, log_type, log_content, created_at)
+                VALUES (?, ?, ?, ?)
+            ''', (event_id, log_type, log_content, datetime.now().isoformat()))
 
     def get_event_logs(self, event_id: str) -> List[Dict[str, Any]]:
         """
@@ -471,20 +473,21 @@ class EventManager:
         Returns:
             日志列表
         """
-        cursor = self.db.conn.execute('''
-            SELECT log_type, log_content, created_at
-            FROM event_logs
-            WHERE event_id = ?
-            ORDER BY created_at ASC
-        ''', (event_id,))
+        with self.db.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT log_type, log_content, created_at
+                FROM event_logs
+                WHERE event_id = ?
+                ORDER BY created_at ASC
+            ''', (event_id,))
 
-        logs = []
-        for row in cursor.fetchall():
-            logs.append({
-                'log_type': row[0],
-                'log_content': row[1],
-                'created_at': row[2]
-            })
+            logs = []
+            for row in cursor.fetchall():
+                logs.append({
+                    'log_type': row[0],
+                    'log_content': row[1],
+                    'created_at': row[2]
+                })
 
         return logs
 
@@ -499,19 +502,18 @@ class EventManager:
             是否成功
         """
         try:
-            # 删除事件日志
-            self.db.conn.execute(
-                'DELETE FROM event_logs WHERE event_id = ?',
-                (event_id,)
-            )
-            
-            # 删除事件
-            self.db.conn.execute(
-                'DELETE FROM events WHERE event_id = ?',
-                (event_id,)
-            )
-            
-            self.db.conn.commit()
+            with self.db.get_connection() as conn:
+                # 删除事件日志
+                conn.execute(
+                    'DELETE FROM event_logs WHERE event_id = ?',
+                    (event_id,)
+                )
+                
+                # 删除事件
+                conn.execute(
+                    'DELETE FROM events WHERE event_id = ?',
+                    (event_id,)
+                )
 
             debug_logger.log_info('EventManager', '事件删除成功', {
                 'event_id': event_id
@@ -530,29 +532,30 @@ class EventManager:
         Returns:
             统计信息字典
         """
-        cursor = self.db.conn.execute('''
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as processing,
-                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed,
-                SUM(CASE WHEN event_type = ? THEN 1 ELSE 0 END) as notifications,
-                SUM(CASE WHEN event_type = ? THEN 1 ELSE 0 END) as tasks
-            FROM events
-        ''', (
-            EventStatus.PENDING.value,
-            EventStatus.PROCESSING.value,
-            EventStatus.COMPLETED.value,
-            EventType.NOTIFICATION.value,
-            EventType.TASK.value
-        ))
+        with self.db.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as processing,
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN event_type = ? THEN 1 ELSE 0 END) as notifications,
+                    SUM(CASE WHEN event_type = ? THEN 1 ELSE 0 END) as tasks
+                FROM events
+            ''', (
+                EventStatus.PENDING.value,
+                EventStatus.PROCESSING.value,
+                EventStatus.COMPLETED.value,
+                EventType.NOTIFICATION.value,
+                EventType.TASK.value
+            ))
 
-        row = cursor.fetchone()
-        return {
-            'total_events': row[0] or 0,
-            'pending': row[1] or 0,
-            'processing': row[2] or 0,
-            'completed': row[3] or 0,
-            'notifications': row[4] or 0,
-            'tasks': row[5] or 0
-        }
+            row = cursor.fetchone()
+            return {
+                'total_events': row[0] or 0,
+                'pending': row[1] or 0,
+                'processing': row[2] or 0,
+                'completed': row[3] or 0,
+                'notifications': row[4] or 0,
+                'tasks': row[5] or 0
+            }
