@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-English | [简体中文](QUICKSTART.md)
+English | [简体中文](../zh-cn/QUICKSTART.md)
 
 This guide will help you get started with the Neo Agent intelligent dialogue system quickly.
 

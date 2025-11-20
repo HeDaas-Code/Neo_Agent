@@ -97,10 +97,10 @@ python gui_enhanced.py
 
 ## 📖 Documentation
 
-- [Quick Start Guide](QUICKSTART_EN.md) - Detailed installation and usage instructions
-- [Development Guide](DEVELOPMENT_EN.md) - Project structure and development guide
-- [API Documentation](API_EN.md) - Detailed API interface documentation
-- [Architecture Design](ARCHITECTURE_EN.md) - System architecture and design principles
+- [Quick Start Guide](docs/en/QUICKSTART.md) - Detailed installation and usage instructions
+- [Development Guide](docs/en/DEVELOPMENT.md) - Project structure and development guide
+- [API Documentation](docs/en/API.md) - Detailed API interface documentation
+- [Architecture Design](docs/en/ARCHITECTURE.md) - System architecture and design principles
 
 ## 🏗️ Project Structure
 

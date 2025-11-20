@@ -1,6 +1,6 @@
 # API 文档
 
-[English](API_EN.md) | 简体中文
+[English](../en/API.md) | 简体中文
 
 本文档详细描述 Neo Agent 各个模块的 API 接口和使用方法。
 
@@ -12,6 +12,9 @@
 - [KnowledgeBase](#knowledgebase) - 知识库管理
 - [EmotionRelationshipAnalyzer](#emotionrelationshipanalyzer) - 情感分析
 - [AgentVisionTool](#agentvisiontool) - 视觉工具
+- [EventManager](#eventmanager) - 事件管理
+- [MultiAgentCoordinator](#multiagentcoordinator) - 多智能体协调器
+- [InterruptQuestionTool](#interruptquestiontool) - 中断性提问工具
 - [DebugLogger](#debuglogger) - 调试日志
 
 ---
@@ -487,6 +490,270 @@ env = vision.get_current_environment() -> Dict[str, Any]
 
 ```python
 vision.clear_environment() -> None
+```
+
+---
+
+## EventManager
+
+事件管理器，负责事件的创建、存储、检索和管理。
+
+### 初始化
+
+```python
+from event_manager import EventManager, EventType, EventPriority, EventStatus
+
+manager = EventManager(
+    db_manager: DatabaseManager  # 数据库管理器实例
+)
+```
+
+### create_event
+
+创建新事件。
+
+```python
+event = manager.create_event(
+    title: str,              # 事件标题
+    description: str,        # 事件描述
+    event_type: EventType,   # 事件类型（NOTIFICATION或TASK）
+    priority: EventPriority, # 优先级（LOW/MEDIUM/HIGH/URGENT）
+    task_requirements: str = None,      # 任务要求（任务型事件必填）
+    completion_criteria: str = None     # 完成标准（任务型事件必填）
+) -> Event
+```
+
+**示例**：
+
+```python
+# 创建通知型事件
+notification = manager.create_event(
+    title="系统更新通知",
+    description="新版本已发布，包含性能优化和bug修复",
+    event_type=EventType.NOTIFICATION,
+    priority=EventPriority.MEDIUM
+)
+
+# 创建任务型事件
+task = manager.create_event(
+    title="生成周报",
+    description="根据本周的对话记录生成周报摘要",
+    event_type=EventType.TASK,
+    priority=EventPriority.HIGH,
+    task_requirements="需要总结本周的主要对话主题和知识点",
+    completion_criteria="周报需包含：主题列表、知识点总结、对话统计"
+)
+```
+
+### get_event
+
+获取指定事件。
+
+```python
+event = manager.get_event(
+    event_id: str  # 事件ID
+) -> Optional[Event]
+```
+
+### get_pending_events
+
+获取待处理事件列表。
+
+```python
+events = manager.get_pending_events(
+    limit: int = 10  # 返回数量限制
+) -> List[Event]
+```
+
+### update_event_status
+
+更新事件状态。
+
+```python
+manager.update_event_status(
+    event_id: str,              # 事件ID
+    status: EventStatus,        # 新状态
+    completion_message: str = None  # 完成消息（可选）
+) -> None
+```
+
+**状态类型**：
+- `EventStatus.PENDING` - 待处理
+- `EventStatus.PROCESSING` - 处理中
+- `EventStatus.COMPLETED` - 已完成
+- `EventStatus.FAILED` - 失败
+- `EventStatus.CANCELLED` - 已取消
+
+### add_event_log
+
+添加事件日志。
+
+```python
+manager.add_event_log(
+    event_id: str,      # 事件ID
+    log_type: str,      # 日志类型
+    log_content: str    # 日志内容
+) -> None
+```
+
+### get_event_logs
+
+获取事件日志。
+
+```python
+logs = manager.get_event_logs(
+    event_id: str  # 事件ID
+) -> List[Dict[str, Any]]
+```
+
+### delete_event
+
+删除事件。
+
+```python
+manager.delete_event(
+    event_id: str  # 事件ID
+) -> None
+```
+
+### get_statistics
+
+获取事件统计信息。
+
+```python
+stats = manager.get_statistics() -> Dict[str, int]
+```
+
+**返回格式**：
+```python
+{
+    'total': 100,       # 总事件数
+    'pending': 10,      # 待处理
+    'processing': 2,    # 处理中
+    'completed': 85,    # 已完成
+    'failed': 3         # 失败
+}
+```
+
+---
+
+## MultiAgentCoordinator
+
+多智能体协调器，负责任务型事件的多智能体协作处理。
+
+### 初始化
+
+```python
+from multi_agent_coordinator import MultiAgentCoordinator
+
+coordinator = MultiAgentCoordinator(
+    api_key: str = None,
+    api_url: str = None,
+    model_name: str = None,
+    question_tool: InterruptQuestionTool = None,
+    progress_callback: Callable = None  # 进度回调函数
+)
+```
+
+### process_task_event
+
+处理任务型事件。
+
+```python
+result = coordinator.process_task_event(
+    task_event: TaskEvent,              # 任务事件
+    character_context: str = None,      # 角色上下文
+    memory_context: str = None          # 记忆上下文
+) -> Dict[str, Any]
+```
+
+**返回格式**：
+```python
+{
+    'success': True,
+    'understanding': '任务理解内容',
+    'plan': {
+        'steps': ['步骤1', '步骤2', '步骤3']
+    },
+    'execution_results': [
+        {'step': 1, 'result': '步骤1结果'},
+        {'step': 2, 'result': '步骤2结果'},
+        {'step': 3, 'result': '步骤3结果'}
+    ],
+    'verification': {
+        'passed': True,
+        'message': '任务验证通过'
+    }
+}
+```
+
+### set_progress_callback
+
+设置进度回调函数。
+
+```python
+coordinator.set_progress_callback(
+    callback: Callable[[str], None]  # 回调函数
+) -> None
+```
+
+**示例**：
+```python
+def on_progress(message):
+    print(f"进度更新: {message}")
+
+coordinator.set_progress_callback(on_progress)
+```
+
+---
+
+## InterruptQuestionTool
+
+中断性提问工具，允许智能体在任务执行中向用户提问。
+
+### 初始化
+
+```python
+from interrupt_question_tool import InterruptQuestionTool
+
+tool = InterruptQuestionTool()
+```
+
+### set_question_callback
+
+设置提问回调函数。
+
+```python
+tool.set_question_callback(
+    callback: Callable[[str], str]  # 回调函数，接收问题返回答案
+) -> None
+```
+
+**示例**：
+```python
+def ask_user(question):
+    return input(f"{question}\n> ")
+
+tool.set_question_callback(ask_user)
+```
+
+### ask_user
+
+向用户提问。
+
+```python
+answer = tool.ask_user(
+    question: str,      # 问题内容
+    context: str = None # 问题上下文（可选）
+) -> str
+```
+
+**示例**：
+```python
+answer = tool.ask_user(
+    question="请问您希望周报包含哪些具体内容？",
+    context="正在生成周报，需要确认报告范围"
+)
 ```
 
 ---

@@ -1,6 +1,6 @@
 # 开发指南
 
-[English](DEVELOPMENT_EN.md) | 简体中文
+[English](../en/DEVELOPMENT.md) | 简体中文
 
 本文档为开发者提供 Neo Agent 项目的详细开发指南，包括项目结构、开发流程和最佳实践。
 
@@ -60,10 +60,28 @@ Neo_Agent/
 │       ├── 数据编辑
 │       └── 导入导出
 │
-└── base_knowledge.py        # 基础知识管理（263行）
-    └── BaseKnowledgeManager  # 基础知识管理器
-        ├── 加载基础知识
-        └── 更新基础知识
+├── base_knowledge.py        # 基础知识管理（263行）
+│   └── BaseKnowledgeManager  # 基础知识管理器
+│       ├── 加载基础知识
+│       └── 更新基础知识
+│
+├── event_manager.py         # 事件管理（约500行）
+│   └── EventManager          # 事件管理器
+│       ├── 事件创建与存储
+│       ├── 事件状态管理
+│       └── 事件日志记录
+│
+├── multi_agent_coordinator.py  # 多智能体协作（约600行）
+│   └── MultiAgentCoordinator   # 多智能体协调器
+│       ├── 任务理解
+│       ├── 任务规划
+│       ├── 任务执行
+│       └── 结果验证
+│
+└── interrupt_question_tool.py  # 中断提问工具（约150行）
+    └── InterruptQuestionTool   # 中断性提问工具
+        ├── 用户提问
+        └── 回调处理
 ```
 
 ## 🏗️ 核心架构
@@ -261,6 +279,86 @@ def extract_knowledge_from_conversation(self, messages):
 - 愉悦度（Joy）：交流的愉快程度
 - 共鸣度（Empathy）：情感共鸣程度
 - 依赖度（Dependence）：相互依赖程度
+
+### EventManager（事件管理器）
+
+**职责**：管理事件的完整生命周期
+
+**主要方法**：
+
+```python
+# 事件管理
+create_event(title, description, event_type, priority)
+get_event(event_id)
+get_pending_events(limit)
+update_event_status(event_id, status)
+delete_event(event_id)
+
+# 日志管理
+add_event_log(event_id, log_type, log_content)
+get_event_logs(event_id)
+
+# 统计信息
+get_statistics()
+```
+
+**设计模式**：
+- 工厂模式用于创建不同类型的事件
+- 状态模式管理事件生命周期
+
+### MultiAgentCoordinator（多智能体协调器）
+
+**职责**：协调多个智能体完成复杂任务
+
+**核心逻辑**：
+
+```python
+def process_task_event(self, task_event):
+    # 1. 理解任务
+    understanding = self._understand_task(task_event)
+    self.emit_progress("任务已理解")
+    
+    # 2. 制定计划
+    plan = self._create_plan(understanding)
+    self.emit_progress(f"执行计划已制定，共{len(plan.steps)}步")
+    
+    # 3. 执行步骤
+    results = []
+    for i, step in enumerate(plan.steps):
+        self.emit_progress(f"正在执行步骤 {i+1}/{len(plan.steps)}")
+        result = self._execute_step(step)
+        results.append(result)
+    
+    # 4. 验证结果
+    verification = self._verify_results(results, task_event)
+    self.emit_progress("✅ 任务验证通过" if verification.passed else "❌ 任务验证失败")
+    
+    return verification
+```
+
+**子智能体类型**：
+- 理解智能体：分析任务需求和完成标准
+- 规划智能体：将任务分解为可执行步骤
+- 执行智能体：逐步完成任务
+- 验证智能体：验证任务完成情况
+
+### InterruptQuestionTool（中断性提问工具）
+
+**职责**：在任务执行中向用户提问
+
+**使用示例**：
+
+```python
+# 设置回调
+tool = InterruptQuestionTool()
+tool.set_question_callback(lambda q: input(q))
+
+# 向用户提问
+answer = tool.ask_user(
+    question="请问您希望周报包含哪些具体内容？",
+    context="正在生成周报"
+)
+```
 
 ## 🎨 GUI 开发
 
