@@ -1,6 +1,6 @@
 # Architecture Design Document
 
-English | [简体中文](ARCHITECTURE.md)
+English | [简体中文](../zh-cn/ARCHITECTURE.md)
 
 This document describes the system architecture, design principles, and technical implementation of Neo Agent in detail.
 

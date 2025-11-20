@@ -1,6 +1,6 @@
 # Development Guide
 
-English | [简体中文](DEVELOPMENT.md)
+English | [简体中文](../zh-cn/DEVELOPMENT.md)
 
 This document provides a comprehensive development guide for Neo Agent, including project structure, development workflow, and best practices.
 

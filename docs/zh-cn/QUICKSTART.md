@@ -1,6 +1,6 @@
 # 快速开始指南
 
-[English](QUICKSTART_EN.md) | 简体中文
+[English](../en/QUICKSTART.md) | 简体中文
 
 本指南将帮助你快速上手 Neo Agent 智能对话代理系统。
 
