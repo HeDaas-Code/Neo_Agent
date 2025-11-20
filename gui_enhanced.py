@@ -1109,7 +1109,27 @@ class EnhancedChatDebugGUI:
             command=self.refresh_event_list,
             width=12
         ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            toolbar,
+            text="🚀 触发事件",
+            command=self.trigger_selected_event,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
 
+        ttk.Button(
+            toolbar,
+            text="📝 查看详情",
+            command=self.view_event_details,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="🗑️ 删除事件",
+            command=self.delete_selected_event,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+        
         # 事件统计
         stats_frame = ttk.LabelFrame(main_container, text="📊 事件统计", padding=10)
         stats_frame.pack(fill=tk.X, pady=(0, 10))
@@ -1154,31 +1174,7 @@ class EnhancedChatDebugGUI:
         self.event_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 底部操作按钮
-        button_frame = ttk.Frame(main_container)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Button(
-            button_frame,
-            text="🚀 触发事件",
-            command=self.trigger_selected_event,
-            width=15
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            button_frame,
-            text="📝 查看详情",
-            command=self.view_event_details,
-            width=15
-        ).pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(
-            button_frame,
-            text="🗑️ 删除事件",
-            command=self.delete_selected_event,
-            width=15
-        ).pack(side=tk.LEFT, padx=5)
-
+        
     def refresh_event_list(self):
         """刷新事件列表"""
         if not self.agent:
