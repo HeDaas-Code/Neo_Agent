@@ -104,12 +104,23 @@ python gui_enhanced.py
 
 ## 📖 详细文档
 
+> 📚 **[完整文档索引](docs/INDEX.md)** - 查看所有文档的结构化目录
+
+### 核心文档
+
 - [快速开始指南](docs/zh-cn/QUICKSTART.md) - 详细的安装和使用说明
 - [开发指南](docs/zh-cn/DEVELOPMENT.md) - 项目结构和开发说明
 - [API 文档](docs/zh-cn/API.md) - 详细的 API 接口说明
 - [架构设计](docs/zh-cn/ARCHITECTURE.md) - 系统架构和设计原理
+
+### 事件驱动系统
+
 - [事件系统文档](docs/zh-cn/EVENT_SYSTEM.md) - 事件驱动模块使用指南
 - [事件系统架构](docs/zh-cn/ARCHITECTURE_EVENT_SYSTEM.md) - 事件驱动系统架构图
+
+### 更多文档
+
+所有文档均已整理至 [docs](docs/) 文件夹，包含中英文双语版本。
 
 ## 🏗️ 项目结构
 

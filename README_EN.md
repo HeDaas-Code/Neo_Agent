@@ -97,10 +97,18 @@ python gui_enhanced.py
 
 ## 📖 Documentation
 
+> 📚 **[Complete Documentation Index](docs/INDEX.md)** - View structured directory of all documentation
+
+### Core Documentation
+
 - [Quick Start Guide](docs/en/QUICKSTART.md) - Detailed installation and usage instructions
 - [Development Guide](docs/en/DEVELOPMENT.md) - Project structure and development guide
 - [API Documentation](docs/en/API.md) - Detailed API interface documentation
 - [Architecture Design](docs/en/ARCHITECTURE.md) - System architecture and design principles
+
+### More Documentation
+
+All documentation has been organized in the [docs](docs/) folder with bilingual support (Chinese and English).
 
 ## 🏗️ Project Structure
 
