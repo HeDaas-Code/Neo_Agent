@@ -5,7 +5,7 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, Canvas
+from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog
 from datetime import datetime
 import threading
 import math
@@ -1022,6 +1022,12 @@ class EnhancedChatDebugGUI:
 
         self.create_control_panel(control_tab)
 
+        # 选项卡9: 事件管理
+        event_tab = ttk.Frame(notebook)
+        notebook.add(event_tab, text="📅 事件管理")
+
+        self.create_event_management_panel(event_tab)
+
     def create_control_panel(self, parent):
         """
         创建控制面板
@@ -1073,6 +1079,493 @@ class EnhancedChatDebugGUI:
             width=25
         ).pack(fill=tk.X, pady=2)
 
+    def create_event_management_panel(self, parent):
+        """
+        创建事件管理面板
+
+        Args:
+            parent: 父容器
+        """
+        # 主容器
+        main_container = ttk.Frame(parent, padding=10)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # 顶部工具栏
+        toolbar = ttk.Frame(main_container)
+        toolbar.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(toolbar, text="事件管理系统", font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="➕ 新建事件",
+            command=self.create_new_event,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="🔄 刷新列表",
+            command=self.refresh_event_list,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            toolbar,
+            text="🚀 触发事件",
+            command=self.trigger_selected_event,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="📝 查看详情",
+            command=self.view_event_details,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="🗑️ 删除事件",
+            command=self.delete_selected_event,
+            width=15
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # 事件统计
+        stats_frame = ttk.LabelFrame(main_container, text="📊 事件统计", padding=10)
+        stats_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.event_stats_label = ttk.Label(
+            stats_frame,
+            text="加载中...",
+            font=("微软雅黑", 9)
+        )
+        self.event_stats_label.pack(anchor=tk.W)
+
+        # 事件列表容器
+        list_frame = ttk.LabelFrame(main_container, text="📋 事件列表", padding=5)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 创建Treeview显示事件列表
+        columns = ('标题', '类型', '优先级', '状态', '创建时间')
+        self.event_tree = ttk.Treeview(
+            list_frame,
+            columns=columns,
+            show='tree headings',
+            selectmode='browse'
+        )
+
+        # 设置列标题
+        self.event_tree.heading('#0', text='ID')
+        for col in columns:
+            self.event_tree.heading(col, text=col)
+
+        # 设置列宽
+        self.event_tree.column('#0', width=80, minwidth=80)
+        self.event_tree.column('标题', width=200, minwidth=150)
+        self.event_tree.column('类型', width=80, minwidth=80)
+        self.event_tree.column('优先级', width=80, minwidth=80)
+        self.event_tree.column('状态', width=80, minwidth=80)
+        self.event_tree.column('创建时间', width=150, minwidth=120)
+
+        # 滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.event_tree.yview)
+        self.event_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.event_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        
+    def refresh_event_list(self):
+        """刷新事件列表"""
+        if not self.agent:
+            return
+        
+        # 检查 event_tree 是否存在
+        if not hasattr(self, 'event_tree'):
+            return
+
+        try:
+            # 清空现有列表
+            for item in self.event_tree.get_children():
+                self.event_tree.delete(item)
+
+            # 获取所有事件
+            from event_manager import EventType, EventStatus
+            all_events = self.agent.event_manager.get_all_events(limit=100)
+
+            # 类型和状态的中文映射
+            type_map = {
+                EventType.NOTIFICATION.value: '通知',
+                EventType.TASK.value: '任务'
+            }
+            
+            status_map = {
+                EventStatus.PENDING.value: '待处理',
+                EventStatus.PROCESSING.value: '处理中',
+                EventStatus.COMPLETED.value: '已完成',
+                EventStatus.FAILED.value: '失败',
+                EventStatus.CANCELLED.value: '已取消'
+            }
+
+            priority_map = {1: '低', 2: '中', 3: '高', 4: '紧急'}
+
+            # 添加事件到列表
+            for event in all_events:
+                event_dict = event.to_dict()
+                self.event_tree.insert(
+                    '',
+                    'end',
+                    text=event_dict['event_id'][:8],  # 只显示前8位ID
+                    values=(
+                        event_dict['title'],
+                        type_map.get(event_dict['event_type'], event_dict['event_type']),
+                        priority_map.get(event_dict['priority'], event_dict['priority']),
+                        status_map.get(event_dict['status'], event_dict['status']),
+                        event_dict['created_at'][:19]  # 只显示日期时间部分
+                    ),
+                    tags=(event_dict['event_id'],)  # 将完整ID存在tags中
+                )
+
+            # 更新统计信息
+            if hasattr(self, 'event_stats_label'):
+                stats = self.agent.event_manager.get_statistics()
+                stats_text = f"""总事件数：{stats['total_events']}
+待处理：{stats['pending']}  |  处理中：{stats['processing']}  |  已完成：{stats['completed']}
+通知型：{stats['notifications']}  |  任务型：{stats['tasks']}"""
+                self.event_stats_label.config(text=stats_text)
+        except Exception as e:
+            print(f"刷新事件列表时出错: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def create_new_event(self):
+        """创建新事件对话框"""
+        from event_manager import EventType, EventPriority
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("创建新事件")
+        dialog.geometry("500x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 主容器
+        container = ttk.Frame(dialog, padding=20)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 事件标题
+        ttk.Label(container, text="事件标题:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        title_entry = ttk.Entry(container, font=("微软雅黑", 10))
+        title_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # 事件描述
+        ttk.Label(container, text="事件描述:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        desc_text = scrolledtext.ScrolledText(container, height=5, font=("微软雅黑", 9))
+        desc_text.pack(fill=tk.X, pady=(0, 10))
+
+        # 事件类型
+        ttk.Label(container, text="事件类型:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        type_var = tk.StringVar(value="notification")
+        type_frame = ttk.Frame(container)
+        type_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Radiobutton(
+            type_frame,
+            text="通知型（向用户说明信息）",
+            variable=type_var,
+            value="notification"
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            type_frame,
+            text="任务型（需要完成任务）",
+            variable=type_var,
+            value="task"
+        ).pack(anchor=tk.W)
+
+        # 优先级
+        ttk.Label(container, text="优先级:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        priority_var = tk.IntVar(value=2)
+        priority_frame = ttk.Frame(container)
+        priority_frame.pack(fill=tk.X, pady=(0, 10))
+        for val, text in [(1, "低"), (2, "中"), (3, "高"), (4, "紧急")]:
+            ttk.Radiobutton(
+                priority_frame,
+                text=text,
+                variable=priority_var,
+                value=val
+            ).pack(side=tk.LEFT, padx=5)
+
+        # 任务特定字段（只在任务型时显示）
+        task_frame = ttk.LabelFrame(container, text="任务专用字段", padding=10)
+        
+        ttk.Label(task_frame, text="任务要求:", font=("微软雅黑", 9)).pack(anchor=tk.W, pady=(0, 5))
+        task_req_text = scrolledtext.ScrolledText(task_frame, height=3, font=("微软雅黑", 9))
+        task_req_text.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(task_frame, text="完成标准:", font=("微软雅黑", 9)).pack(anchor=tk.W, pady=(0, 5))
+        task_crit_text = scrolledtext.ScrolledText(task_frame, height=3, font=("微软雅黑", 9))
+        task_crit_text.pack(fill=tk.X, pady=(0, 10))
+
+        def toggle_task_fields():
+            if type_var.get() == "task":
+                task_frame.pack(fill=tk.X, pady=(0, 10))
+            else:
+                task_frame.pack_forget()
+
+        # 绑定类型变化事件
+        type_frame.winfo_children()[0].configure(command=toggle_task_fields)
+        type_frame.winfo_children()[1].configure(command=toggle_task_fields)
+
+        # 按钮
+        button_frame = ttk.Frame(container)
+        button_frame.pack(pady=(10, 0))
+
+        def do_create():
+            title = title_entry.get().strip()
+            if not title:
+                messagebox.showwarning("警告", "请输入事件标题！")
+                return
+
+            description = desc_text.get("1.0", tk.END).strip()
+            event_type = EventType.TASK if type_var.get() == "task" else EventType.NOTIFICATION
+            priority = EventPriority(priority_var.get())
+
+            task_requirements = ""
+            completion_criteria = ""
+            if event_type == EventType.TASK:
+                task_requirements = task_req_text.get("1.0", tk.END).strip()
+                completion_criteria = task_crit_text.get("1.0", tk.END).strip()
+
+            try:
+                # 创建事件
+                event = self.agent.event_manager.create_event(
+                    title=title,
+                    description=description,
+                    event_type=event_type,
+                    priority=priority,
+                    task_requirements=task_requirements,
+                    completion_criteria=completion_criteria
+                )
+
+                messagebox.showinfo("成功", f"事件创建成功！\nID: {event.event_id[:8]}...")
+                self.refresh_event_list()
+                dialog.destroy()
+
+            except Exception as e:
+                messagebox.showerror("错误", f"创建事件失败：{str(e)}")
+
+        ttk.Button(button_frame, text="创建", command=do_create, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def trigger_selected_event(self):
+        """触发选中的事件"""
+        selection = self.event_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个事件！")
+            return
+
+        # 获取完整的事件ID（从tags中）
+        item_tags = self.event_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取事件ID！")
+            return
+
+        event_id = item_tags[0]
+
+        # 确认
+        event = self.agent.event_manager.get_event(event_id)
+        if not event:
+            messagebox.showerror("错误", "事件不存在！")
+            return
+
+        from event_manager import EventStatus
+        if event.status != EventStatus.PENDING:
+            result = messagebox.askyesno(
+                "确认",
+                f"事件状态为「{event.status.value}」\n确定要重新触发吗？"
+            )
+            if not result:
+                return
+
+        # 在新线程中处理事件
+        def process_event_thread():
+            try:
+                self.update_status("处理事件中...", "orange")
+                self.is_processing = True
+
+                # 设置中断性提问的回调 - 使用线程安全的方式
+                def question_callback(question):
+                    # 使用事件和共享变量在主线程安全地显示对话框并获取结果
+                    result_event = threading.Event()
+                    result_holder = {"answer": ""}
+                    
+                    def ask_on_main_thread():
+                        answer = simpledialog.askstring(
+                            "智能体提问",
+                            question,
+                            parent=self.root
+                        )
+                        result_holder["answer"] = answer or ""
+                        result_event.set()
+                    
+                    self.root.after(0, ask_on_main_thread)
+                    result_event.wait()
+                    return result_holder["answer"]
+
+                self.agent.interrupt_question_tool.set_question_callback(question_callback)
+
+                # 处理事件
+                result_message = self.agent.handle_event(event_id)
+
+                # 在聊天区域显示结果
+                self.root.after(0, lambda: self.add_system_message(result_message))
+
+                self.is_processing = False
+                self.update_status("就绪", "green")
+                
+                # 刷新事件列表
+                self.root.after(0, self.refresh_event_list)
+            
+            except Exception as e:
+                # 出错时的处理
+                error_msg = f"处理事件时发生错误：{str(e)}"
+                print(error_msg)
+                import traceback
+                traceback.print_exc()
+                
+                self.is_processing = False
+                self.update_status("错误", "red")
+                
+                # 在主线程显示错误消息
+                self.root.after(0, lambda: messagebox.showerror("处理错误", error_msg))
+
+        import threading
+        thread = threading.Thread(target=process_event_thread)
+        thread.daemon = True
+        thread.start()
+
+    def view_event_details(self):
+        """查看事件详情"""
+        selection = self.event_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个事件！")
+            return
+
+        item_tags = self.event_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取事件ID！")
+            return
+
+        event_id = item_tags[0]
+        event = self.agent.event_manager.get_event(event_id)
+
+        if not event:
+            messagebox.showerror("错误", "事件不存在！")
+            return
+
+        # 创建详情对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"事件详情 - {event.title}")
+        dialog.geometry("600x700")
+        dialog.transient(self.root)
+
+        container = ttk.Frame(dialog, padding=20)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 事件基本信息
+        info_frame = ttk.LabelFrame(container, text="基本信息", padding=10)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+
+        event_dict = event.to_dict()
+        info_text = f"""事件ID: {event_dict['event_id']}
+标题: {event_dict['title']}
+类型: {event_dict['event_type']}
+优先级: {event_dict['priority']}
+状态: {event_dict['status']}
+创建时间: {event_dict['created_at']}
+
+描述:
+{event_dict['description']}"""
+
+        from event_manager import EventType
+        if event.event_type == EventType.TASK:
+            info_text += f"""
+
+任务要求:
+{event_dict['metadata'].get('task_requirements', '')}
+
+完成标准:
+{event_dict['metadata'].get('completion_criteria', '')}"""
+
+        info_label = ttk.Label(
+            info_frame,
+            text=info_text,
+            font=("微软雅黑", 9),
+            justify=tk.LEFT
+        )
+        info_label.pack(anchor=tk.W)
+
+        # 处理日志
+        log_frame = ttk.LabelFrame(container, text="处理日志", padding=10)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        log_text = scrolledtext.ScrolledText(
+            log_frame,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            height=15
+        )
+        log_text.pack(fill=tk.BOTH, expand=True)
+
+        logs = self.agent.event_manager.get_event_logs(event_id)
+        if logs:
+            for log in logs:
+                log_text.insert(tk.END, f"[{log['created_at']}] {log['log_type']}\n")
+                log_text.insert(tk.END, f"{log['log_content']}\n\n")
+        else:
+            log_text.insert(tk.END, "暂无处理日志")
+
+        log_text.config(state=tk.DISABLED)
+
+        # 关闭按钮
+        ttk.Button(
+            container,
+            text="关闭",
+            command=dialog.destroy,
+            width=15
+        ).pack(pady=(10, 0))
+
+    def delete_selected_event(self):
+        """删除选中的事件"""
+        selection = self.event_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个事件！")
+            return
+
+        item_tags = self.event_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取事件ID！")
+            return
+
+        event_id = item_tags[0]
+        event = self.agent.event_manager.get_event(event_id)
+
+        if not event:
+            messagebox.showerror("错误", "事件不存在！")
+            return
+
+        # 确认删除
+        result = messagebox.askyesno(
+            "确认删除",
+            f"确定要删除事件「{event.title}」吗？\n此操作不可恢复！"
+        )
+
+        if result:
+            success = self.agent.event_manager.delete_event(event_id)
+            if success:
+                messagebox.showinfo("成功", "事件已删除")
+                self.refresh_event_list()
+            else:
+                messagebox.showerror("错误", "删除事件失败！")
+
     def initialize_agent(self):
         """
         初始化聊天代理
@@ -1103,6 +1596,9 @@ class EnhancedChatDebugGUI:
             self.update_character_info()
             self.update_system_info()
             self.refresh_all()
+            
+            # 刷新事件列表
+            self.refresh_event_list()
 
             # 显示欢迎消息
             self.add_system_message("系统初始化完成！开始对话吧～")

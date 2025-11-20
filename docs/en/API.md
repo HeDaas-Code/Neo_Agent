@@ -1,6 +1,6 @@
 # API Documentation
 
-English | [简体中文](API.md)
+English | [简体中文](../zh-cn/API.md)
 
 This document provides detailed API interfaces and usage methods for all Neo Agent modules.
 
