@@ -1179,54 +1179,64 @@ class EnhancedChatDebugGUI:
         """刷新事件列表"""
         if not self.agent:
             return
-
-        # 清空现有列表
-        for item in self.event_tree.get_children():
-            self.event_tree.delete(item)
-
-        # 获取所有事件
-        from event_manager import EventType, EventStatus
-        all_events = self.agent.event_manager.get_all_events(limit=100)
-
-        # 类型和状态的中文映射
-        type_map = {
-            EventType.NOTIFICATION.value: '通知',
-            EventType.TASK.value: '任务'
-        }
         
-        status_map = {
-            EventStatus.PENDING.value: '待处理',
-            EventStatus.PROCESSING.value: '处理中',
-            EventStatus.COMPLETED.value: '已完成',
-            EventStatus.FAILED.value: '失败',
-            EventStatus.CANCELLED.value: '已取消'
-        }
+        # 检查 event_tree 是否存在
+        if not hasattr(self, 'event_tree'):
+            return
 
-        priority_map = {1: '低', 2: '中', 3: '高', 4: '紧急'}
+        try:
+            # 清空现有列表
+            for item in self.event_tree.get_children():
+                self.event_tree.delete(item)
 
-        # 添加事件到列表
-        for event in all_events:
-            event_dict = event.to_dict()
-            self.event_tree.insert(
-                '',
-                'end',
-                text=event_dict['event_id'][:8],  # 只显示前8位ID
-                values=(
-                    event_dict['title'],
-                    type_map.get(event_dict['event_type'], event_dict['event_type']),
-                    priority_map.get(event_dict['priority'], event_dict['priority']),
-                    status_map.get(event_dict['status'], event_dict['status']),
-                    event_dict['created_at'][:19]  # 只显示日期时间部分
-                ),
-                tags=(event_dict['event_id'],)  # 将完整ID存在tags中
-            )
+            # 获取所有事件
+            from event_manager import EventType, EventStatus
+            all_events = self.agent.event_manager.get_all_events(limit=100)
 
-        # 更新统计信息
-        stats = self.agent.event_manager.get_statistics()
-        stats_text = f"""总事件数：{stats['total_events']}
+            # 类型和状态的中文映射
+            type_map = {
+                EventType.NOTIFICATION.value: '通知',
+                EventType.TASK.value: '任务'
+            }
+            
+            status_map = {
+                EventStatus.PENDING.value: '待处理',
+                EventStatus.PROCESSING.value: '处理中',
+                EventStatus.COMPLETED.value: '已完成',
+                EventStatus.FAILED.value: '失败',
+                EventStatus.CANCELLED.value: '已取消'
+            }
+
+            priority_map = {1: '低', 2: '中', 3: '高', 4: '紧急'}
+
+            # 添加事件到列表
+            for event in all_events:
+                event_dict = event.to_dict()
+                self.event_tree.insert(
+                    '',
+                    'end',
+                    text=event_dict['event_id'][:8],  # 只显示前8位ID
+                    values=(
+                        event_dict['title'],
+                        type_map.get(event_dict['event_type'], event_dict['event_type']),
+                        priority_map.get(event_dict['priority'], event_dict['priority']),
+                        status_map.get(event_dict['status'], event_dict['status']),
+                        event_dict['created_at'][:19]  # 只显示日期时间部分
+                    ),
+                    tags=(event_dict['event_id'],)  # 将完整ID存在tags中
+                )
+
+            # 更新统计信息
+            if hasattr(self, 'event_stats_label'):
+                stats = self.agent.event_manager.get_statistics()
+                stats_text = f"""总事件数：{stats['total_events']}
 待处理：{stats['pending']}  |  处理中：{stats['processing']}  |  已完成：{stats['completed']}
 通知型：{stats['notifications']}  |  任务型：{stats['tasks']}"""
-        self.event_stats_label.config(text=stats_text)
+                self.event_stats_label.config(text=stats_text)
+        except Exception as e:
+            print(f"刷新事件列表时出错: {e}")
+            import traceback
+            traceback.print_exc()
 
     def create_new_event(self):
         """创建新事件对话框"""
@@ -1377,41 +1387,55 @@ class EnhancedChatDebugGUI:
 
         # 在新线程中处理事件
         def process_event_thread():
-            self.update_status("处理事件中...", "orange")
-            self.is_processing = True
+            try:
+                self.update_status("处理事件中...", "orange")
+                self.is_processing = True
 
-            # 设置中断性提问的回调 - 使用线程安全的方式
-            def question_callback(question):
-                # 使用事件和共享变量在主线程安全地显示对话框并获取结果
-                result_event = threading.Event()
-                result_holder = {"answer": ""}
+                # 设置中断性提问的回调 - 使用线程安全的方式
+                def question_callback(question):
+                    # 使用事件和共享变量在主线程安全地显示对话框并获取结果
+                    result_event = threading.Event()
+                    result_holder = {"answer": ""}
+                    
+                    def ask_on_main_thread():
+                        answer = simpledialog.askstring(
+                            "智能体提问",
+                            question,
+                            parent=self.root
+                        )
+                        result_holder["answer"] = answer or ""
+                        result_event.set()
+                    
+                    self.root.after(0, ask_on_main_thread)
+                    result_event.wait()
+                    return result_holder["answer"]
+
+                self.agent.interrupt_question_tool.set_question_callback(question_callback)
+
+                # 处理事件
+                result_message = self.agent.handle_event(event_id)
+
+                # 在聊天区域显示结果
+                self.root.after(0, lambda: self.display_message("系统", result_message))
+
+                self.is_processing = False
+                self.update_status("就绪", "green")
                 
-                def ask_on_main_thread():
-                    answer = simpledialog.askstring(
-                        "智能体提问",
-                        question,
-                        parent=self.root
-                    )
-                    result_holder["answer"] = answer or ""
-                    result_event.set()
-                
-                self.root.after(0, ask_on_main_thread)
-                result_event.wait()
-                return result_holder["answer"]
-
-            self.agent.interrupt_question_tool.set_question_callback(question_callback)
-
-            # 处理事件
-            result_message = self.agent.handle_event(event_id)
-
-            # 在聊天区域显示结果
-            self.root.after(0, lambda: self.display_message("系统", result_message))
-
-            self.is_processing = False
-            self.update_status("就绪", "green")
+                # 刷新事件列表
+                self.root.after(0, self.refresh_event_list)
             
-            # 刷新事件列表
-            self.root.after(0, self.refresh_event_list)
+            except Exception as e:
+                # 出错时的处理
+                error_msg = f"处理事件时发生错误：{str(e)}"
+                print(error_msg)
+                import traceback
+                traceback.print_exc()
+                
+                self.is_processing = False
+                self.update_status("错误", "red")
+                
+                # 在主线程显示错误消息
+                self.root.after(0, lambda: messagebox.showerror("处理错误", error_msg))
 
         import threading
         thread = threading.Thread(target=process_event_thread)
