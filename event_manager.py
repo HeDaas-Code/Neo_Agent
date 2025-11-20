@@ -250,28 +250,33 @@ class EventManager:
 
         # 保存到数据库
         import json
-        with self.db.get_connection() as conn:
-            conn.execute('''
-                INSERT INTO events (
-                    event_id, title, description, event_type, 
-                    priority, status, created_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                event.event_id,
-                event.title,
-                event.description,
-                event.event_type.value,
-                event.priority.value,
-                event.status.value,
-                event.created_at,
-                json.dumps(event.metadata, ensure_ascii=False)
-            ))
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO events (
+                        event_id, title, description, event_type, 
+                        priority, status, created_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    event.event_id,
+                    event.title,
+                    event.description,
+                    event.event_type.value,
+                    event.priority.value,
+                    event.status.value,
+                    event.created_at,
+                    json.dumps(event.metadata, ensure_ascii=False)
+                ))
 
-        debug_logger.log_info('EventManager', '事件创建成功', {
-            'event_id': event.event_id
-        })
+            debug_logger.log_info('EventManager', '事件创建成功', {
+                'event_id': event.event_id
+            })
 
-        return event
+            return event
+            
+        except Exception as e:
+            debug_logger.log_error('EventManager', f'创建事件失败: {str(e)}', e)
+            raise RuntimeError(f"Failed to create event: {str(e)}") from e
 
     def get_event(self, event_id: str) -> Optional[Event]:
         """

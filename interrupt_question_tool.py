@@ -34,8 +34,7 @@ class InterruptQuestionTool:
     def ask_user(
         self,
         question: str,
-        context: str = "",
-        timeout: int = 300
+        context: str = ""
     ) -> str:
         """
         向用户提问
@@ -43,7 +42,6 @@ class InterruptQuestionTool:
         Args:
             question: 要提问的问题
             context: 问题背景上下文
-            timeout: 超时时间（秒）
 
         Returns:
             用户的回答

@@ -7,10 +7,9 @@ import os
 import time
 import json
 from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime
 from dotenv import load_dotenv
 import requests
-from event_manager import TaskEvent, EventStatus
+from event_manager import TaskEvent
 from interrupt_question_tool import InterruptQuestionTool
 from debug_logger import get_debug_logger
 
@@ -387,10 +386,22 @@ class MultiAgentCoordinator:
                 else:
                     description = line
                 
-                steps.append({
-                    'description': description,
-                    'status': 'pending'
-                })
+                if description:  # 确保描述不为空
+                    steps.append({
+                        'description': description,
+                        'status': 'pending'
+                    })
+
+        # 验证至少有一个步骤
+        if not steps:
+            debug_logger.log_module('MultiAgentCoordinator', '警告：未能从计划中解析出有效步骤', {
+                'plan_text': plan_text
+            })
+            # 创建一个默认步骤
+            steps.append({
+                'description': '完成任务要求',
+                'status': 'pending'
+            })
 
         return {
             'steps': steps,
@@ -448,8 +459,16 @@ class MultiAgentCoordinator:
             tools
         )
 
-        # 检查是否需要用户输入（简单的关键词检测）
-        needs_input = any(keyword in result_text for keyword in ['需要确认', '请问', '不确定', '？'])
+        # 检查是否需要用户输入
+        # 改进的检测逻辑：检查问号是否在句尾，以及更具体的关键词
+        needs_input = False
+        if isinstance(result_text, str):
+            # 检查句尾问号
+            if result_text.strip().endswith('？') or result_text.strip().endswith('?'):
+                needs_input = True
+            # 检查特定的提问模式
+            elif any(keyword in result_text for keyword in ['需要确认', '请问', '请提供', '请输入', '是否需要']):
+                needs_input = True
 
         return {
             'success': True,
@@ -501,15 +520,37 @@ class MultiAgentCoordinator:
         }
 
         verification_text = verification_agent.execute_task(
-            '请根据任务的完成标准，判断执行结果是否达标。回答格式：【是/否】原因说明',
+            '请根据任务的完成标准，判断执行结果是否达标。请以如下JSON格式回答：{"is_completed": true/false, "reason": "原因说明"}。如果无法判断，请合理说明。',
             context
         )
 
-        # 简单的判断逻辑
-        is_completed = '【是】' in verification_text or '达标' in verification_text or '完成' in verification_text
+        # 尝试解析JSON格式的回复
+        is_completed = False
+        reason = verification_text
+        try:
+            # 尝试提取JSON部分（可能包含在其他文本中）
+            import re
+            json_match = re.search(r'\{[^}]*"is_completed"[^}]*\}', verification_text)
+            if json_match:
+                verification_json = json.loads(json_match.group(0))
+                if isinstance(verification_json, dict) and 'is_completed' in verification_json:
+                    is_completed = bool(verification_json['is_completed'])
+                    reason = verification_json.get('reason', verification_text)
+                else:
+                    debug_logger.log_module('MultiAgentCoordinator', f'验证智能体回复格式不正确: {verification_text}')
+            else:
+                # JSON解析失败，回退到关键词匹配
+                debug_logger.log_module('MultiAgentCoordinator', f'未找到JSON格式，使用关键词匹配: {verification_text}')
+                if '【是】' in verification_text or '达标' in verification_text or '已完成' in verification_text or '成功完成' in verification_text:
+                    is_completed = True
+        except Exception as e:
+            debug_logger.log_module('MultiAgentCoordinator', f'验证智能体回复解析失败: {e}, 回复内容: {verification_text}')
+            # 回退到原有的关键词匹配逻辑
+            if '【是】' in verification_text or '达标' in verification_text or '已完成' in verification_text or '成功完成' in verification_text:
+                is_completed = True
 
         return {
             'is_completed': is_completed,
-            'message': verification_text,
+            'message': reason,
             'execution_summary': results_summary
         }

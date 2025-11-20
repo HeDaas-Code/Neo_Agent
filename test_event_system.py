@@ -99,10 +99,10 @@ def main():
     
     try:
         # 测试通知型事件
-        notification = test_notification_event(agent)
+        test_notification_event(agent)
         
         # 测试任务型事件
-        task = test_task_event(agent)
+        test_task_event(agent)
         
         # 测试事件管理
         test_event_management(agent)

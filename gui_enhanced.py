@@ -1384,15 +1384,24 @@ class EnhancedChatDebugGUI:
             self.update_status("处理事件中...", "orange")
             self.is_processing = True
 
-            # 设置中断性提问的回调
+            # 设置中断性提问的回调 - 使用线程安全的方式
             def question_callback(question):
-                # 在GUI线程中显示对话框
-                answer = tk.simpledialog.askstring(
-                    "智能体提问",
-                    question,
-                    parent=self.root
-                )
-                return answer or ""
+                # 使用事件和共享变量在主线程安全地显示对话框并获取结果
+                result_event = threading.Event()
+                result_holder = {"answer": ""}
+                
+                def ask_on_main_thread():
+                    answer = simpledialog.askstring(
+                        "智能体提问",
+                        question,
+                        parent=self.root
+                    )
+                    result_holder["answer"] = answer or ""
+                    result_event.set()
+                
+                self.root.after(0, ask_on_main_thread)
+                result_event.wait()
+                return result_holder["answer"]
 
             self.agent.interrupt_question_tool.set_question_callback(question_callback)
 
