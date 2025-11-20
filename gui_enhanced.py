@@ -1416,7 +1416,7 @@ class EnhancedChatDebugGUI:
                 result_message = self.agent.handle_event(event_id)
 
                 # 在聊天区域显示结果
-                self.root.after(0, lambda: self.display_message("系统", result_message))
+                self.root.after(0, lambda: self.add_system_message(result_message))
 
                 self.is_processing = False
                 self.update_status("就绪", "green")
