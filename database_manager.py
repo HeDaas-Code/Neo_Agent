@@ -1660,6 +1660,50 @@ class DatabaseManager:
 
         return debug_info
 
+    def execute_query(self, query: str, params: tuple = None) -> None:
+        """
+        执行SQL查询（用于INSERT/UPDATE/DELETE）
+
+        Args:
+            query: SQL查询语句
+            params: 查询参数
+        """
+        with self.get_connection() as conn:
+            if params:
+                conn.execute(query, params)
+            else:
+                conn.execute(query)
+
+    def fetch_one(self, query: str, params: tuple = None) -> Optional[tuple]:
+        """
+        查询单条记录
+
+        Args:
+            query: SQL查询语句
+            params: 查询参数
+
+        Returns:
+            查询结果行或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(query, params) if params else conn.execute(query)
+            return cursor.fetchone()
+
+    def fetch_all(self, query: str, params: tuple = None) -> List[tuple]:
+        """
+        查询多条记录
+
+        Args:
+            query: SQL查询语句
+            params: 查询参数
+
+        Returns:
+            查询结果列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(query, params) if params else conn.execute(query)
+            return cursor.fetchall()
+
 
 if __name__ == '__main__':
     print("=" * 60)
