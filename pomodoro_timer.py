@@ -50,6 +50,7 @@ class PomodoroTimer:
         self.pomodoros_until_long_break = pomodoros_until_long_break
 
         self.state = PomodoroState.IDLE
+        self.previous_state = PomodoroState.IDLE  # 保存暂停前的状态
         self.current_pomodoro = 0  # 当前完成的番茄数
         self.remaining_time = 0  # 剩余时间（秒）
         self.total_time = 0  # 总时间（秒）
@@ -131,6 +132,8 @@ class PomodoroTimer:
         if self.state not in [PomodoroState.WORKING, PomodoroState.RESTING]:
             return False
 
+        # 保存当前状态
+        self.previous_state = self.state
         self.pause_time = datetime.now()
         self.stop_flag.set()
 
@@ -151,7 +154,7 @@ class PomodoroTimer:
             return False
 
         # 恢复之前的状态
-        self.state = PomodoroState.WORKING if self.pause_time else PomodoroState.RESTING
+        self.state = self.previous_state
         self.start_time = datetime.now()
         self.pause_time = None
 

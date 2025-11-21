@@ -36,7 +36,7 @@ fi
 $PYTHON_CMD -c "import dotenv" 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "⚠️  警告: python-dotenv未安装，正在安装依赖..."
-    pip install -r requirements.txt
+    $PYTHON_CMD -m pip install -r requirements.txt
     if [ $? -ne 0 ]; then
         echo "❌ 错误: 依赖安装失败"
         exit 1

@@ -198,6 +198,11 @@ class NoteManager:
             笔记列表
         """
         try:
+            # 白名单验证排序字段，防止SQL注入
+            allowed_fields = ['updated_at', 'created_at', 'title', 'note_id']
+            if order_by not in allowed_fields:
+                order_by = 'updated_at'  # 默认值
+            
             # 置顶的笔记排在前面
             query_sql = f"""
             SELECT * FROM notes 

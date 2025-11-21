@@ -409,33 +409,33 @@ class Live2DAssistant(tk.Tk):
         time_str = self.pomodoro.format_time(remaining_seconds)
         status = self.pomodoro.get_status()
 
-        self.after(0, self.pomodoro_time_label.config, {'text': time_str})
-        self.after(0, self.pomodoro_progress.__setitem__, 'value', status['progress'] * 100)
+        self.after(0, lambda: self.pomodoro_time_label.config(text=time_str))
+        self.after(0, lambda: setattr(self.pomodoro_progress, 'value', status['progress'] * 100))
 
     def _on_work_start(self):
         """工作时段开始"""
-        self.after(0, self.pomodoro_status_label.config, {'text': '工作中... 保持专注！'})
-        self.after(0, self._update_character_status, "💪 我们一起努力工作吧！")
+        self.after(0, lambda: self.pomodoro_status_label.config(text='工作中... 保持专注！'))
+        self.after(0, lambda: self._update_character_status("💪 我们一起努力工作吧！"))
 
     def _on_work_complete(self):
         """工作时段完成"""
         count = self.pomodoro.current_pomodoro
-        self.after(0, self.pomodoro_count_label.config, {'text': f'今日完成: {count} 个番茄 🍅'})
-        self.after(0, self._update_character_status, f"🎉 太棒了！完成了第{count}个番茄，休息一下吧～")
-        self.after(0, messagebox.showinfo, "番茄时钟", "工作时段完成！该休息啦～")
+        self.after(0, lambda: self.pomodoro_count_label.config(text=f'今日完成: {count} 个番茄 🍅'))
+        self.after(0, lambda: self._update_character_status(f"🎉 太棒了！完成了第{count}个番茄，休息一下吧～"))
+        self.after(0, lambda: messagebox.showinfo("番茄时钟", "工作时段完成！该休息啦～"))
         
         # 自动开始休息
         self.after(1000, self.pomodoro.start_break)
 
     def _on_break_start(self):
         """休息时段开始"""
-        self.after(0, self.pomodoro_status_label.config, {'text': '休息中... 放松一下'})
-        self.after(0, self._update_character_status, "☕ 休息时间到啦！喝杯水，活动一下吧～")
+        self.after(0, lambda: self.pomodoro_status_label.config(text='休息中... 放松一下'))
+        self.after(0, lambda: self._update_character_status("☕ 休息时间到啦！喝杯水，活动一下吧～"))
 
     def _on_break_complete(self):
         """休息时段完成"""
-        self.after(0, self._update_character_status, "⏰ 休息结束，准备继续工作吧！")
-        self.after(0, messagebox.showinfo, "番茄时钟", "休息结束！准备下一个番茄～")
+        self.after(0, lambda: self._update_character_status("⏰ 休息结束，准备继续工作吧！"))
+        self.after(0, lambda: messagebox.showinfo("番茄时钟", "休息结束！准备下一个番茄～"))
         self.after(0, self._stop_pomodoro)
 
     # ========== 日程功能 ==========
