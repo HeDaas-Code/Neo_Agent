@@ -19,6 +19,7 @@ from agent_vision import AgentVisionTool
 from event_manager import EventManager, EventType, EventStatus, NotificationEvent, TaskEvent
 from interrupt_question_tool import InterruptQuestionTool
 from multi_agent_coordinator import MultiAgentCoordinator
+from director_mode import DirectorMode, Timeline, Scenario, ScenarioType, TriggerType, ScenarioStatus
 
 # 加载环境变量
 load_dotenv()
@@ -363,6 +364,16 @@ class ChatAgent:
         self.multi_agent_coordinator = MultiAgentCoordinator(
             question_tool=self.interrupt_question_tool
         )
+        
+        # 初始化导演模式
+        self.director_mode = DirectorMode(
+            db_manager=self.db,
+            scenario_callback=self._on_scenario_triggered,
+            narration_callback=self._on_director_narration
+        )
+        
+        # 当前场景上下文（由导演模式设置）
+        self._current_scenario_context: Dict[str, Any] = {}
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -374,6 +385,11 @@ class ChatAgent:
         event_stats = self.event_manager.get_statistics()
         print(f"事件系统: {event_stats['total_events']} 个事件 "
               f"(待处理: {event_stats['pending']}, 已完成: {event_stats['completed']})")
+        
+        # 显示导演模式统计
+        director_stats = self.director_mode.get_statistics()
+        print(f"导演模式: {director_stats['total_timelines']} 个时间线, "
+              f"{director_stats['total_scenarios']} 个场景")
 
     def chat(self, user_input: str) -> str:
         """
@@ -552,6 +568,16 @@ class ChatAgent:
                 'prompt_length': len(vision_prompt)
             })
 
+        # 添加导演模式场景上下文（如果导演模式激活）
+        if self.is_director_mode_active():
+            scenario_prompt = self.get_director_scenario_prompt()
+            if scenario_prompt:
+                messages.append({'role': 'system', 'content': scenario_prompt})
+                debug_logger.log_prompt('ChatAgent', 'system', scenario_prompt, {
+                    'stage': '导演模式场景设定',
+                    'prompt_length': len(scenario_prompt)
+                })
+
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
         if long_context:
@@ -579,6 +605,10 @@ class ChatAgent:
         self.memory_manager.add_message('assistant', response)
 
         debug_logger.log_module('ChatAgent', '对话处理完成', '已自动保存到数据库')
+
+        # 如果导演模式激活，检查是否需要完成当前场景
+        if self.is_director_mode_active():
+            self.director_mode.complete_current_scenario()
 
         return response
 
@@ -981,6 +1011,362 @@ class ChatAgent:
             统计信息
         """
         return self.event_manager.get_statistics()
+
+    # ==================== 导演模式相关方法 ====================
+
+    def _on_scenario_triggered(self, scenario: Scenario, director: DirectorMode):
+        """
+        场景触发回调函数
+
+        Args:
+            scenario: 触发的场景
+            director: 导演模式实例
+        """
+        debug_logger.log_module('ChatAgent', '场景触发回调', {
+            'scenario_id': scenario.scenario_id,
+            'name': scenario.name,
+            'type': scenario.scenario_type.value
+        })
+
+        # 更新当前场景上下文
+        self._current_scenario_context = {
+            'scenario': scenario.to_dict(),
+            'triggered_at': datetime.now().isoformat()
+        }
+
+        # 根据场景类型处理
+        if scenario.scenario_type == ScenarioType.ENVIRONMENT:
+            # 环境变化场景：更新环境描述
+            self._handle_environment_scenario(scenario)
+        elif scenario.scenario_type == ScenarioType.DIALOGUE:
+            # 对话提示场景：提供对话建议
+            self._handle_dialogue_scenario(scenario)
+        elif scenario.scenario_type == ScenarioType.EMOTION:
+            # 情感变化场景：影响情感状态
+            self._handle_emotion_scenario(scenario)
+        elif scenario.scenario_type == ScenarioType.EVENT:
+            # 事件触发场景：创建事件
+            self._handle_event_scenario(scenario)
+        elif scenario.scenario_type == ScenarioType.ACTION:
+            # 动作描述场景：添加动作描述
+            self._handle_action_scenario(scenario)
+
+    def _on_director_narration(self, message: str):
+        """
+        导演模式旁白回调
+
+        Args:
+            message: 旁白消息
+        """
+        # 这个回调可以被GUI覆盖以在界面上显示消息
+        debug_logger.log_info('ChatAgent', '导演模式旁白', {'message': message})
+
+    def _handle_environment_scenario(self, scenario: Scenario):
+        """
+        处理环境变化场景
+
+        Args:
+            scenario: 场景对象
+        """
+        content = scenario.content
+        
+        # 如果指定了环境UUID，切换到该环境
+        if scenario.environment_uuid:
+            success = self.vision_tool.switch_environment(scenario.environment_uuid)
+            if success:
+                debug_logger.log_info('ChatAgent', '环境切换成功', {
+                    'environment_uuid': scenario.environment_uuid
+                })
+
+        # 更新场景上下文中的环境信息
+        self._current_scenario_context['environment'] = {
+            'time_of_day': content.get('time_of_day', ''),
+            'mood': content.get('mood', ''),
+            'hints': content.get('environment_hints', [])
+        }
+
+    def _handle_dialogue_scenario(self, scenario: Scenario):
+        """
+        处理对话提示场景
+
+        Args:
+            scenario: 场景对象
+        """
+        content = scenario.content
+        
+        # 更新场景上下文中的对话提示
+        self._current_scenario_context['dialogue'] = {
+            'hints': content.get('dialogue_hints', []),
+            'expected_style': content.get('expected_response_style', '')
+        }
+
+    def _handle_emotion_scenario(self, scenario: Scenario):
+        """
+        处理情感变化场景
+
+        Args:
+            scenario: 场景对象
+        """
+        content = scenario.content
+        
+        # 更新场景上下文中的情感状态
+        self._current_scenario_context['emotion'] = {
+            'emotion': content.get('emotion', ''),
+            'intensity': content.get('intensity', 0.5),
+            'reason': content.get('reason', '')
+        }
+
+    def _handle_event_scenario(self, scenario: Scenario):
+        """
+        处理事件触发场景
+
+        Args:
+            scenario: 场景对象
+        """
+        content = scenario.content
+        
+        # 创建事件
+        event_type = EventType.NOTIFICATION
+        if content.get('event_type') == 'task':
+            event_type = EventType.TASK
+        
+        event = self.event_manager.create_event(
+            title=content.get('event_title', scenario.name),
+            description=content.get('event_description', scenario.description),
+            event_type=event_type,
+            task_requirements=content.get('task_requirements', ''),
+            completion_criteria=content.get('completion_criteria', '')
+        )
+        
+        debug_logger.log_info('ChatAgent', '场景创建事件', {
+            'scenario_id': scenario.scenario_id,
+            'event_id': event.event_id
+        })
+
+    def _handle_action_scenario(self, scenario: Scenario):
+        """
+        处理动作描述场景
+
+        Args:
+            scenario: 场景对象
+        """
+        content = scenario.content
+        
+        # 更新场景上下文中的动作信息
+        self._current_scenario_context['action'] = {
+            'action': content.get('action', ''),
+            'target': content.get('target', ''),
+            'manner': content.get('manner', '')
+        }
+
+    def get_director_scenario_prompt(self) -> str:
+        """
+        生成导演模式场景提示词
+
+        Returns:
+            场景提示词字符串
+        """
+        if not self._current_scenario_context:
+            return ""
+
+        prompt_parts = ["【当前场景设定】"]
+        
+        scenario_data = self._current_scenario_context.get('scenario', {})
+        if scenario_data:
+            prompt_parts.append(f"场景名称：{scenario_data.get('name', '未知')}")
+            prompt_parts.append(f"场景描述：{scenario_data.get('description', '无')}")
+
+        # 环境信息
+        env_info = self._current_scenario_context.get('environment')
+        if env_info:
+            if env_info.get('time_of_day'):
+                prompt_parts.append(f"时间：{env_info['time_of_day']}")
+            if env_info.get('mood'):
+                prompt_parts.append(f"氛围：{env_info['mood']}")
+            if env_info.get('hints'):
+                prompt_parts.append(f"环境要素：{', '.join(env_info['hints'])}")
+
+        # 对话提示
+        dialogue_info = self._current_scenario_context.get('dialogue')
+        if dialogue_info:
+            if dialogue_info.get('hints'):
+                prompt_parts.append(f"可能的对话话题：{', '.join(dialogue_info['hints'])}")
+            if dialogue_info.get('expected_style'):
+                prompt_parts.append(f"回复风格：{dialogue_info['expected_style']}")
+
+        # 情感状态
+        emotion_info = self._current_scenario_context.get('emotion')
+        if emotion_info:
+            if emotion_info.get('emotion'):
+                prompt_parts.append(f"当前情绪：{emotion_info['emotion']} (强度: {emotion_info.get('intensity', 0.5)})")
+            if emotion_info.get('reason'):
+                prompt_parts.append(f"情绪原因：{emotion_info['reason']}")
+
+        # 动作信息
+        action_info = self._current_scenario_context.get('action')
+        if action_info:
+            if action_info.get('action'):
+                prompt_parts.append(f"正在进行的动作：{action_info['action']}")
+            if action_info.get('manner'):
+                prompt_parts.append(f"动作方式：{action_info['manner']}")
+
+        prompt_parts.append("\n请根据以上场景设定自然地进行角色扮演。")
+
+        return '\n'.join(prompt_parts)
+
+    def is_director_mode_active(self) -> bool:
+        """
+        检查导演模式是否激活
+
+        Returns:
+            是否激活
+        """
+        return self.director_mode.is_running()
+
+    def get_director_statistics(self) -> Dict[str, Any]:
+        """
+        获取导演模式统计信息
+
+        Returns:
+            统计信息
+        """
+        return self.director_mode.get_statistics()
+
+    def start_director_timeline(self, timeline_id: str) -> bool:
+        """
+        启动导演模式时间线
+
+        Args:
+            timeline_id: 时间线ID
+
+        Returns:
+            是否成功启动
+        """
+        return self.director_mode.start_timeline(timeline_id)
+
+    def pause_director_timeline(self) -> bool:
+        """
+        暂停导演模式时间线
+
+        Returns:
+            是否成功暂停
+        """
+        return self.director_mode.pause_timeline()
+
+    def resume_director_timeline(self) -> bool:
+        """
+        恢复导演模式时间线
+
+        Returns:
+            是否成功恢复
+        """
+        return self.director_mode.resume_timeline()
+
+    def stop_director_timeline(self) -> bool:
+        """
+        停止导演模式时间线
+
+        Returns:
+            是否成功停止
+        """
+        result = self.director_mode.stop_timeline()
+        if result:
+            self._current_scenario_context = {}
+        return result
+
+    def get_current_scenario_context(self) -> Dict[str, Any]:
+        """
+        获取当前场景上下文
+
+        Returns:
+            场景上下文字典
+        """
+        return self._current_scenario_context
+
+    def create_director_timeline(self, name: str, description: str = "") -> Timeline:
+        """
+        创建导演模式时间线
+
+        Args:
+            name: 时间线名称
+            description: 时间线描述
+
+        Returns:
+            创建的时间线对象
+        """
+        return self.director_mode.create_timeline(name, description)
+
+    def get_all_director_timelines(self) -> List[Dict[str, Any]]:
+        """
+        获取所有导演模式时间线
+
+        Returns:
+            时间线列表
+        """
+        timelines = self.director_mode.get_all_timelines()
+        return [t.to_dict() for t in timelines]
+
+    def add_scenario_to_director_timeline(
+        self,
+        timeline_id: str,
+        name: str,
+        description: str = "",
+        scenario_type: str = "dialogue",
+        trigger_type: str = "time",
+        trigger_time: int = 0,
+        content: Dict[str, Any] = None,
+        duration: int = 0,
+        auto_advance: bool = True
+    ) -> Scenario:
+        """
+        向导演模式时间线添加场景
+
+        Args:
+            timeline_id: 时间线ID
+            name: 场景名称
+            description: 场景描述
+            scenario_type: 场景类型
+            trigger_type: 触发类型
+            trigger_time: 触发时间（秒）
+            content: 场景内容
+            duration: 持续时间（秒）
+            auto_advance: 是否自动进入下一场景
+
+        Returns:
+            创建的场景对象
+        """
+        return self.director_mode.add_scenario_to_timeline(
+            timeline_id=timeline_id,
+            name=name,
+            description=description,
+            scenario_type=ScenarioType(scenario_type),
+            trigger_type=TriggerType(trigger_type),
+            trigger_time=trigger_time,
+            content=content or {},
+            duration=duration,
+            auto_advance=auto_advance
+        )
+
+    def delete_director_timeline(self, timeline_id: str) -> bool:
+        """
+        删除导演模式时间线
+
+        Args:
+            timeline_id: 时间线ID
+
+        Returns:
+            是否成功删除
+        """
+        return self.director_mode.delete_timeline(timeline_id)
+
+    def create_sample_director_timeline(self) -> Timeline:
+        """
+        创建示例导演模式时间线
+
+        Returns:
+            创建的时间线对象
+        """
+        return self.director_mode.create_sample_timeline()
 
 
 # 测试代码
