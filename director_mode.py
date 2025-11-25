@@ -970,10 +970,10 @@ class DirectorMode:
         if not self._active_timeline:
             return False
 
-        # 停止执行线程
+        # 停止执行线程（使用较短的超时时间以提高响应速度）
         self._stop_event.set()
         if self._executor_thread:
-            self._executor_thread.join(timeout=5)
+            self._executor_thread.join(timeout=2)
             self._executor_thread = None
 
         # 更新时间线状态

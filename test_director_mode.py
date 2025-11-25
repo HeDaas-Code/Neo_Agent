@@ -104,7 +104,9 @@ def test_add_scenarios(agent, timeline):
     )
     print(f"✓ 场景4已添加: {scenario4.name}")
     
-    print(f"\n时间线共有 {len(timeline.scenarios) + 4} 个场景")
+    # 重新获取时间线以确认场景数量
+    updated_timeline = agent.director_mode.get_timeline(timeline.timeline_id)
+    print(f"\n时间线共有 {len(updated_timeline.scenarios)} 个场景")
     
     return [scenario1, scenario2, scenario3, scenario4]
 

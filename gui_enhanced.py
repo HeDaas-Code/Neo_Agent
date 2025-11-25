@@ -4,6 +4,7 @@
 """
 
 import os
+import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog
 from datetime import datetime
@@ -1736,7 +1737,13 @@ class EnhancedChatDebugGUI:
 
             # 添加时间线到列表
             for tl in timelines:
-                status = '运行中' if tl['is_active'] else ('暂停' if tl['is_paused'] else '未启动')
+                # 正确处理状态优先级：暂停状态优先于激活状态
+                if tl['is_paused']:
+                    status = '暂停'
+                elif tl['is_active']:
+                    status = '运行中'
+                else:
+                    status = '未启动'
                 self.director_tree.insert(
                     '',
                     'end',
@@ -2009,7 +2016,6 @@ class EnhancedChatDebugGUI:
             content_str = content_text.get("1.0", tk.END).strip()
 
             try:
-                import json
                 content = json.loads(content_str) if content_str else {}
             except json.JSONDecodeError as e:
                 messagebox.showerror("错误", f"场景内容JSON格式错误：{str(e)}")
