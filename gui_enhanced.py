@@ -1028,6 +1028,12 @@ class EnhancedChatDebugGUI:
 
         self.create_event_management_panel(event_tab)
 
+        # 选项卡10: 导演模式
+        director_tab = ttk.Frame(notebook)
+        notebook.add(director_tab, text="🎬 导演模式")
+
+        self.create_director_mode_panel(director_tab)
+
     def create_control_panel(self, parent):
         """
         创建控制面板
@@ -1566,6 +1572,570 @@ class EnhancedChatDebugGUI:
             else:
                 messagebox.showerror("错误", "删除事件失败！")
 
+    # ==================== 导演模式相关方法 ====================
+
+    def create_director_mode_panel(self, parent):
+        """
+        创建导演模式面板
+
+        Args:
+            parent: 父容器
+        """
+        # 主容器
+        main_container = ttk.Frame(parent, padding=10)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # 顶部工具栏
+        toolbar = ttk.Frame(main_container)
+        toolbar.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(toolbar, text="🎬 导演模式", font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="➕ 新建时间线",
+            command=self.create_new_director_timeline,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="📋 示例时间线",
+            command=self.create_sample_director_timeline,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
+            text="🔄 刷新",
+            command=self.refresh_director_list,
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 控制按钮
+        control_frame = ttk.Frame(main_container)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.director_start_btn = ttk.Button(
+            control_frame,
+            text="▶️ 开始",
+            command=self.start_director_timeline,
+            width=10
+        )
+        self.director_start_btn.pack(side=tk.LEFT, padx=2)
+
+        self.director_pause_btn = ttk.Button(
+            control_frame,
+            text="⏸️ 暂停",
+            command=self.pause_director_timeline,
+            width=10,
+            state=tk.DISABLED
+        )
+        self.director_pause_btn.pack(side=tk.LEFT, padx=2)
+
+        self.director_resume_btn = ttk.Button(
+            control_frame,
+            text="▶️ 恢复",
+            command=self.resume_director_timeline,
+            width=10,
+            state=tk.DISABLED
+        )
+        self.director_resume_btn.pack(side=tk.LEFT, padx=2)
+
+        self.director_stop_btn = ttk.Button(
+            control_frame,
+            text="⏹️ 停止",
+            command=self.stop_director_timeline,
+            width=10,
+            state=tk.DISABLED
+        )
+        self.director_stop_btn.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            control_frame,
+            text="➕ 添加场景",
+            command=self.add_scenario_to_timeline,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            control_frame,
+            text="🗑️ 删除时间线",
+            command=self.delete_director_timeline,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 状态信息
+        status_frame = ttk.LabelFrame(main_container, text="📊 导演模式状态", padding=10)
+        status_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.director_status_label = ttk.Label(
+            status_frame,
+            text="导演模式未激活",
+            font=("微软雅黑", 10)
+        )
+        self.director_status_label.pack(anchor=tk.W)
+
+        self.director_scenario_label = ttk.Label(
+            status_frame,
+            text="当前场景: 无",
+            font=("微软雅黑", 9)
+        )
+        self.director_scenario_label.pack(anchor=tk.W)
+
+        # 时间线列表
+        list_frame = ttk.LabelFrame(main_container, text="📋 时间线列表", padding=5)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 创建Treeview显示时间线列表
+        columns = ('名称', '场景数', '状态', '创建时间')
+        self.director_tree = ttk.Treeview(
+            list_frame,
+            columns=columns,
+            show='tree headings',
+            selectmode='browse'
+        )
+
+        # 设置列标题
+        self.director_tree.heading('#0', text='ID')
+        for col in columns:
+            self.director_tree.heading(col, text=col)
+
+        # 设置列宽
+        self.director_tree.column('#0', width=80, minwidth=80)
+        self.director_tree.column('名称', width=200, minwidth=150)
+        self.director_tree.column('场景数', width=80, minwidth=80)
+        self.director_tree.column('状态', width=80, minwidth=80)
+        self.director_tree.column('创建时间', width=150, minwidth=120)
+
+        # 滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.director_tree.yview)
+        self.director_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.director_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 绑定双击事件查看详情
+        self.director_tree.bind('<Double-1>', lambda e: self.view_timeline_details())
+
+    def refresh_director_list(self):
+        """刷新导演模式时间线列表"""
+        if not self.agent:
+            return
+
+        if not hasattr(self, 'director_tree'):
+            return
+
+        try:
+            # 清空现有列表
+            for item in self.director_tree.get_children():
+                self.director_tree.delete(item)
+
+            # 获取所有时间线
+            timelines = self.agent.get_all_director_timelines()
+
+            # 添加时间线到列表
+            for tl in timelines:
+                status = '运行中' if tl['is_active'] else ('暂停' if tl['is_paused'] else '未启动')
+                self.director_tree.insert(
+                    '',
+                    'end',
+                    text=tl['timeline_id'][:8],
+                    values=(
+                        tl['name'],
+                        len(tl['scenarios']),
+                        status,
+                        tl['created_at'][:19]
+                    ),
+                    tags=(tl['timeline_id'],)
+                )
+
+            # 更新状态显示
+            self.update_director_status()
+
+        except Exception as e:
+            print(f"刷新导演模式列表时出错: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def update_director_status(self):
+        """更新导演模式状态显示"""
+        if not self.agent:
+            return
+
+        try:
+            stats = self.agent.get_director_statistics()
+
+            if stats['is_running']:
+                status_text = f"🟢 导演模式运行中 | 时间线: {stats['active_timeline_name']} | 已经过: {stats['elapsed_time']}秒"
+                if stats['is_paused']:
+                    status_text = f"🟡 导演模式已暂停 | 时间线: {stats['active_timeline_name']}"
+                self.director_status_label.config(text=status_text)
+                self.director_scenario_label.config(
+                    text=f"当前场景: {stats['current_scenario'] or '无'}"
+                )
+
+                # 更新按钮状态
+                self.director_start_btn.config(state=tk.DISABLED)
+                self.director_pause_btn.config(state=tk.NORMAL if not stats['is_paused'] else tk.DISABLED)
+                self.director_resume_btn.config(state=tk.NORMAL if stats['is_paused'] else tk.DISABLED)
+                self.director_stop_btn.config(state=tk.NORMAL)
+            else:
+                self.director_status_label.config(
+                    text=f"⚪ 导演模式未激活 | 时间线: {stats['total_timelines']} | 场景: {stats['total_scenarios']}"
+                )
+                self.director_scenario_label.config(text="当前场景: 无")
+
+                # 更新按钮状态
+                self.director_start_btn.config(state=tk.NORMAL)
+                self.director_pause_btn.config(state=tk.DISABLED)
+                self.director_resume_btn.config(state=tk.DISABLED)
+                self.director_stop_btn.config(state=tk.DISABLED)
+
+        except Exception as e:
+            print(f"更新导演模式状态时出错: {e}")
+
+    def create_new_director_timeline(self):
+        """创建新的导演模式时间线"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("创建新时间线")
+        dialog.geometry("500x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        container = ttk.Frame(dialog, padding=20)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 时间线名称
+        ttk.Label(container, text="时间线名称:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        name_entry = ttk.Entry(container, font=("微软雅黑", 10))
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # 时间线描述
+        ttk.Label(container, text="时间线描述:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        desc_text = scrolledtext.ScrolledText(container, height=5, font=("微软雅黑", 9))
+        desc_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # 按钮
+        button_frame = ttk.Frame(container)
+        button_frame.pack(pady=(10, 0))
+
+        def do_create():
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showwarning("警告", "请输入时间线名称！")
+                return
+
+            description = desc_text.get("1.0", tk.END).strip()
+
+            try:
+                timeline = self.agent.create_director_timeline(name, description)
+                messagebox.showinfo("成功", f"时间线创建成功！\nID: {timeline.timeline_id[:8]}...")
+                self.refresh_director_list()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建时间线失败：{str(e)}")
+
+        ttk.Button(button_frame, text="创建", command=do_create, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def create_sample_director_timeline(self):
+        """创建示例时间线"""
+        result = messagebox.askyesno(
+            "确认",
+            "将创建一个示例时间线「示例：一天的开始」\n包含3个预设场景\n\n确定要创建吗？"
+        )
+
+        if result:
+            try:
+                timeline = self.agent.create_sample_director_timeline()
+                messagebox.showinfo(
+                    "成功",
+                    f"示例时间线创建成功！\n\n名称: {timeline.name}\n场景数: {len(timeline.scenarios)}"
+                )
+                self.refresh_director_list()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建示例时间线失败：{str(e)}")
+
+    def start_director_timeline(self):
+        """启动选中的时间线"""
+        selection = self.director_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个时间线！")
+            return
+
+        item_tags = self.director_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取时间线ID！")
+            return
+
+        timeline_id = item_tags[0]
+
+        # 设置旁白回调
+        self.agent.director_mode.narration_callback = self._on_director_narration
+
+        success = self.agent.start_director_timeline(timeline_id)
+        if success:
+            self.add_system_message("🎬 导演模式已启动，开始角色扮演场景...")
+            self.refresh_director_list()
+        else:
+            messagebox.showerror("错误", "启动时间线失败！请确保时间线包含场景。")
+
+    def _on_director_narration(self, message: str):
+        """导演模式旁白回调"""
+        self.root.after(0, lambda: self.add_system_message(message))
+
+    def pause_director_timeline(self):
+        """暂停时间线"""
+        success = self.agent.pause_director_timeline()
+        if success:
+            self.add_system_message("🎬 导演模式已暂停")
+            self.update_director_status()
+
+    def resume_director_timeline(self):
+        """恢复时间线"""
+        success = self.agent.resume_director_timeline()
+        if success:
+            self.add_system_message("🎬 导演模式已恢复")
+            self.update_director_status()
+
+    def stop_director_timeline(self):
+        """停止时间线"""
+        result = messagebox.askyesno("确认", "确定要停止当前运行的时间线吗？")
+        if result:
+            success = self.agent.stop_director_timeline()
+            if success:
+                self.add_system_message("🎬 导演模式已停止")
+                self.refresh_director_list()
+
+    def add_scenario_to_timeline(self):
+        """向时间线添加场景"""
+        selection = self.director_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个时间线！")
+            return
+
+        item_tags = self.director_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取时间线ID！")
+            return
+
+        timeline_id = item_tags[0]
+
+        # 创建添加场景对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("添加场景")
+        dialog.geometry("600x700")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        container = ttk.Frame(dialog, padding=20)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 场景名称
+        ttk.Label(container, text="场景名称:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        name_entry = ttk.Entry(container, font=("微软雅黑", 10))
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # 场景描述
+        ttk.Label(container, text="场景描述:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        desc_text = scrolledtext.ScrolledText(container, height=3, font=("微软雅黑", 9))
+        desc_text.pack(fill=tk.X, pady=(0, 10))
+
+        # 场景类型
+        ttk.Label(container, text="场景类型:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        type_var = tk.StringVar(value="dialogue")
+        type_frame = ttk.Frame(container)
+        type_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        types = [
+            ("环境变化", "environment"),
+            ("对话提示", "dialogue"),
+            ("情感变化", "emotion"),
+            ("事件触发", "event"),
+            ("动作描述", "action")
+        ]
+        for text, value in types:
+            ttk.Radiobutton(type_frame, text=text, variable=type_var, value=value).pack(side=tk.LEFT, padx=5)
+
+        # 触发类型
+        ttk.Label(container, text="触发类型:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        trigger_var = tk.StringVar(value="sequence")
+        trigger_frame = ttk.Frame(container)
+        trigger_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Radiobutton(trigger_frame, text="顺序触发", variable=trigger_var, value="sequence").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(trigger_frame, text="时间触发", variable=trigger_var, value="time").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(trigger_frame, text="手动触发", variable=trigger_var, value="manual").pack(side=tk.LEFT, padx=5)
+
+        # 触发时间
+        time_frame = ttk.Frame(container)
+        time_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(time_frame, text="触发时间(秒):", font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        time_var = tk.IntVar(value=0)
+        time_spinbox = ttk.Spinbox(time_frame, from_=0, to=3600, textvariable=time_var, width=10)
+        time_spinbox.pack(side=tk.LEFT, padx=10)
+
+        # 持续时间
+        duration_frame = ttk.Frame(container)
+        duration_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(duration_frame, text="持续时间(秒):", font=("微软雅黑", 10)).pack(side=tk.LEFT)
+        duration_var = tk.IntVar(value=0)
+        duration_spinbox = ttk.Spinbox(duration_frame, from_=0, to=3600, textvariable=duration_var, width=10)
+        duration_spinbox.pack(side=tk.LEFT, padx=10)
+        ttk.Label(duration_frame, text="(0表示需要用户互动)", font=("微软雅黑", 8)).pack(side=tk.LEFT, padx=5)
+
+        # 自动进入下一场景
+        auto_advance_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(container, text="自动进入下一场景", variable=auto_advance_var).pack(anchor=tk.W, pady=(0, 10))
+
+        # 场景内容（JSON格式）
+        ttk.Label(container, text="场景内容 (JSON格式):", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        content_text = scrolledtext.ScrolledText(container, height=8, font=("Consolas", 9))
+        content_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        content_text.insert(tk.END, '{\n  "hints": ["提示1", "提示2"],\n  "mood": "愉快"\n}')
+
+        # 按钮
+        button_frame = ttk.Frame(container)
+        button_frame.pack(pady=(10, 0))
+
+        def do_add():
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showwarning("警告", "请输入场景名称！")
+                return
+
+            description = desc_text.get("1.0", tk.END).strip()
+            content_str = content_text.get("1.0", tk.END).strip()
+
+            try:
+                import json
+                content = json.loads(content_str) if content_str else {}
+            except json.JSONDecodeError as e:
+                messagebox.showerror("错误", f"场景内容JSON格式错误：{str(e)}")
+                return
+
+            try:
+                scenario = self.agent.add_scenario_to_director_timeline(
+                    timeline_id=timeline_id,
+                    name=name,
+                    description=description,
+                    scenario_type=type_var.get(),
+                    trigger_type=trigger_var.get(),
+                    trigger_time=time_var.get(),
+                    content=content,
+                    duration=duration_var.get(),
+                    auto_advance=auto_advance_var.get()
+                )
+                messagebox.showinfo("成功", f"场景添加成功！\n场景: {scenario.name}")
+                self.refresh_director_list()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"添加场景失败：{str(e)}")
+
+        ttk.Button(button_frame, text="添加", command=do_add, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def delete_director_timeline(self):
+        """删除选中的时间线"""
+        selection = self.director_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个时间线！")
+            return
+
+        item_tags = self.director_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取时间线ID！")
+            return
+
+        timeline_id = item_tags[0]
+        timeline_name = self.director_tree.item(selection[0], 'values')[0]
+
+        result = messagebox.askyesno(
+            "确认删除",
+            f"确定要删除时间线「{timeline_name}」吗？\n此操作将同时删除所有关联的场景，不可恢复！"
+        )
+
+        if result:
+            success = self.agent.delete_director_timeline(timeline_id)
+            if success:
+                messagebox.showinfo("成功", "时间线已删除")
+                self.refresh_director_list()
+            else:
+                messagebox.showerror("错误", "删除时间线失败！")
+
+    def view_timeline_details(self):
+        """查看时间线详情"""
+        selection = self.director_tree.selection()
+        if not selection:
+            return
+
+        item_tags = self.director_tree.item(selection[0], 'tags')
+        if not item_tags:
+            return
+
+        timeline_id = item_tags[0]
+        timeline = self.agent.director_mode.get_timeline(timeline_id)
+
+        if not timeline:
+            messagebox.showerror("错误", "时间线不存在！")
+            return
+
+        # 创建详情对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"时间线详情: {timeline.name}")
+        dialog.geometry("700x600")
+        dialog.transient(self.root)
+
+        container = ttk.Frame(dialog, padding=10)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 基本信息
+        info_frame = ttk.LabelFrame(container, text="基本信息", padding=10)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+
+        info_text = f"""时间线ID: {timeline.timeline_id}
+名称: {timeline.name}
+描述: {timeline.description}
+状态: {'运行中' if timeline.is_active else ('暂停' if timeline.is_paused else '未启动')}
+场景数: {len(timeline.scenarios)}
+创建时间: {timeline.created_at}"""
+
+        ttk.Label(info_frame, text=info_text, font=("微软雅黑", 9), justify=tk.LEFT).pack(anchor=tk.W)
+
+        # 场景列表
+        scenarios_frame = ttk.LabelFrame(container, text="场景列表", padding=10)
+        scenarios_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        scenarios_text = scrolledtext.ScrolledText(
+            scenarios_frame,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            height=20
+        )
+        scenarios_text.pack(fill=tk.BOTH, expand=True)
+
+        if timeline.scenarios:
+            for i, scenario in enumerate(timeline.scenarios, 1):
+                scenarios_text.insert(tk.END, f"【场景 {i}】{scenario.name}\n")
+                scenarios_text.insert(tk.END, f"  类型: {scenario.scenario_type.value}\n")
+                scenarios_text.insert(tk.END, f"  触发: {scenario.trigger_type.value}")
+                if scenario.trigger_type.value == 'time':
+                    scenarios_text.insert(tk.END, f" @ {scenario.trigger_time}秒")
+                scenarios_text.insert(tk.END, f"\n  状态: {scenario.status.value}\n")
+                scenarios_text.insert(tk.END, f"  描述: {scenario.description}\n")
+                if scenario.duration > 0:
+                    scenarios_text.insert(tk.END, f"  持续时间: {scenario.duration}秒\n")
+                scenarios_text.insert(tk.END, f"  自动进入下一场景: {'是' if scenario.auto_advance else '否'}\n")
+                scenarios_text.insert(tk.END, "\n")
+        else:
+            scenarios_text.insert(tk.END, "暂无场景\n\n提示: 选择此时间线后点击「添加场景」按钮添加场景")
+
+        scenarios_text.config(state=tk.DISABLED)
+
+        # 关闭按钮
+        ttk.Button(container, text="关闭", command=dialog.destroy, width=15).pack(pady=(10, 0))
+
     def initialize_agent(self):
         """
         初始化聊天代理
@@ -1599,6 +2169,9 @@ class EnhancedChatDebugGUI:
             
             # 刷新事件列表
             self.refresh_event_list()
+            
+            # 刷新导演模式列表
+            self.refresh_director_list()
 
             # 显示欢迎消息
             self.add_system_message("系统初始化完成！开始对话吧～")
