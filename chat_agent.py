@@ -752,18 +752,22 @@ class ChatAgent:
     def analyze_emotion(self) -> Dict[str, Any]:
         """
         分析当前情感关系
-        基于最近10轮对话（20条消息）
+        基于最近15轮对话（30条消息）
 
         Returns:
             情感分析结果字典
         """
-        # 获取最近20条消息（10轮对话）
-        messages = self.memory_manager.get_recent_messages(count=20)
+        # 获取最近30条消息（15轮对话）
+        messages = self.memory_manager.get_recent_messages(count=30)
+
+        # 获取角色设定
+        character_settings = self.character.get_system_prompt()
 
         # 调用情感分析器
         emotion_data = self.emotion_analyzer.analyze_emotion_relationship(
             messages=messages,
-            character_name=self.character.name
+            character_name=self.character.name,
+            character_settings=character_settings
         )
 
         return emotion_data

@@ -15,30 +15,29 @@ from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 
 
-class EmotionRadarCanvas(Canvas):
+class EmotionImpressionDisplay(Canvas):
     """
-    情感关系雷达图画布
-    用于可视化展示情感关系的5个维度
+    情感印象展示画布
+    用于展示基于印象的情感分析结果
     """
 
     def __init__(self, parent, **kwargs):
         """
-        初始化雷达图画布
+        初始化印象展示画布
 
         Args:
             parent: 父容器
         """
         super().__init__(parent, **kwargs)
         self.emotion_data = None
-        self.dimensions = ["亲密度", "信任度", "愉悦度", "共鸣度", "依赖度"]
         self.colors = {
             'bg': '#f8f9fa',
-            'grid': '#dee2e6',
-            'axis': '#adb5bd',
-            'text': '#495057',
-            'fill': '#4ecdc4',
-            'line': '#2c9c94',
-            'highlight': '#ff6b6b'
+            'positive': '#4caf50',
+            'neutral': '#9e9e9e',
+            'negative': '#f44336',
+            'text': '#212121',
+            'secondary': '#757575',
+            'border': '#e0e0e0'
         }
 
         # 绑定事件
@@ -52,19 +51,19 @@ class EmotionRadarCanvas(Canvas):
             emotion_data: 情感分析数据
         """
         debug_logger = get_debug_logger()
-        debug_logger.log_info('EmotionRadarCanvas', '更新情感数据', {
+        debug_logger.log_info('EmotionImpressionDisplay', '更新情感数据', {
             'has_data': bool(emotion_data),
-            'dimensions': list(emotion_data.keys()) if emotion_data else []
+            'keys': list(emotion_data.keys()) if emotion_data else []
         })
 
         self.emotion_data = emotion_data
-        self.draw_radar()
+        self.draw_impression()
 
-        debug_logger.log_info('EmotionRadarCanvas', '雷达图重绘完成')
+        debug_logger.log_info('EmotionImpressionDisplay', '印象展示重绘完成')
 
-    def draw_radar(self):
+    def draw_impression(self):
         """
-        绘制雷达图
+        绘制印象展示
         """
         self.delete('all')  # 清空画布
 
@@ -74,149 +73,111 @@ class EmotionRadarCanvas(Canvas):
         if width <= 1 or height <= 1:
             return
 
-        # 计算中心点和半径
-        center_x = width // 2
-        center_y = height // 2
-        max_radius = min(width, height) // 2 - 60  # 留出空间显示标签
-
-        if max_radius < 20:
-            return
-
         # 如果没有数据，显示提示
         if not self.emotion_data:
             self.create_text(
-                center_x, center_y,
+                width // 2, height // 2,
                 text="暂无情感分析数据\n对话后点击「分析情感关系」按钮",
                 font=('微软雅黑', 10),
-                fill='#999999',
+                fill=self.colors['secondary'],
                 justify=tk.CENTER
             )
             return
 
-        # 绘制背景网格（5层）
-        for i in range(5, 0, -1):
-            radius = max_radius * (i / 5)
-            self._draw_pentagon(center_x, center_y, radius, fill='', outline=self.colors['grid'], width=1)
-
-            # 绘制刻度值
-            if i % 1 == 0:
-                value = i * 20
-                self.create_text(
-                    center_x + 5, center_y - radius,
-                    text=str(value),
-                    font=('Arial', 8),
-                    fill=self.colors['axis']
-                )
-
-        # 绘制5条轴线
-        for i in range(5):
-            angle = math.radians(90 - i * 72)  # 从顶部开始，顺时针
-            end_x = center_x + max_radius * math.cos(angle)
-            end_y = center_y - max_radius * math.sin(angle)
-            self.create_line(
-                center_x, center_y, end_x, end_y,
-                fill=self.colors['axis'], width=1
-            )
-
-            # 绘制维度标签
-            label_distance = max_radius + 30
-            label_x = center_x + label_distance * math.cos(angle)
-            label_y = center_y - label_distance * math.sin(angle)
-
-            dimension = self.dimensions[i]
-            score = self.emotion_data.get(dimension, 0)
-
-            self.create_text(
-                label_x, label_y,
-                text=f"{dimension}\n{score}",
-                font=('微软雅黑', 9, 'bold'),
-                fill=self.colors['text'],
-                justify=tk.CENTER
-            )
-
-        # 绘制数据多边形
-        points = []
-        for i in range(5):
-            angle = math.radians(90 - i * 72)
-            dimension = self.dimensions[i]
-            score = self.emotion_data.get(dimension, 0)
-            radius = max_radius * (score / 100)
-            x = center_x + radius * math.cos(angle)
-            y = center_y - radius * math.sin(angle)
-            points.extend([x, y])
-
-        # 填充多边形
-        self.create_polygon(
-            points,
-            fill=self.colors['fill'],
-            outline=self.colors['line'],
-            width=2,
-            stipple='gray50'  # 半透明效果
-        )
-
-        # 绘制数据点
-        for i in range(0, len(points), 2):
-            x, y = points[i], points[i + 1]
-            self.create_oval(
-                x - 4, y - 4, x + 4, y + 4,
-                fill=self.colors['line'],
-                outline='white',
-                width=2
-            )
-
-        # 绘制中心信息
+        # 提取数据
+        overall_score = self.emotion_data.get('overall_score', 50)
+        sentiment = self.emotion_data.get('sentiment', 'neutral')
         relationship_type = self.emotion_data.get('relationship_type', '未知')
-        overall_score = self.emotion_data.get('overall_score', 0)
         emotional_tone = self.emotion_data.get('emotional_tone', '未知')
 
+        # 根据情感倾向选择颜色
+        if sentiment == 'positive':
+            score_color = self.colors['positive']
+            sentiment_text = "正面印象"
+        elif sentiment == 'negative':
+            score_color = self.colors['negative']
+            sentiment_text = "负面印象"
+        else:
+            score_color = self.colors['neutral']
+            sentiment_text = "中性印象"
+
+        # 绘制评分圆环
+        center_x = width // 2
+        center_y = height // 3
+        radius = min(width, height) // 5
+
+        # 背景圆
+        self.create_oval(
+            center_x - radius, center_y - radius,
+            center_x + radius, center_y + radius,
+            outline=self.colors['border'], width=15,
+            fill=''
+        )
+
+        # 评分圆弧（根据分数显示）
+        extent = int(360 * (overall_score / 100))
+        self.create_arc(
+            center_x - radius, center_y - radius,
+            center_x + radius, center_y + radius,
+            start=90, extent=-extent,
+            outline=score_color, width=15,
+            style='arc'
+        )
+
+        # 中心显示评分
         self.create_text(
             center_x, center_y - 10,
-            text=relationship_type,
-            font=('微软雅黑', 12, 'bold'),
-            fill=self.colors['highlight']
+            text=str(overall_score),
+            font=('微软雅黑', 32, 'bold'),
+            fill=score_color
         )
-
         self.create_text(
-            center_x, center_y + 10,
-            text=f"总评: {overall_score}/100",
-            font=('微软雅黑', 9),
+            center_x, center_y + 20,
+            text=sentiment_text,
+            font=('微软雅黑', 10),
             fill=self.colors['text']
         )
 
+        # 绘制关系信息
+        info_y = center_y + radius + 40
         self.create_text(
-            center_x, center_y + 28,
-            text=f"基调: {emotional_tone}",
-            font=('微软雅黑', 8),
+            center_x, info_y,
+            text=f"关系类型：{relationship_type}",
+            font=('微软雅黑', 11, 'bold'),
             fill=self.colors['text']
         )
+        self.create_text(
+            center_x, info_y + 25,
+            text=f"情感基调：{emotional_tone}",
+            font=('微软雅黑', 10),
+            fill=self.colors['secondary']
+        )
 
-    def _draw_pentagon(self, center_x, center_y, radius, **kwargs):
+    def _draw_pentagon(self, cx, cy, radius, **kwargs):
         """
-        绘制正五边形
+        绘制五边形（保留以兼容旧方法）
 
         Args:
-            center_x: 中心X坐标
-            center_y: 中心Y坐标
+            cx: 中心x坐标
+            cy: 中心y坐标
             radius: 半径
-            **kwargs: 其他绘图参数
         """
         points = []
         for i in range(5):
             angle = math.radians(90 - i * 72)
-            x = center_x + radius * math.cos(angle)
-            y = center_y - radius * math.sin(angle)
+            x = cx + radius * math.cos(angle)
+            y = cy - radius * math.sin(angle)
             points.extend([x, y])
-
-        self.create_polygon(points, **kwargs)
+        return self.create_polygon(points, **kwargs)
 
     def on_resize(self, event):
         """
-        窗口大小改变事件处理
+        响应窗口大小变化
 
         Args:
             event: 事件对象
         """
-        self.draw_radar()
+        self.draw_impression()
 
 
 class TopicTimelineCanvas(Canvas):
@@ -506,7 +467,7 @@ class EnhancedChatDebugGUI:
         radar_frame = ttk.Frame(emotion_container)
         radar_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.emotion_canvas = EmotionRadarCanvas(
+        self.emotion_canvas = EmotionImpressionDisplay(
             radar_frame,
             bg='#f8f9fa',
             highlightthickness=0
