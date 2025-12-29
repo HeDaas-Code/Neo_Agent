@@ -248,6 +248,34 @@ class DatabaseManager:
                 )
             ''')
 
+            # 13. 智能体个性化表达表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS agent_expressions (
+                    uuid TEXT PRIMARY KEY,
+                    expression TEXT NOT NULL,
+                    meaning TEXT NOT NULL,
+                    category TEXT DEFAULT '通用',
+                    usage_count INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
+            # 14. 用户表达习惯学习表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_expression_habits (
+                    uuid TEXT PRIMARY KEY,
+                    expression_pattern TEXT NOT NULL,
+                    meaning TEXT NOT NULL,
+                    frequency INTEGER DEFAULT 1,
+                    confidence REAL DEFAULT 0.8,
+                    learned_from_rounds TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
             # 创建索引以提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_base_knowledge_normalized ON base_knowledge(normalized_name)')
@@ -258,6 +286,8 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_vision_logs_created ON vision_tool_logs(created_at)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_connections_from ON environment_connections(from_environment_uuid)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_connections_to ON environment_connections(to_environment_uuid)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_expressions_active ON agent_expressions(is_active)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_expressions_confidence ON user_expression_habits(confidence)')
 
             conn.commit()
         if INIT_Database_PreParation_Complete == False:
@@ -1586,6 +1616,301 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM environment_connections ORDER BY created_at DESC')
             return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== 智能体个性化表达相关方法 ====================
+
+    def add_agent_expression(self, expression: str, meaning: str, category: str = "通用") -> str:
+        """
+        添加智能体个性化表达
+
+        Args:
+            expression: 表达方式（如 'wc'）
+            meaning: 含义（如 '表示对突发事情的感叹'）
+            category: 分类
+
+        Returns:
+            表达UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 添加智能体表达: {expression} => {meaning}")
+
+        expr_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO agent_expressions 
+                (uuid, expression, meaning, category, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (expr_uuid, expression, meaning, category, now, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] ✓ 智能体表达添加成功: {expr_uuid[:8]}...")
+
+        return expr_uuid
+
+    def get_all_agent_expressions(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """
+        获取所有智能体个性化表达
+
+        Args:
+            active_only: 是否只获取激活的表达
+
+        Returns:
+            表达列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if active_only:
+                cursor.execute('''
+                    SELECT * FROM agent_expressions 
+                    WHERE is_active = 1 
+                    ORDER BY usage_count DESC, created_at DESC
+                ''')
+            else:
+                cursor.execute('''
+                    SELECT * FROM agent_expressions 
+                    ORDER BY usage_count DESC, created_at DESC
+                ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_agent_expression(self, expr_uuid: str, **kwargs) -> bool:
+        """
+        更新智能体表达
+
+        Args:
+            expr_uuid: 表达UUID
+            **kwargs: 要更新的字段
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            if not kwargs:
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            set_clause += ", updated_at = ?"
+            values = list(kwargs.values()) + [datetime.now().isoformat(), expr_uuid]
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'''
+                    UPDATE agent_expressions 
+                    SET {set_clause}
+                    WHERE uuid = ?
+                ''', values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 更新智能体表达时出错: {e}")
+            return False
+
+    def increment_expression_usage(self, expr_uuid: str) -> bool:
+        """
+        增加表达使用次数
+
+        Args:
+            expr_uuid: 表达UUID
+
+        Returns:
+            是否成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE agent_expressions 
+                    SET usage_count = usage_count + 1, updated_at = ?
+                    WHERE uuid = ?
+                ''', (datetime.now().isoformat(), expr_uuid))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 增加表达使用次数时出错: {e}")
+            return False
+
+    def delete_agent_expression(self, expr_uuid: str) -> bool:
+        """
+        删除智能体表达
+
+        Args:
+            expr_uuid: 表达UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM agent_expressions WHERE uuid = ?', (expr_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除智能体表达时出错: {e}")
+            return False
+
+    # ==================== 用户表达习惯学习相关方法 ====================
+
+    def add_user_expression_habit(self, expression_pattern: str, meaning: str,
+                                  confidence: float = 0.8, learned_from_rounds: str = "") -> str:
+        """
+        添加用户表达习惯
+
+        Args:
+            expression_pattern: 表达模式
+            meaning: 含义
+            confidence: 置信度
+            learned_from_rounds: 学习来源的对话轮次
+
+        Returns:
+            习惯UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 添加用户表达习惯: {expression_pattern} => {meaning}")
+
+        habit_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO user_expression_habits 
+                (uuid, expression_pattern, meaning, confidence, learned_from_rounds, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (habit_uuid, expression_pattern, meaning, confidence, learned_from_rounds, now, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] ✓ 用户表达习惯添加成功: {habit_uuid[:8]}...")
+
+        return habit_uuid
+
+    def get_all_user_expression_habits(self, min_confidence: float = 0.0) -> List[Dict[str, Any]]:
+        """
+        获取所有用户表达习惯
+
+        Args:
+            min_confidence: 最低置信度
+
+        Returns:
+            习惯列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM user_expression_habits 
+                WHERE confidence >= ?
+                ORDER BY frequency DESC, confidence DESC, created_at DESC
+            ''', (min_confidence,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_user_expression_habit(self, habit_uuid: str, **kwargs) -> bool:
+        """
+        更新用户表达习惯
+
+        Args:
+            habit_uuid: 习惯UUID
+            **kwargs: 要更新的字段
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            if not kwargs:
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            set_clause += ", updated_at = ?"
+            values = list(kwargs.values()) + [datetime.now().isoformat(), habit_uuid]
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'''
+                    UPDATE user_expression_habits 
+                    SET {set_clause}
+                    WHERE uuid = ?
+                ''', values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 更新用户表达习惯时出错: {e}")
+            return False
+
+    def increment_habit_frequency(self, habit_uuid: str) -> bool:
+        """
+        增加习惯出现频率
+
+        Args:
+            habit_uuid: 习惯UUID
+
+        Returns:
+            是否成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE user_expression_habits 
+                    SET frequency = frequency + 1, updated_at = ?
+                    WHERE uuid = ?
+                ''', (datetime.now().isoformat(), habit_uuid))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 增加习惯频率时出错: {e}")
+            return False
+
+    def find_user_expression_habit(self, expression_pattern: str) -> Optional[Dict[str, Any]]:
+        """
+        查找用户表达习惯
+
+        Args:
+            expression_pattern: 表达模式
+
+        Returns:
+            习惯字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM user_expression_habits 
+                WHERE expression_pattern = ?
+            ''', (expression_pattern,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def delete_user_expression_habit(self, habit_uuid: str) -> bool:
+        """
+        删除用户表达习惯
+
+        Args:
+            habit_uuid: 习惯UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM user_expression_habits WHERE uuid = ?', (habit_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除用户表达习惯时出错: {e}")
+            return False
+
+    def clear_user_expression_habits(self) -> bool:
+        """
+        清空所有用户表达习惯
+
+        Returns:
+            是否清空成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM user_expression_habits')
+                return True
+        except Exception as e:
+            print(f"✗ 清空用户表达习惯时出错: {e}")
+            return False
 
     # ==================== Debug辅助方法 ====================
 

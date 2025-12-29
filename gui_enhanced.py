@@ -1024,6 +1024,32 @@ class EnhancedChatDebugGUI:
 
         ttk.Separator(control_container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
 
+        # 个性化表达管理
+        ttk.Label(control_container, text="个性化表达", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=5)
+
+        ttk.Button(
+            control_container,
+            text="🎯 立即学习用户习惯",
+            command=self.learn_user_expressions_now,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="➕ 添加智能体表达",
+            command=self.add_agent_expression_dialog,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="📋 查看表达风格",
+            command=self.show_expression_style,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Separator(control_container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+
         ttk.Label(control_container, text="系统设置", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=5)
 
         ttk.Button(
@@ -3461,12 +3487,306 @@ class EnhancedChatDebugGUI:
         ttk.Button(button_frame, text="切换", command=do_switch, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
+    # ==================== 个性化表达相关方法 ====================
+
+    def learn_user_expressions_now(self):
+        """
+        立即学习用户表达习惯
+        """
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        result = messagebox.askyesno(
+            "确认",
+            "将分析最近的对话记录，学习用户的表达习惯。\n\n确定要开始学习吗？"
+        )
+
+        if not result:
+            return
+
+        try:
+            self.update_status("学习用户表达习惯中...", "orange")
+            self.root.update()
+
+            learned_habits = self.agent.learn_user_expressions_now()
+
+            if learned_habits:
+                habit_list = "\n".join([
+                    f"• '{h['expression_pattern']}' => {h['meaning']}"
+                    for h in learned_habits[:5]  # 最多显示5个
+                ])
+                if len(learned_habits) > 5:
+                    habit_list += f"\n... 还有 {len(learned_habits) - 5} 个"
+
+                messagebox.showinfo(
+                    "学习完成",
+                    f"成功学习到 {len(learned_habits)} 个用户表达习惯：\n\n{habit_list}"
+                )
+                self.add_system_message(f"🎯 已学习到 {len(learned_habits)} 个用户表达习惯")
+            else:
+                messagebox.showinfo("学习完成", "未发现新的表达习惯。")
+                self.add_system_message("🎯 未发现新的用户表达习惯")
+
+            self.update_status("就绪", "green")
+
+        except Exception as e:
+            self.update_status("错误", "red")
+            messagebox.showerror("错误", f"学习用户表达习惯时出错：{str(e)}")
+
+    def add_agent_expression_dialog(self):
+        """
+        添加智能体表达对话框
+        """
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("添加智能体个性化表达")
+        dialog.geometry("500x350")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 主容器
+        container = ttk.Frame(dialog, padding=20)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        # 说明
+        ttk.Label(
+            container,
+            text="添加智能体个性化表达",
+            font=("微软雅黑", 12, "bold")
+        ).pack(pady=(0, 10))
+
+        ttk.Label(
+            container,
+            text="定义智能体在对话中可以使用的个性化表达方式",
+            font=("微软雅黑", 9),
+            foreground="#666666"
+        ).pack(pady=(0, 15))
+
+        # 表达方式
+        ttk.Label(container, text="表达方式:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        expression_entry = ttk.Entry(container, font=("微软雅黑", 10), width=40)
+        expression_entry.pack(fill=tk.X, pady=(0, 10))
+        expression_entry.insert(0, "例如: wc、hhh、orz")
+
+        # 含义
+        ttk.Label(container, text="含义:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        meaning_text = scrolledtext.ScrolledText(container, height=4, font=("微软雅黑", 9))
+        meaning_text.pack(fill=tk.X, pady=(0, 10))
+        meaning_text.insert(tk.END, "例如: 表示对突发事情的感叹")
+
+        # 分类
+        ttk.Label(container, text="分类:", font=("微软雅黑", 10)).pack(anchor=tk.W, pady=(0, 5))
+        category_var = tk.StringVar(value="通用")
+        category_combo = ttk.Combobox(
+            container,
+            textvariable=category_var,
+            font=("微软雅黑", 10),
+            width=38,
+            state="readonly"
+        )
+        category_combo['values'] = ['通用', '感叹词', '网络用语', '表情替代', '语气词', '口头禅']
+        category_combo.pack(fill=tk.X, pady=(0, 15))
+
+        # 按钮
+        button_frame = ttk.Frame(container)
+        button_frame.pack(pady=10)
+
+        def save_expression():
+            expression = expression_entry.get().strip()
+            meaning = meaning_text.get("1.0", tk.END).strip()
+            category = category_var.get()
+
+            # 清除示例文本
+            if expression.startswith("例如"):
+                expression = ""
+            if meaning.startswith("例如"):
+                meaning = ""
+
+            if not expression or not meaning:
+                messagebox.showwarning("输入错误", "表达方式和含义不能为空")
+                return
+
+            try:
+                expr_uuid = self.agent.add_agent_expression(expression, meaning, category)
+                messagebox.showinfo("成功", f"已添加智能体表达:\n'{expression}' => '{meaning}'")
+                self.add_system_message(f"✨ 已添加智能体表达: '{expression}'")
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"添加表达失败: {str(e)}")
+
+        ttk.Button(button_frame, text="保存", command=save_expression, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+        # 清除示例文本
+        def clear_example(event, widget, example):
+            if widget.get("1.0", tk.END).strip() == example if hasattr(widget, 'get') and callable(getattr(widget, 'delete', None)) else widget.get() == example:
+                if hasattr(widget, 'delete'):
+                    widget.delete("1.0", tk.END)
+                else:
+                    widget.delete(0, tk.END)
+
+        expression_entry.bind("<FocusIn>", lambda e: expression_entry.delete(0, tk.END) if expression_entry.get().startswith("例如") else None)
+        meaning_text.bind("<FocusIn>", lambda e: meaning_text.delete("1.0", tk.END) if meaning_text.get("1.0", tk.END).strip().startswith("例如") else None)
+
+    def show_expression_style(self):
+        """
+        显示表达风格详情
+        """
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("个性化表达风格")
+        dialog.geometry("700x600")
+        dialog.transient(self.root)
+
+        # 标题
+        title_frame = ttk.Frame(dialog, padding=10)
+        title_frame.pack(fill=tk.X)
+
+        ttk.Label(
+            title_frame,
+            text="🎨 个性化表达风格",
+            font=("微软雅黑", 12, "bold")
+        ).pack()
+
+        # 统计信息
+        stats = self.agent.get_expression_statistics()
+        stats_text = (
+            f"智能体表达: {stats['agent_expressions']['total']} 个 "
+            f"(总使用次数: {stats['agent_expressions']['total_usage']}) | "
+            f"用户习惯: {stats['user_habits']['total']} 个 "
+            f"(高置信度: {stats['user_habits']['high_confidence']})"
+        )
+        ttk.Label(title_frame, text=stats_text, font=("微软雅黑", 9)).pack()
+
+        # 工具栏
+        toolbar = ttk.Frame(dialog)
+        toolbar.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Button(
+            toolbar,
+            text="🔄 刷新",
+            command=lambda: self.refresh_expression_display(text_widget),
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            toolbar,
+            text="➕ 添加表达",
+            command=lambda: [dialog.destroy(), self.add_agent_expression_dialog()],
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            toolbar,
+            text="🎯 立即学习",
+            command=lambda: [dialog.destroy(), self.learn_user_expressions_now()],
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            toolbar,
+            text="🗑️ 清空用户习惯",
+            command=lambda: self.clear_user_expression_habits(text_widget),
+            width=15
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 显示区域
+        text_widget = scrolledtext.ScrolledText(
+            dialog,
+            wrap=tk.WORD,
+            font=("微软雅黑", 10),
+            bg="#f9f9f9"
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 初始加载
+        self.refresh_expression_display(text_widget)
+
+        # 关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
+
+    def refresh_expression_display(self, text_widget):
+        """
+        刷新表达风格显示
+
+        Args:
+            text_widget: 文本组件
+        """
+        if not self.agent:
+            return
+
+        text_widget.config(state=tk.NORMAL)
+        text_widget.delete(1.0, tk.END)
+
+        # 智能体表达
+        agent_expressions = self.agent.get_agent_expressions()
+        text_widget.insert(tk.END, "【智能体个性化表达】\n", "title")
+        text_widget.insert(tk.END, "以下表达方式会在智能体回复时自然使用：\n\n")
+
+        if agent_expressions:
+            for expr in agent_expressions:
+                text_widget.insert(tk.END, f"  ✨ '{expr['expression']}' => {expr['meaning']}\n")
+                text_widget.insert(tk.END, f"     分类: {expr['category']} | 使用次数: {expr['usage_count']} | UUID: {expr['uuid'][:8]}...\n\n")
+        else:
+            text_widget.insert(tk.END, "  暂无智能体表达。点击「添加表达」创建新的表达方式。\n\n")
+
+        text_widget.insert(tk.END, "\n" + "=" * 60 + "\n\n")
+
+        # 用户表达习惯
+        user_habits = self.agent.get_user_expression_habits()
+        text_widget.insert(tk.END, "【用户表达习惯（自动学习）】\n", "title")
+        text_widget.insert(tk.END, "以下是从对话中学习到的用户表达习惯：\n\n")
+
+        if user_habits:
+            for habit in user_habits:
+                confidence_icon = "🟢" if habit['confidence'] >= 0.8 else "🟡" if habit['confidence'] >= 0.5 else "🔴"
+                text_widget.insert(tk.END, f"  {confidence_icon} '{habit['expression_pattern']}' => {habit['meaning']}\n")
+                text_widget.insert(tk.END, f"     频率: {habit['frequency']} | 置信度: {habit['confidence']:.2f} | 学习于第 {habit.get('learned_from_rounds', '?')} 轮\n\n")
+        else:
+            text_widget.insert(tk.END, "  暂无用户表达习惯。对话10轮后会自动学习，或点击「立即学习」。\n\n")
+
+        text_widget.config(state=tk.DISABLED)
+
+    def clear_user_expression_habits(self, text_widget=None):
+        """
+        清空用户表达习惯
+
+        Args:
+            text_widget: 文本组件（可选，用于刷新显示）
+        """
+        if not self.agent:
+            return
+
+        result = messagebox.askyesno(
+            "确认",
+            "确定要清空所有用户表达习惯吗？\n此操作不可恢复。"
+        )
+
+        if result:
+            success = self.agent.clear_user_expression_habits()
+            if success:
+                messagebox.showinfo("成功", "用户表达习惯已清空")
+                self.add_system_message("🗑️ 用户表达习惯已清空")
+                if text_widget:
+                    self.refresh_expression_display(text_widget)
+            else:
+                messagebox.showerror("错误", "清空用户表达习惯失败")
+
     def show_about(self):
         """
         显示关于对话框
         """
         about_text = """
-智能对话代理 v3.0 知识库版
+智能对话代理 v3.1 个性化表达版
 基于LangChain和Python开发
 
 功能特性:
@@ -3475,6 +3795,8 @@ class EnhancedChatDebugGUI:
 • 短期记忆：最近20轮详细对话
 • 长期记忆：自动主题概括（每20轮）
 • 知识库：自动知识提取（每5轮）
+• 个性化表达：智能体表达定制
+• 用户习惯学习：自动学习用户表达（每10轮）
 • 对话主题时间线可视化
 • 知识库搜索和分类管理
 • 对话历史持久化
