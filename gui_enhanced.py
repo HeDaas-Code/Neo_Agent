@@ -3622,16 +3622,17 @@ class EnhancedChatDebugGUI:
         ttk.Button(button_frame, text="保存", command=save_expression, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
-        # 清除示例文本
-        def clear_example(event, widget, example):
-            if widget.get("1.0", tk.END).strip() == example if hasattr(widget, 'get') and callable(getattr(widget, 'delete', None)) else widget.get() == example:
-                if hasattr(widget, 'delete'):
-                    widget.delete("1.0", tk.END)
-                else:
-                    widget.delete(0, tk.END)
+        # 清除示例文本的事件处理
+        def clear_entry_example(event):
+            if expression_entry.get().startswith("例如"):
+                expression_entry.delete(0, tk.END)
 
-        expression_entry.bind("<FocusIn>", lambda e: expression_entry.delete(0, tk.END) if expression_entry.get().startswith("例如") else None)
-        meaning_text.bind("<FocusIn>", lambda e: meaning_text.delete("1.0", tk.END) if meaning_text.get("1.0", tk.END).strip().startswith("例如") else None)
+        def clear_text_example(event):
+            if meaning_text.get("1.0", tk.END).strip().startswith("例如"):
+                meaning_text.delete("1.0", tk.END)
+
+        expression_entry.bind("<FocusIn>", clear_entry_example)
+        meaning_text.bind("<FocusIn>", clear_text_example)
 
     def show_expression_style(self):
         """

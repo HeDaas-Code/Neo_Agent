@@ -26,6 +26,11 @@ class ExpressionStyleManager:
     2. 学习和总结用户的表达习惯
     """
 
+    # 类级别的常量配置
+    LEARNING_INTERVAL = 10  # 用户表达习惯学习间隔（每N轮）
+    MIN_MESSAGES_FOR_LEARNING = 3  # 学习所需的最小用户消息数量
+    CONFIDENCE_INCREMENT = 0.1  # 每次确认习惯时的置信度增加值
+
     def __init__(self,
                  db_manager: DatabaseManager = None,
                  api_key: str = None,
@@ -48,8 +53,8 @@ class ExpressionStyleManager:
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
-        # 用户表达习惯学习间隔（每10轮）
-        self.learning_interval = 10
+        # 用户表达习惯学习间隔（保留实例属性以保持兼容性）
+        self.learning_interval = self.LEARNING_INTERVAL
 
         debug_logger.log_module('ExpressionStyleManager', '个性化表达风格管理器初始化完成')
         print(f"✓ 个性化表达风格管理器已初始化")
@@ -159,7 +164,7 @@ class ExpressionStyleManager:
         # 只提取用户消息
         user_messages = [msg for msg in messages if msg.get('role') == 'user']
 
-        if len(user_messages) < 3:
+        if len(user_messages) < self.MIN_MESSAGES_FOR_LEARNING:
             debug_logger.log_info('ExpressionStyleManager', '用户消息太少，跳过学习')
             return []
 
@@ -179,7 +184,7 @@ class ExpressionStyleManager:
                 existing = self.db.find_user_expression_habit(habit['expression_pattern'])
                 if existing:
                     # 更新现有习惯的频率和置信度
-                    new_confidence = min(1.0, existing['confidence'] + 0.1)
+                    new_confidence = min(1.0, existing['confidence'] + self.CONFIDENCE_INCREMENT)
                     self.db.increment_habit_frequency(existing['uuid'])
                     self.db.update_user_expression_habit(
                         existing['uuid'],
@@ -268,15 +273,11 @@ class ExpressionStyleManager:
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message']['content'].strip()
 
-                # 清理可能的markdown代码块标记
-                if content.startswith('```'):
-                    content = content.split('```')[1]
-                    if content.startswith('json'):
-                        content = content[4:]
-                content = content.strip()
+                # 使用更健壮的JSON提取逻辑
+                json_content = self._extract_json_from_response(content)
 
                 try:
-                    habits = json.loads(content)
+                    habits = json.loads(json_content)
                     if isinstance(habits, list):
                         return habits
                     else:
@@ -293,6 +294,50 @@ class ExpressionStyleManager:
             debug_logger.log_error('ExpressionStyleManager', f'分析用户表达习惯时出错: {e}', e)
             print(f"✗ 分析用户表达习惯时出错: {e}")
             return []
+
+    def _extract_json_from_response(self, content: str) -> str:
+        """
+        从LLM响应中提取JSON内容
+
+        Args:
+            content: LLM响应内容
+
+        Returns:
+            提取的JSON字符串
+        """
+        import re
+
+        # 尝试方法1：直接解析（如果内容本身就是有效JSON）
+        try:
+            json.loads(content)
+            return content
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试方法2：使用正则表达式提取JSON数组
+        json_array_pattern = r'\[[\s\S]*?\]'
+        matches = re.findall(json_array_pattern, content)
+        for match in matches:
+            try:
+                json.loads(match)
+                return match
+            except json.JSONDecodeError:
+                continue
+
+        # 尝试方法3：处理markdown代码块
+        if '```' in content:
+            # 提取所有代码块
+            code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)```', content)
+            for block in code_blocks:
+                block = block.strip()
+                try:
+                    json.loads(block)
+                    return block
+                except json.JSONDecodeError:
+                    continue
+
+        # 如果都失败了，返回空数组字符串
+        return '[]'
 
     def get_user_expression_habits(self, min_confidence: float = 0.5) -> List[Dict[str, Any]]:
         """

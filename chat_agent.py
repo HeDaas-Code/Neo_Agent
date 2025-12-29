@@ -520,8 +520,11 @@ class ChatAgent:
         # 获取上次学习时的轮数
         last_expression_learn_rounds = getattr(self, '_last_expression_learn_rounds', 0)
         
-        # 每10轮对话触发一次用户表达习惯学习
-        if current_rounds >= 10 and (current_rounds - last_expression_learn_rounds) >= 10:
+        # 使用ExpressionStyleManager的学习间隔常量
+        learning_interval = self.expression_style_manager.learning_interval
+        
+        # 每N轮对话触发一次用户表达习惯学习
+        if current_rounds >= learning_interval and (current_rounds - last_expression_learn_rounds) >= learning_interval:
             debug_logger.log_info('ChatAgent', '触发自动用户表达习惯学习', {
                 'current_rounds': current_rounds,
                 'last_learn_rounds': last_expression_learn_rounds
