@@ -1,6 +1,7 @@
 """
 情感关系分析模块
-基于近15轮对话，使用LLM生成对用户的印象并评分
+初次评估基于前5轮对话，后续每15轮对话更新评估
+使用LLM生成对用户的印象并进行累加评分
 使用数据库替代JSON文件存储
 """
 
@@ -22,8 +23,10 @@ debug_logger = get_debug_logger()
 class EmotionRelationshipAnalyzer:
     """
     情感关系分析器
-    基于角色设定和最近15轮对话，生成对用户的印象并评分
-    不再使用多维度分析，而是生成综合印象和正负面评分
+    分阶段评估系统：
+    - 初次评估：基于前5轮对话，生成初始印象并评分(0-35)
+    - 更新评估：每15轮对话，评估最近表现并给出分数变化(-3到+3)
+    使用累加评分系统，基于角色设定生成印象
     使用数据库存储替代JSON文件
     """
 
@@ -83,9 +86,9 @@ class EmotionRelationshipAnalyzer:
         latest_emotion = self.get_latest_emotion()
         current_score = latest_emotion.get('overall_score', 0) if latest_emotion else 0
         
-        # 自动判断是初次评估还是更新评估
+        # 自动判断是初次评估还是更新评估：仅根据是否存在历史情感记录
         if is_initial is None:
-            is_initial = (current_score == 0 or latest_emotion is None)
+            is_initial = (latest_emotion is None)
         
         # 根据评估类型选择分析的对话轮数
         if is_initial:
@@ -136,19 +139,22 @@ class EmotionRelationshipAnalyzer:
             
             # 处理累加评分
             if is_initial:
-                # 初次评估：使用返回的分数作为初始分数
-                final_score = emotion_data.get('overall_score', 0)
+                # 初次评估：使用返回的分数作为初始分数，并确保在0-35范围内
+                final_score = max(0, min(35, emotion_data.get('overall_score', 0)))
+                emotion_data['overall_score'] = final_score
                 debug_logger.log_info('EmotionAnalyzer', '初次评估', {
                     'initial_score': final_score
                 })
             else:
-                # 更新评估：当前分数 + 变化量
+                # 更新评估：当前分数 + 变化量，并确保变化量在-3到+3范围内
                 score_change = emotion_data.get('score_change', 0)
+                score_change = max(-3, min(3, score_change))
                 final_score = current_score + score_change
                 # 确保分数在合理范围内（0-100）
                 final_score = max(0, min(100, final_score))
                 emotion_data['overall_score'] = final_score
                 emotion_data['previous_score'] = current_score
+                emotion_data['score_change'] = score_change
                 debug_logger.log_info('EmotionAnalyzer', '更新评估', {
                     'previous_score': current_score,
                     'score_change': score_change,
@@ -184,26 +190,46 @@ class EmotionRelationshipAnalyzer:
             emotion_data: 情感分析数据
         """
         try:
+            # 安全地将评分字段转换为整数，避免类型错误
+            def _safe_int(value, default=0):
+                try:
+                    if value is None:
+                        return default
+                    return int(value)
+                except (TypeError, ValueError):
+                    return default
+
             # 将印象和分析合并到analysis_summary中
             impression = emotion_data.get('impression', '')
             analysis = emotion_data.get('analysis', '')
             is_initial = emotion_data.get('is_initial', False)
             
+            # 统一规范 overall_score，确保用于摘要和数据库时一致
+            overall_score = _safe_int(emotion_data.get('overall_score'), 0)
+            
             # 添加评分信息到摘要
             if is_initial:
-                score_info = f"【初始评分】{emotion_data.get('overall_score', 0)}/35\n\n"
+                score_info = f"【初始评分】{overall_score}/35\n\n"
             else:
-                score_change = emotion_data.get('score_change', 0)
-                previous_score = emotion_data.get('previous_score', 0)
-                current_score = emotion_data.get('overall_score', 0)
-                score_info = f"【评分变化】{previous_score} → {current_score} ({score_change:+d})\n\n"
+                score_change = _safe_int(emotion_data.get('score_change'), None)
+                previous_score = _safe_int(emotion_data.get('previous_score'), None)
+                
+                if score_change is None or previous_score is None:
+                    # 评分变化信息不完整或无效，降级为仅展示当前评分
+                    debug_logger.log_error(
+                        'EmotionAnalyzer',
+                        '情感数据缺少或包含无效的评分变化字段，已降级为仅当前评分摘要'
+                    )
+                    score_info = f"【当前评分】{overall_score}/100\n\n"
+                else:
+                    score_info = f"【评分变化】{previous_score} → {overall_score} ({score_change:+d})\n\n"
             
             combined_summary = f"{score_info}【印象】\n{impression}\n\n【总结】\n{analysis}"
             
             self.db.add_emotion_analysis(
                 relationship_type=emotion_data.get('relationship_type', '未知'),
                 emotional_tone=emotion_data.get('emotional_tone', '未知'),
-                overall_score=emotion_data.get('overall_score', 0),
+                overall_score=overall_score,
                 intimacy=0,  # 不再使用维度评分
                 trust=0,
                 pleasure=0,
@@ -499,32 +525,43 @@ class EmotionRelationshipAnalyzer:
             })
             print(f"解析情感结果时出错: {e}")
             print(f"原始结果: {result_text}")
-            return self._get_default_emotion_result()
+            return self._get_default_emotion_result(is_initial)
         except Exception as e:
             debug_logger.log_error('EmotionAnalyzer', f'解析情感结果时出错: {str(e)}', e)
             print(f"解析情感结果时出错: {e}")
             print(f"原始结果: {result_text}")
-            return self._get_default_emotion_result()
+            return self._get_default_emotion_result(is_initial)
 
-    def _get_default_emotion_result(self) -> Dict[str, Any]:
+    def _get_default_emotion_result(self, is_initial: bool = True) -> Dict[str, Any]:
         """
         获取默认情感分析结果
+
+        Args:
+            is_initial: 是否为初次评估
 
         Returns:
             默认情感数据
         """
-        return {
+        base_result = {
             "impression": "对话轮数较少，尚未形成明确印象。用户表现正常，期待更多交流。",
-            "overall_score": 15,  # 默认初始分数中间值
-            "sentiment": "neutral",
             "relationship_type": "初识",
             "emotional_tone": "中性",
             "key_topics": [],
             "analysis": "对话刚开始，关系尚在建立初期。",
             "timestamp": datetime.now().isoformat(),
             "message_count": 0,
-            "is_initial": True
+            "is_initial": is_initial,
+            "sentiment": "neutral"
         }
+        
+        if is_initial:
+            base_result["overall_score"] = 15  # 默认初始分数中间值
+        else:
+            base_result["score_change"] = 0  # 默认无变化
+            base_result["overall_score"] = 0
+            base_result["previous_score"] = 0
+        
+        return base_result
 
     def get_emotion_trend(self) -> List[Dict[str, Any]]:
         """
@@ -543,7 +580,15 @@ class EmotionRelationshipAnalyzer:
             impression = ""
             analysis = ""
             if "【印象】" in analysis_summary and "【总结】" in analysis_summary:
-                parts = analysis_summary.split("【总结】")
+                # 先移除可能存在的评分前缀行（如【初始评分】或【评分变化】）
+                cleaned_lines = []
+                for line in analysis_summary.splitlines():
+                    if line.startswith("【初始评分】") or line.startswith("【评分变化】") or line.startswith("【当前评分】"):
+                        continue
+                    cleaned_lines.append(line)
+                cleaned_summary = "\n".join(cleaned_lines).lstrip()
+                
+                parts = cleaned_summary.split("【总结】", 1)
                 impression = parts[0].replace("【印象】", "").strip()
                 analysis = parts[1].strip() if len(parts) > 1 else ""
             else:
@@ -569,14 +614,30 @@ class EmotionRelationshipAnalyzer:
         将评分转换为情感倾向
         
         Args:
-            score: 0-100的评分
+            score: 评分值，可以是 0-100 或 0-35 的评分
             
         Returns:
             情感倾向：positive/neutral/negative
         """
-        if score >= 61:
+        # 处理空值，避免异常
+        if score is None:
+            return "neutral"
+
+        # 如果评分在 0-35 之间，认为是初始评估的 0-35 制分数，先归一化到 0-100
+        if 0 <= score <= 35:
+            normalized_score = round(score / 35 * 100)
+        else:
+            normalized_score = score
+
+        # 简单限制范围，防止异常值影响结果
+        if normalized_score < 0:
+            normalized_score = 0
+        elif normalized_score > 100:
+            normalized_score = 100
+
+        if normalized_score >= 61:
             return "positive"
-        elif score >= 41:
+        elif normalized_score >= 41:
             return "neutral"
         else:
             return "negative"
@@ -598,7 +659,15 @@ class EmotionRelationshipAnalyzer:
         impression = ""
         analysis = ""
         if "【印象】" in analysis_summary and "【总结】" in analysis_summary:
-            parts = analysis_summary.split("【总结】")
+            # 先移除可能存在的评分前缀行（如【初始评分】或【评分变化】）
+            cleaned_lines = []
+            for line in analysis_summary.splitlines():
+                if line.startswith("【初始评分】") or line.startswith("【评分变化】") or line.startswith("【当前评分】"):
+                    continue
+                cleaned_lines.append(line)
+            cleaned_summary = "\n".join(cleaned_lines).lstrip()
+            
+            parts = cleaned_summary.split("【总结】", 1)
             impression = parts[0].replace("【印象】", "").strip()
             analysis = parts[1].strip() if len(parts) > 1 else ""
         else:

@@ -456,8 +456,8 @@ class ChatAgent:
         # 获取上次分析时的轮数
         last_analyzed_rounds = getattr(self, '_last_analyzed_rounds', 0)
         
-        if current_rounds == 5 and last_analyzed_rounds < 5:
-            # 初次评估：完成5轮对话
+        if current_rounds >= 5 and last_analyzed_rounds == 0:
+            # 初次评估：完成至少5轮对话，且尚未进行过情感分析
             should_analyze = True
             is_initial = True
         elif current_rounds > 5 and (current_rounds - last_analyzed_rounds) >= 15:
@@ -762,18 +762,18 @@ class ChatAgent:
     def analyze_emotion(self) -> Dict[str, Any]:
         """
         分析当前情感关系
-        基于最近15轮对话（30条消息）
+        初次评估基于最近5轮对话，此后更新基于最近15轮对话（共30条消息）
 
         Returns:
             情感分析结果字典
         """
-        # 获取最近30条消息（15轮对话）
+        # 获取所有消息用于分析器自动判断
         messages = self.memory_manager.get_recent_messages(count=30)
 
         # 获取角色设定
         character_settings = self.character.get_system_prompt()
 
-        # 调用情感分析器
+        # 调用情感分析器（让分析器自动判断是初次还是更新）
         emotion_data = self.emotion_analyzer.analyze_emotion_relationship(
             messages=messages,
             character_name=self.character.name,
