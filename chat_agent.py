@@ -439,63 +439,73 @@ class ChatAgent:
         # 添加用户消息到记忆
         self.memory_manager.add_message('user', user_input)
 
-        # ===== 检查是否需要进行情感分析（每10轮） =====
+        # ===== 检查是否需要进行情感分析 =====
+        # 初次评估：5轮对话后
+        # 后续更新：每15轮对话
         stats = self.memory_manager.get_statistics()
         current_rounds = stats['short_term']['rounds']
 
         debug_logger.log_info('ChatAgent', '检查自动情感分析触发条件', {
-            'current_rounds': current_rounds,
-            'is_trigger_round': current_rounds > 0 and current_rounds % 10 == 0
+            'current_rounds': current_rounds
         })
 
-        # 每10轮自动进行一次情感分析
-        if current_rounds > 0 and current_rounds % 10 == 0:
-            # 检查是否已经对当前轮数进行过分析
-            last_emotion = self.emotion_analyzer.get_latest_emotion()
+        # 检查是否需要触发情感分析
+        should_analyze = False
+        is_initial = False
+        
+        # 获取上次分析时的轮数
+        last_analyzed_rounds = getattr(self, '_last_analyzed_rounds', 0)
+        
+        if current_rounds == 5 and last_analyzed_rounds < 5:
+            # 初次评估：完成5轮对话
             should_analyze = True
-            last_analyzed_rounds = getattr(self, '_last_analyzed_rounds', 0)
+            is_initial = True
+        elif current_rounds > 5 and (current_rounds - last_analyzed_rounds) >= 15:
+            # 更新评估：每15轮对话
+            should_analyze = True
+            is_initial = False
 
-            if last_emotion:
-                # 检查上次分析时的轮数
-                if last_analyzed_rounds == current_rounds:
-                    should_analyze = False
-                    debug_logger.log_info('ChatAgent', '跳过重复分析', {
-                        'current_rounds': current_rounds,
-                        'last_analyzed_rounds': last_analyzed_rounds
-                    })
+        if should_analyze:
+            analysis_type = "初次" if is_initial else "更新"
+            debug_logger.log_info('ChatAgent', f'触发自动情感分析（{analysis_type}）', {
+                'current_rounds': current_rounds,
+                'last_analyzed_rounds': last_analyzed_rounds,
+                'is_initial': is_initial
+            })
+            print(f"\n💖 [自动情感分析] 已完成{current_rounds}轮对话，正在{analysis_type}情感关系...")
 
-            if should_analyze:
-                debug_logger.log_info('ChatAgent', '触发自动情感分析', {
-                    'current_rounds': current_rounds,
-                    'last_analyzed_rounds': last_analyzed_rounds,
-                    'has_history': last_emotion is not None
+            try:
+                # 进行情感分析
+                start_time = time.time()
+                emotion_data = self.analyze_emotion()
+                analysis_time = time.time() - start_time
+
+                self._last_analyzed_rounds = current_rounds
+
+                debug_logger.log_info('ChatAgent', '自动情感分析完成', {
+                    'rounds': current_rounds,
+                    'relationship_type': emotion_data.get('relationship_type', '未知'),
+                    'emotional_tone': emotion_data.get('emotional_tone', '未知'),
+                    'overall_score': emotion_data.get('overall_score', 0),
+                    'analysis_time': f'{analysis_time:.2f}s',
+                    'is_initial': is_initial
                 })
-                print(f"\n💖 [自动情感分析] 已完成{current_rounds}轮对话，正在分析情感关系...")
 
-                try:
-                    # 进行情感分析
-                    start_time = time.time()
-                    emotion_data = self.analyze_emotion()
-                    analysis_time = time.time() - start_time
-
-                    self._last_analyzed_rounds = current_rounds
-
-                    debug_logger.log_info('ChatAgent', '自动情感分析完成', {
-                        'rounds': current_rounds,
-                        'relationship_type': emotion_data.get('relationship_type', '未知'),
-                        'emotional_tone': emotion_data.get('emotional_tone', '未知'),
-                        'overall_score': emotion_data.get('overall_score', 0),
-                        'analysis_time': f'{analysis_time:.2f}s'
-                    })
-
-                    # 输出简要结果
-                    print(f"   关系类型: {emotion_data.get('relationship_type', '未知')}")
-                    print(f"   情感基调: {emotion_data.get('emotional_tone', '未知')}")
-                    print(f"   总体评分: {emotion_data.get('overall_score', 0)}/100")
-                    print(f"   分析耗时: {analysis_time:.2f}秒\n")
-                except Exception as e:
-                    debug_logger.log_error('ChatAgent', f'自动情感分析失败: {str(e)}', e)
-                    print(f"   情感分析失败: {e}\n")
+                # 输出简要结果
+                print(f"   关系类型: {emotion_data.get('relationship_type', '未知')}")
+                print(f"   情感基调: {emotion_data.get('emotional_tone', '未知')}")
+                
+                if is_initial:
+                    print(f"   初始评分: {emotion_data.get('overall_score', 0)}/35")
+                else:
+                    score_change = emotion_data.get('score_change', 0)
+                    previous_score = emotion_data.get('previous_score', 0)
+                    print(f"   评分变化: {previous_score} → {emotion_data.get('overall_score', 0)} ({score_change:+d})")
+                    
+                print(f"   分析耗时: {analysis_time:.2f}秒\n")
+            except Exception as e:
+                debug_logger.log_error('ChatAgent', f'自动情感分析失败: {str(e)}', e)
+                print(f"   情感分析失败: {e}\n")
 
         # ===== 构建消息列表 =====
         debug_logger.log_module('ChatAgent', '构建消息列表', '组装系统提示词、知识上下文和历史对话')

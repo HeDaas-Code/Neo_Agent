@@ -60,14 +60,16 @@ class EmotionRelationshipAnalyzer:
     def analyze_emotion_relationship(self,
                                     messages: List[Dict[str, str]],
                                     character_name: str = "AI",
-                                    character_settings: str = "") -> Dict[str, Any]:
+                                    character_settings: str = "",
+                                    is_initial: bool = None) -> Dict[str, Any]:
         """
-        分析情感关系
+        分析情感关系（累加评分系统）
 
         Args:
-            messages: 对话消息列表（最近15轮，即30条消息）
+            messages: 对话消息列表
             character_name: AI角色名称
             character_settings: 角色设定描述
+            is_initial: 是否为初次评估，None表示自动判断
 
         Returns:
             情感分析结果，包含印象评分和描述
@@ -77,10 +79,25 @@ class EmotionRelationshipAnalyzer:
             'character_name': character_name
         })
 
-        # 只取最近15轮（30条消息）
-        recent_messages = messages[-30:] if len(messages) > 30 else messages
+        # 获取历史评分
+        latest_emotion = self.get_latest_emotion()
+        current_score = latest_emotion.get('overall_score', 0) if latest_emotion else 0
+        
+        # 自动判断是初次评估还是更新评估
+        if is_initial is None:
+            is_initial = (current_score == 0 or latest_emotion is None)
+        
+        # 根据评估类型选择分析的对话轮数
+        if is_initial:
+            # 初次评估：使用前5轮对话（10条消息）
+            recent_messages = messages[-10:] if len(messages) > 10 else messages
+            min_messages = 2
+        else:
+            # 更新评估：使用最近15轮对话（30条消息）
+            recent_messages = messages[-30:] if len(messages) > 30 else messages
+            min_messages = 2
 
-        if len(recent_messages) < 2:
+        if len(recent_messages) < min_messages:
             # 对话太少，返回默认值
             debug_logger.log_info('EmotionAnalyzer', '对话数量不足，返回默认情感数据', {
                 'message_count': len(recent_messages)
@@ -89,7 +106,13 @@ class EmotionRelationshipAnalyzer:
 
         # 构建分析提示词
         conversation_text = self._format_conversation(recent_messages)
-        prompt = self._build_analysis_prompt(conversation_text, character_name, character_settings)
+        prompt = self._build_analysis_prompt(
+            conversation_text, 
+            character_name, 
+            character_settings,
+            is_initial=is_initial,
+            current_score=current_score
+        )
 
         debug_logger.log_prompt('EmotionAnalyzer', 'user', prompt, {
             'message_count': len(recent_messages),
@@ -109,11 +132,33 @@ class EmotionRelationshipAnalyzer:
             })
 
             # 解析结果
-            emotion_data = self._parse_emotion_result(result)
+            emotion_data = self._parse_emotion_result(result, is_initial=is_initial)
+            
+            # 处理累加评分
+            if is_initial:
+                # 初次评估：使用返回的分数作为初始分数
+                final_score = emotion_data.get('overall_score', 0)
+                debug_logger.log_info('EmotionAnalyzer', '初次评估', {
+                    'initial_score': final_score
+                })
+            else:
+                # 更新评估：当前分数 + 变化量
+                score_change = emotion_data.get('score_change', 0)
+                final_score = current_score + score_change
+                # 确保分数在合理范围内（0-100）
+                final_score = max(0, min(100, final_score))
+                emotion_data['overall_score'] = final_score
+                emotion_data['previous_score'] = current_score
+                debug_logger.log_info('EmotionAnalyzer', '更新评估', {
+                    'previous_score': current_score,
+                    'score_change': score_change,
+                    'final_score': final_score
+                })
 
             # 添加时间戳
             emotion_data['timestamp'] = datetime.now().isoformat()
             emotion_data['message_count'] = len(recent_messages)
+            emotion_data['is_initial'] = is_initial
 
             # 保存到数据库
             self._save_emotion_to_db(emotion_data)
@@ -142,7 +187,18 @@ class EmotionRelationshipAnalyzer:
             # 将印象和分析合并到analysis_summary中
             impression = emotion_data.get('impression', '')
             analysis = emotion_data.get('analysis', '')
-            combined_summary = f"【印象】\n{impression}\n\n【总结】\n{analysis}"
+            is_initial = emotion_data.get('is_initial', False)
+            
+            # 添加评分信息到摘要
+            if is_initial:
+                score_info = f"【初始评分】{emotion_data.get('overall_score', 0)}/35\n\n"
+            else:
+                score_change = emotion_data.get('score_change', 0)
+                previous_score = emotion_data.get('previous_score', 0)
+                current_score = emotion_data.get('overall_score', 0)
+                score_info = f"【评分变化】{previous_score} → {current_score} ({score_change:+d})\n\n"
+            
+            combined_summary = f"{score_info}【印象】\n{impression}\n\n【总结】\n{analysis}"
             
             self.db.add_emotion_analysis(
                 relationship_type=emotion_data.get('relationship_type', '未知'),
@@ -211,7 +267,9 @@ class EmotionRelationshipAnalyzer:
 
         return "\n".join(formatted)
 
-    def _build_analysis_prompt(self, conversation_text: str, character_name: str, character_settings: str = "") -> str:
+    def _build_analysis_prompt(self, conversation_text: str, character_name: str, 
+                               character_settings: str = "", is_initial: bool = True,
+                               current_score: int = 0) -> str:
         """
         构建情感分析提示词
 
@@ -219,42 +277,83 @@ class EmotionRelationshipAnalyzer:
             conversation_text: 对话文本
             character_name: AI角色名称
             character_settings: 角色设定描述
+            is_initial: 是否为初次评估
+            current_score: 当前累计分数
 
         Returns:
             分析提示词
         """
         character_context = f"\n角色设定：\n{character_settings}\n" if character_settings else ""
         
-        prompt = f"""你是AI角色"{character_name}"，请基于你的角色设定和最近15轮对话，生成你对用户的印象。
+        if is_initial:
+            # 初次评估提示词
+            prompt = f"""你是AI角色"{character_name}"，这是你和用户的初次见面。请基于你的角色设定和最近5轮对话，生成你对用户的初步印象。
 {character_context}
 对话内容：
 {conversation_text}
 
 请基于你的角色性格和对话内容，完成以下任务：
-1. 生成你对用户的详细印象（150-200字），包括：
-   - 用户的性格特点
-   - 与用户交流的感受
-   - 用户在对话中表现出的特质
-   - 你对这段关系的看法
+1. 生成你对用户的初步印象（150-200字），包括：
+   - 用户的第一印象
+   - 用户的态度和表现
+   - 对这次初识的感受
    
-2. 评估这个印象的正面/负面倾向，给出总体评分(0-100分)：
-   - 0-20分：非常负面的印象（用户表现冷淡、敌对、无礼等）
-   - 21-40分：较负面的印象（用户不够友好、缺乏兴趣等）
-   - 41-60分：中性印象（普通交流，无明显正负面倾向）
-   - 61-80分：较正面的印象（用户友好、有趣、积极等）
-   - 81-100分：非常正面的印象（用户热情、信任、深度交流等）
+2. 给出初始情感评分（0-35分）：
+   - 0-10分：非常负面的初印象（用户冷淡、敌对、无礼等）
+   - 11-20分：较负面的初印象（用户不够友好、态度消极等）
+   - 21-28分：中性初印象（普通的开始，无明显特点）
+   - 29-32分：较正面的初印象（用户友好、有礼貌等）
+   - 33-35分：非常正面的初印象（用户热情、真诚、令人愉快等）
 
 3. 概括关系类型和情感基调
 
 请以JSON格式返回分析结果，格式如下：
 {{
-    "impression": "对用户的详细印象描述",
-    "overall_score": 总体评分(0-100),
+    "impression": "对用户的初步印象描述",
+    "overall_score": 初始评分(0-35),
     "sentiment": "印象倾向(positive/neutral/negative)",
-    "relationship_type": "关系类型(如：陌生人、普通朋友、好友、知己等)",
+    "relationship_type": "关系类型(如：初识、陌生人等)",
     "emotional_tone": "整体情感基调(如：积极、中性、消极)",
-    "key_topics": ["主要话题1", "主要话题2", "主要话题3"],
+    "key_topics": ["主要话题1", "主要话题2"],
     "analysis": "简短的关系总结(50字以内)"
+}}
+
+只返回JSON，不要有其他内容。"""
+        else:
+            # 更新评估提示词
+            prompt = f"""你是AI角色"{character_name}"，你们已经有过一些交流了。请基于你的角色设定和最近15轮对话，更新你对用户的印象。
+{character_context}
+当前累计情感分数：{current_score}/100
+
+最近对话内容：
+{conversation_text}
+
+请基于你的角色性格和最近的对话内容，完成以下任务：
+1. 生成对最近交流的印象评价（150-200字），包括：
+   - 用户在最近对话中的表现
+   - 相比之前的变化或延续
+   - 对最近交流的感受
+   
+2. 根据最近对话的印象，给出分数变化（-3到+3分）：
+   - -3分：最近表现很差（态度恶化、不尊重、冷漠等）
+   - -2分：表现较差（不够友好、兴趣降低等）
+   - -1分：略有不足（小问题、轻微不愉快等）
+   - 0分：保持现状（无明显变化）
+   - +1分：略有改善（更友好、更积极等）
+   - +2分：表现较好（明显改善、增进了解等）
+   - +3分：表现很好（大幅改善、深入交流、建立信任等）
+
+3. 更新关系类型和情感基调
+
+请以JSON格式返回分析结果，格式如下：
+{{
+    "impression": "对最近交流的印象评价",
+    "score_change": 分数变化(-3到+3),
+    "sentiment": "印象倾向(positive/neutral/negative)",
+    "relationship_type": "更新后的关系类型",
+    "emotional_tone": "整体情感基调",
+    "key_topics": ["主要话题1", "主要话题2"],
+    "analysis": "简短的变化总结(50字以内)"
 }}
 
 只返回JSON，不要有其他内容。"""
@@ -323,18 +422,20 @@ class EmotionRelationshipAnalyzer:
             debug_logger.log_error('EmotionAnalyzer', f'API调用异常: {str(e)}', e)
             raise
 
-    def _parse_emotion_result(self, result_text: str) -> Dict[str, Any]:
+    def _parse_emotion_result(self, result_text: str, is_initial: bool = True) -> Dict[str, Any]:
         """
         解析LLM返回的情感分析结果
 
         Args:
             result_text: LLM返回的文本
+            is_initial: 是否为初次评估
 
         Returns:
             解析后的情感数据
         """
         debug_logger.log_info('EmotionAnalyzer', '开始解析LLM返回结果', {
-            'result_length': len(result_text)
+            'result_length': len(result_text),
+            'is_initial': is_initial
         })
 
         try:
@@ -357,15 +458,26 @@ class EmotionRelationshipAnalyzer:
             })
 
             # 确保所有必需字段存在
-            required_fields = {
-                "impression": "暂无印象描述",
-                "overall_score": 50,
-                "sentiment": "neutral",
-                "relationship_type": "普通朋友",
-                "emotional_tone": "中性",
-                "key_topics": [],
-                "analysis": "暂无分析"
-            }
+            if is_initial:
+                required_fields = {
+                    "impression": "暂无印象描述",
+                    "overall_score": 15,  # 初次评估默认中间值
+                    "sentiment": "neutral",
+                    "relationship_type": "初识",
+                    "emotional_tone": "中性",
+                    "key_topics": [],
+                    "analysis": "暂无分析"
+                }
+            else:
+                required_fields = {
+                    "impression": "暂无印象描述",
+                    "score_change": 0,  # 更新评估默认无变化
+                    "sentiment": "neutral",
+                    "relationship_type": "普通朋友",
+                    "emotional_tone": "中性",
+                    "key_topics": [],
+                    "analysis": "暂无分析"
+                }
 
             missing_fields = []
             for field, default_value in required_fields.items():
@@ -403,14 +515,15 @@ class EmotionRelationshipAnalyzer:
         """
         return {
             "impression": "对话轮数较少，尚未形成明确印象。用户表现正常，期待更多交流。",
-            "overall_score": 50,
+            "overall_score": 15,  # 默认初始分数中间值
             "sentiment": "neutral",
             "relationship_type": "初识",
             "emotional_tone": "中性",
             "key_topics": [],
             "analysis": "对话刚开始，关系尚在建立初期。",
             "timestamp": datetime.now().isoformat(),
-            "message_count": 0
+            "message_count": 0,
+            "is_initial": True
         }
 
     def get_emotion_trend(self) -> List[Dict[str, Any]]:
@@ -664,13 +777,23 @@ def format_emotion_summary(emotion_data: Dict[str, Any]) -> str:
         格式化后的文本
     """
     impression = emotion_data.get('impression', '暂无印象')
+    is_initial = emotion_data.get('is_initial', False)
+    
+    # 评分信息
+    if is_initial:
+        score_text = f"初始评分: {emotion_data.get('overall_score', 0)}/35"
+    else:
+        score_change = emotion_data.get('score_change', 0)
+        previous_score = emotion_data.get('previous_score', 0)
+        current_score = emotion_data.get('overall_score', 0)
+        score_text = f"累计评分: {current_score}/100 (上次: {previous_score}, 变化: {score_change:+d})"
     
     summary = f"""
 【情感关系分析】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 关系类型: {emotion_data.get('relationship_type', '未知')}
 情感基调: {emotion_data.get('emotional_tone', '未知')}
-总体评分: {emotion_data.get('overall_score', 0)}/100
+{score_text}
 印象倾向: {emotion_data.get('sentiment', 'neutral')}
 
 【对用户的印象】
