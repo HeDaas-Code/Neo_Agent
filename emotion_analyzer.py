@@ -22,7 +22,8 @@ debug_logger = get_debug_logger()
 class EmotionRelationshipAnalyzer:
     """
     情感关系分析器
-    分析用户和AI角色之间的情感关系变化
+    基于角色设定和最近15轮对话，生成对用户的印象并评分
+    不再使用多维度分析，而是生成综合印象和正负面评分
     使用数据库存储替代JSON文件
     """
 

@@ -253,14 +253,17 @@ def extract_knowledge_from_conversation(self, messages):
 
 ### EmotionRelationshipAnalyzer (Emotion Analyzer)
 
-**Responsibility**: Analyze emotional relationships in conversations
+**Responsibility**: Analyze emotional relationships in conversations based on character settings
 
-**Analysis Dimensions**:
-- Intimacy: Degree of relationship closeness
-- Trust: Level of mutual trust
-- Joy: Happiness in communication
-- Empathy: Emotional resonance level
-- Dependence: Mutual dependency level
+**Analysis Approach**:
+- Impression Generation: Generate detailed impressions of users based on character personality and the last 15 conversation rounds
+- Emotional Scoring: Provide 0-100 point scores based on positive/negative impression tendencies
+  - 0-20: Very negative (cold, hostile, rude, etc.)
+  - 21-40: Somewhat negative (unfriendly, lacking interest, etc.)
+  - 41-60: Neutral (ordinary communication, no clear tendency)
+  - 61-80: Somewhat positive (friendly, interesting, active, etc.)
+  - 81-100: Very positive (enthusiastic, trusting, deep communication, etc.)
+- Relationship Classification: Summarize relationship types and emotional tones based on impressions
 
 ## 🎨 GUI Development
 
