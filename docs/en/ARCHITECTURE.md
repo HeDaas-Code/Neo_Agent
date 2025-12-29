@@ -33,8 +33,8 @@ Neo Agent's design revolves around the following core objectives:
 │                      User Interface Layer (GUI)              │
 │                      gui_enhanced.py                        │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │Chat UI   │  │Emotion   │  │Timeline  │  │Database  │   │
-│  │          │  │Radar     │  │Chart     │  │Manager   │   │
+│  │Chat UI   │  │Score     │  │Timeline  │  │Database  │   │
+│  │          │  │Ring      │  │Chart     │  │Manager   │   │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
 └───────────────────────────┬─────────────────────────────────┘
                             │
@@ -396,83 +396,121 @@ def call_llm_api(self, messages: List[Dict]) -> str:
 
 ### 5. Emotion Analysis Layer (EmotionRelationshipAnalyzer)
 
-#### Five-Dimensional Model
+#### Cumulative Scoring System
 
+The emotion analysis uses a staged cumulative scoring mechanism rather than traditional multi-dimensional independent scoring:
+
+**Staged Evaluation**
 ```python
-DIMENSIONS = {
-    'intimacy': {
-        'name': 'Intimacy',
-        'description': 'Degree of relationship closeness',
-        'indicators': [
-            'Form of address',
-            'Topic depth',
-            'Personal information sharing'
-        ]
+EVALUATION_STAGES = {
+    'initial': {
+        'trigger': 'After 5 conversation rounds',
+        'analysis_scope': 'First 5 rounds (10 messages)',
+        'score_range': (0, 35),
+        'description': 'Generate initial score based on first impression'
     },
-    'trust': {
-        'name': 'Trust',
-        'description': 'Level of mutual trust',
-        'indicators': [
-            'Help-seeking frequency',
-            'Advice acceptance',
-            'Privacy disclosure'
-        ]
-    },
-    'joy': {
-        'name': 'Joy',
-        'description': 'Happiness in communication',
-        'indicators': [
-            'Emotional word usage',
-            'Emoji usage',
-            'Conversation positivity'
-        ]
-    },
-    'empathy': {
-        'name': 'Empathy',
-        'description': 'Emotional resonance level',
-        'indicators': [
-            'Emotional understanding',
-            'Opinion agreement',
-            'Experience similarity'
-        ]
-    },
-    'dependence': {
-        'name': 'Dependence',
-        'description': 'Mutual dependency level',
-        'indicators': [
-            'Consultation frequency',
-            'Expectation level',
-            'Separation anxiety'
-        ]
+    'update': {
+        'trigger': 'Every 15 conversation rounds',
+        'analysis_scope': 'Recent 15 rounds (30 messages)',
+        'score_change_range': (-3, 3),
+        'description': 'Evaluate recent performance and adjust cumulative score'
     }
 }
 ```
 
-#### Analysis Prompt
-
+**Scoring Mechanism**
 ```python
-analysis_prompt = f"""
-Please analyze the emotional relationship in the following conversation, 
-rating five dimensions (0-100):
+SCORING_SYSTEM = {
+    'initial_evaluation': {
+        'range': '0-35 points',
+        'criteria': {
+            '0-10': 'Very negative first impression (cold, hostile, rude, etc.)',
+            '11-20': 'Somewhat negative first impression (unfriendly, negative attitude, etc.)',
+            '21-28': 'Neutral first impression (ordinary start, no distinct features)',
+            '29-32': 'Somewhat positive first impression (friendly, polite, etc.)',
+            '33-35': 'Very positive first impression (enthusiastic, sincere, pleasant, etc.)'
+        }
+    },
+    'update_evaluation': {
+        'change_range': '-3 to +3 points',
+        'criteria': {
+            '-3': 'Very poor recent performance (deteriorating attitude, disrespectful, indifferent, etc.)',
+            '-2': 'Poor performance (unfriendly, declining interest, etc.)',
+            '-1': 'Slightly lacking (minor issues, slight unpleasantness, etc.)',
+            '0': 'Status quo (no significant change)',
+            '+1': 'Slight improvement (friendlier, more positive, etc.)',
+            '+2': 'Good performance (noticeable improvement, better understanding, etc.)',
+            '+3': 'Excellent performance (significant improvement, deeper communication, building trust, etc.)'
+        }
+    },
+    'cumulative_score': {
+        'range': '0-100 points',
+        'boundaries': 'Cumulative score is always constrained between 0-100',
+        'interpretation': {
+            '0-20': 'Very negative (cold, hostile, rude, etc.)',
+            '21-40': 'Somewhat negative (unfriendly, lacking interest, etc.)',
+            '41-60': 'Neutral (ordinary communication, no clear tendency)',
+            '61-80': 'Somewhat positive (friendly, interesting, active, etc.)',
+            '81-100': 'Very positive (enthusiastic, trusting, deep communication, etc.)'
+        }
+    }
+}
+```
+
+#### Analysis Prompts
+
+**Initial Evaluation Prompt**
+```python
+initial_prompt = f"""
+You are AI character "{character_name}", this is your first meeting with the user.
+Please generate your initial impression of the user based on your character settings 
+and the first 5 conversation rounds.
+
+Character Settings:
+{character_settings}
 
 Conversation:
-{conversations}
+{conversation_text}
 
-Rating Dimensions:
-1. Intimacy: Degree of relationship closeness
-2. Trust: Level of mutual trust
-3. Joy: Happiness in communication
-4. Empathy: Emotional resonance level
-5. Dependence: Mutual dependency level
+Tasks:
+1. Generate initial impression (150-200 words)
+2. Provide initial emotional score (0-35 points)
+3. Summarize relationship type and emotional tone
 
-Please return in JSON format:
+Return in JSON format:
 {{
-    "intimacy": score,
-    "trust": score,
-    "joy": score,
-    "empathy": score,
-    "dependence": score,
-    "analysis": "analysis description"
+    "impression": "initial impression description",
+    "overall_score": initial score (0-35),
+    "sentiment": "positive/neutral/negative",
+    "relationship_type": "relationship type",
+    "emotional_tone": "emotional tone"
+}}
+"""
+```
+
+**Update Evaluation Prompt**
+```python
+update_prompt = f"""
+You are AI character "{character_name}", you've had some interaction already.
+Please update your impression of the user based on the recent 15 conversation rounds.
+
+Current cumulative emotional score: {current_score}/100
+
+Recent Conversation:
+{conversation_text}
+
+Tasks:
+1. Generate impression evaluation of recent interactions (150-200 words)
+2. Provide score change (-3 to +3 points)
+3. Update relationship type and emotional tone
+
+Return in JSON format:
+{{
+    "impression": "recent impression evaluation",
+    "score_change": score change (-3 to +3),
+    "sentiment": "positive/neutral/negative",
+    "relationship_type": "updated relationship type",
+    "emotional_tone": "emotional tone"
 }}
 """
 ```
@@ -584,7 +622,7 @@ ChatGUI (Tk Main Window)
 │       └── Debug Log Button
 │
 ├── Right Frame
-│   ├── Emotion Radar (EmotionRadarCanvas)
+│   ├── Score Ring Display (EmotionImpressionDisplay)
 │   ├── Timeline Chart (TimelineCanvas)
 │   └── Statistics (Frame)
 │

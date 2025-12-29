@@ -19,9 +19,10 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Emotional Understanding**: Analyzes emotional tendencies in conversations
 
 ### 📊 Emotional Relationship Analysis
-- **Five-dimensional Analysis**: Intimacy, Trust, Joy, Empathy, Dependence
-- **Visual Display**: Radar chart for intuitive emotional relationship visualization
-- **Dynamic Updates**: Real-time emotional state updates based on conversations
+- **Impression Evaluation**: Generate detailed impressions of users based on character settings
+- **Intelligent Scoring**: Provide 0-100 point scores based on positive/negative impression tendencies
+- **Visual Display**: Score ring for intuitive emotional relationship status visualization
+- **Dynamic Updates**: Real-time emotional impression updates based on the last 15 conversation rounds
 
 ### 🖥️ Graphical User Interface
 - **Modern Interface**: User-friendly GUI based on Tkinter
@@ -167,8 +168,8 @@ Configure character basics through the `.env` file:
 
 ### Emotional Analysis
 - Click "Analyze Emotional Relationship" button
-- View five-dimensional radar chart
-- Understand current emotional state
+- View impression score and detailed impression description
+- Understand current emotional state and relationship type
 
 ### Database Management
 - View all memory data

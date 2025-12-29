@@ -181,7 +181,7 @@ On first run, the system will:
 2. **Input Box**: Enter your messages
 3. **Send Button**: Send message (or press Enter)
 4. **Clear Memory**: Clear all conversation history
-5. **Analyze Emotion**: Generate emotional relationship radar chart
+5. **Analyze Emotion**: Generate emotional impression score and relationship analysis
 6. **Database Management**: Open database management interface
 7. **Debug Log**: View system operation logs
 
@@ -194,10 +194,22 @@ On first run, the system will:
 
 #### View Emotional Analysis
 
+The emotion analysis uses a cumulative scoring system:
+
+**Auto-Trigger**
+- Initial evaluation automatically after 5 conversation rounds (0-35 points)
+- Update evaluation automatically every 15 rounds thereafter (-3 to +3 points)
+
+**Manual Trigger**
 1. After a few conversation rounds
 2. Click the "Analyze Emotional Relationship" button
-3. View the five-dimensional radar chart on the right
-4. Understand the current emotional relationship state
+3. View the score ring chart and detailed impression on the right
+4. Understand the current emotional relationship state and cumulative score
+
+**Scoring Explanation**
+- Initial score: 0-35 points (based on first impression from first 5 rounds)
+- Update score: -3 to +3 point changes each time (based on recent 15 rounds)
+- Cumulative score: 0-100 points (total of all scores accumulated)
 
 #### Manage Database
 
