@@ -1,11 +1,3 @@
-# ==========================================================
-#  Custom Agent : translator-zh-cn
-#  作用域       : 整个仓库（PR / Issue / 代码评审）
-#  官方文档     : 
-#  https://docs.github.com/zh/copilot/reference/custom-agents-configuration
-#  https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents
-# ==========================================================
-
 schema: agent.v1.0
 name: translator-zh-cn
 description: |
