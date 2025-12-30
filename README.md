@@ -25,9 +25,11 @@ Neo Agent 是一个基于 LangChain 的智能对话代理系统，支持角色�
 - **动态更新**：基于最近15轮对话实时更新情感印象
 
 ### 🖥️ 图形用户界面
-- **现代化界面**：基于 Tkinter 的友好 GUI
-- **实时对话**：流畅的聊天体验
-- **数据可视化**：情感雷达图、时间线展示
+- **PyCharm风格界面**：模仿PyCharm IDE的现代化深色主题
+- **可折叠面板**：左侧导航、右侧调试、底部日志面板
+- **统一时间轴**：带时间轴的数据历史变化展示
+- **时间点详情**：选中时间点显示全体数据和日志
+- **数据可视化**：情感雷达图、主题时间线展示
 - **数据库管理**：可视化管理所有存储数据
 - **调试工具**：实时查看系统日志和 API 调用
 
@@ -100,6 +102,10 @@ CHARACTER_PERSONALITY=活泼开朗
 ### 4. 运行应用
 
 ```bash
+# PyCharm风格界面（推荐）
+python gui_pycharm.py
+
+# 传统增强界面
 python gui_enhanced.py
 ```
 
@@ -127,7 +133,8 @@ python gui_enhanced.py
 
 ```
 Neo_Agent/
-├── gui_enhanced.py              # 主GUI界面
+├── gui_pycharm.py               # PyCharm风格GUI界面（推荐）
+├── gui_enhanced.py              # 传统增强GUI界面
 ├── chat_agent.py               # 对话代理核心
 ├── database_manager.py         # 数据库管理
 ├── long_term_memory.py         # 长效记忆管理
