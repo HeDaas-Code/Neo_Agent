@@ -19,6 +19,7 @@ from agent_vision import AgentVisionTool
 from event_manager import EventManager, EventType, EventStatus, NotificationEvent, TaskEvent
 from interrupt_question_tool import InterruptQuestionTool
 from multi_agent_coordinator import MultiAgentCoordinator
+from expression_style import ExpressionStyleManager
 
 # 加载环境变量
 load_dotenv()
@@ -363,6 +364,9 @@ class ChatAgent:
         self.multi_agent_coordinator = MultiAgentCoordinator(
             question_tool=self.interrupt_question_tool
         )
+        
+        # 初始化个性化表达风格管理器（共享数据库）
+        self.expression_style_manager = ExpressionStyleManager(db_manager=self.db)
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -374,6 +378,11 @@ class ChatAgent:
         event_stats = self.event_manager.get_statistics()
         print(f"事件系统: {event_stats['total_events']} 个事件 "
               f"(待处理: {event_stats['pending']}, 已完成: {event_stats['completed']})")
+        
+        # 显示表达风格统计
+        expr_stats = self.expression_style_manager.get_statistics()
+        print(f"表达风格: {expr_stats['agent_expressions']['total']} 个智能体表达, "
+              f"{expr_stats['user_habits']['total']} 个用户习惯")
 
     def chat(self, user_input: str) -> str:
         """
@@ -507,6 +516,39 @@ class ChatAgent:
                 debug_logger.log_error('ChatAgent', f'自动情感分析失败: {str(e)}', e)
                 print(f"   情感分析失败: {e}\n")
 
+        # ===== 检查是否需要学习用户表达习惯 =====
+        # 获取上次学习时的轮数
+        last_expression_learn_rounds = getattr(self, '_last_expression_learn_rounds', 0)
+        
+        # 使用ExpressionStyleManager的学习间隔常量
+        learning_interval = self.expression_style_manager.learning_interval
+        
+        # 每N轮对话触发一次用户表达习惯学习
+        if (current_rounds - last_expression_learn_rounds) >= learning_interval:
+            debug_logger.log_info('ChatAgent', '触发自动用户表达习惯学习', {
+                'current_rounds': current_rounds,
+                'last_learn_rounds': last_expression_learn_rounds
+            })
+            print(f"\n🎯 [表达习惯学习] 已完成{current_rounds}轮对话，正在学习用户表达习惯...")
+
+            try:
+                # 获取最近20条消息用于学习
+                recent_messages = self.memory_manager.get_recent_messages(count=20)
+                learned_habits = self.expression_style_manager.learn_user_expressions(
+                    recent_messages, current_rounds
+                )
+                
+                self._last_expression_learn_rounds = current_rounds
+                
+                if learned_habits:
+                    print(f"   学习到 {len(learned_habits)} 个表达习惯\n")
+                else:
+                    print(f"   未发现新的表达习惯\n")
+                    
+            except Exception as e:
+                debug_logger.log_error('ChatAgent', f'用户表达习惯学习失败: {str(e)}', e)
+                print(f"   表达习惯学习失败: {e}\n")
+
         # ===== 构建消息列表 =====
         debug_logger.log_module('ChatAgent', '构建消息列表', '组装系统提示词、知识上下文和历史对话')
 
@@ -538,6 +580,24 @@ class ChatAgent:
             debug_logger.log_info('ChatAgent', '无情感数据，跳过语气提示', {
                 'reason': '未进行过情感分析'
             })
+
+        # 添加智能体个性化表达提示
+        agent_expression_prompt = self.expression_style_manager.generate_agent_expression_prompt()
+        if agent_expression_prompt:
+            messages.append({'role': 'system', 'content': agent_expression_prompt})
+            debug_logger.log_prompt('ChatAgent', 'system', agent_expression_prompt, {
+                'stage': '智能体个性化表达'
+            })
+            debug_logger.log_info('ChatAgent', '已添加智能体个性化表达提示')
+
+        # 添加用户表达习惯上下文
+        user_expression_context = self.expression_style_manager.generate_user_expression_context()
+        if user_expression_context:
+            messages.append({'role': 'system', 'content': user_expression_context})
+            debug_logger.log_prompt('ChatAgent', 'system', user_expression_context, {
+                'stage': '用户表达习惯上下文'
+            })
+            debug_logger.log_info('ChatAgent', '已添加用户表达习惯上下文')
 
         # 添加知识库上下文（如果有相关知识）
         all_knowledge = relevant_knowledge.get('all_knowledge', [])
@@ -799,6 +859,91 @@ class ChatAgent:
             最新情感数据
         """
         return self.emotion_analyzer.get_latest_emotion()
+
+    # ==================== 个性化表达相关方法 ====================
+
+    def add_agent_expression(self, expression: str, meaning: str, category: str = "通用") -> str:
+        """
+        添加智能体个性化表达
+
+        Args:
+            expression: 表达方式（如 'wc'）
+            meaning: 含义
+            category: 分类
+
+        Returns:
+            表达UUID
+        """
+        return self.expression_style_manager.add_agent_expression(expression, meaning, category)
+
+    def get_agent_expressions(self) -> List[Dict[str, Any]]:
+        """
+        获取所有智能体个性化表达
+
+        Returns:
+            表达列表
+        """
+        return self.expression_style_manager.get_agent_expressions()
+
+    def delete_agent_expression(self, expr_uuid: str) -> bool:
+        """
+        删除智能体表达
+
+        Args:
+            expr_uuid: 表达UUID
+
+        Returns:
+            是否删除成功
+        """
+        return self.expression_style_manager.delete_agent_expression(expr_uuid)
+
+    def learn_user_expressions_now(self) -> List[Dict[str, Any]]:
+        """
+        立即学习用户表达习惯
+
+        Returns:
+            学习到的表达习惯列表
+        """
+        stats = self.memory_manager.get_statistics()
+        current_rounds = stats['short_term']['rounds']
+        
+        # 获取最近20条消息用于学习
+        recent_messages = self.memory_manager.get_recent_messages(count=20)
+        learned_habits = self.expression_style_manager.learn_user_expressions(
+            recent_messages, current_rounds
+        )
+        
+        # 更新学习轮次记录
+        self._last_expression_learn_rounds = current_rounds
+        
+        return learned_habits
+
+    def get_user_expression_habits(self) -> List[Dict[str, Any]]:
+        """
+        获取用户表达习惯
+
+        Returns:
+            习惯列表
+        """
+        return self.expression_style_manager.get_user_expression_habits()
+
+    def clear_user_expression_habits(self) -> bool:
+        """
+        清空用户表达习惯
+
+        Returns:
+            是否清空成功
+        """
+        return self.expression_style_manager.clear_user_expression_habits()
+
+    def get_expression_statistics(self) -> Dict[str, Any]:
+        """
+        获取表达风格统计
+
+        Returns:
+            统计信息
+        """
+        return self.expression_style_manager.get_statistics()
 
     def process_notification_event(self, event: NotificationEvent) -> str:
         """
