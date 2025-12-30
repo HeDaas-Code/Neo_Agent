@@ -20,7 +20,6 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog
 from datetime import datetime, timedelta
 import threading
-import math
 import json
 from typing import Dict, Any, List, Optional, Callable
 from chat_agent import ChatAgent
@@ -67,7 +66,13 @@ class ColorTheme:
 
 # ==================== 可折叠面板组件 ====================
 class CollapsiblePanel(ttk.Frame):
-    """可折叠面板组件"""
+    """
+    可折叠面板组件
+    
+    注意：此组件是一个通用的可折叠面板实现，
+    可用于创建更复杂的可折叠界面布局。
+    当前主GUI使用PanedWindow实现面板切换。
+    """
     
     def __init__(self, parent, title: str, position: str = "left", 
                  initial_expanded: bool = True, **kwargs):
@@ -1653,17 +1658,47 @@ class PyCharmStyleGUI:
         messagebox.showinfo("设置", "设置功能正在开发中...")
 
     def toggle_left_panel(self):
-        """切换左侧面板"""
-        # 简单的显示/隐藏切换
-        pass
+        """切换左侧面板显示/隐藏"""
+        try:
+            # 检查左侧面板当前是否可见
+            current_width = self.left_panel.winfo_width()
+            if current_width > 50:
+                # 当前可见，隐藏它
+                self.left_panel.pack_forget()
+                self.horizontal_paned.forget(self.left_panel)
+                self.left_toggle_btn.config(text="▸")
+            else:
+                # 当前隐藏，显示它
+                self.horizontal_paned.insert(0, self.left_panel, weight=0)
+                self.left_toggle_btn.config(text="◂")
+        except Exception as e:
+            print(f"切换左侧面板失败: {e}")
 
     def toggle_right_panel(self):
-        """切换右侧面板"""
-        pass
+        """切换右侧面板显示/隐藏"""
+        try:
+            current_width = self.right_panel.winfo_width()
+            if current_width > 50:
+                self.horizontal_paned.forget(self.right_panel)
+                self.right_toggle_btn.config(text="◂")
+            else:
+                self.horizontal_paned.add(self.right_panel, weight=0)
+                self.right_toggle_btn.config(text="▸")
+        except Exception as e:
+            print(f"切换右侧面板失败: {e}")
 
     def toggle_bottom_panel(self):
-        """切换底部面板"""
-        pass
+        """切换底部面板显示/隐藏"""
+        try:
+            current_height = self.bottom_panel.winfo_height()
+            if current_height > 50:
+                self.vertical_paned.forget(self.bottom_panel)
+                self.bottom_toggle_btn.config(text="▴")
+            else:
+                self.vertical_paned.add(self.bottom_panel, weight=0)
+                self.bottom_toggle_btn.config(text="▾")
+        except Exception as e:
+            print(f"切换底部面板失败: {e}")
 
     # ==================== 代理初始化和聊天功能 ====================
 
