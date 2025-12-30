@@ -1,9 +1,23 @@
-schema: agent.v1.0
+---
+# Fill in the fields below to create a basic custom agent for your repository.
+# The Copilot CLI can be used for local testing: https://gh.io/customagents/cli
+# To make this agent available, merge this file into the default repository branch.
+# For format details, see: https://gh.io/customagents/config
+
+name:
+description:
+---
+
+# My Agent
+
 name: translator-zh-cn
+
 description: |
   自动把 Copilot 生成的「提交信息、PR 标题 / 描述、代码评审评论」从英文翻译成简体中文；
   具备计算机 / 编程专业词库，支持双语对照回写，方便国内同事 Review。
+  
 author: your-org-i18n-team
+
 version: 1.2.0
 
 # 1. 触发时机（官方枚举值）
