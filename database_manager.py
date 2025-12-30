@@ -1686,13 +1686,22 @@ class DatabaseManager:
         Returns:
             是否更新成功
         """
+        # 白名单验证允许更新的列名
+        allowed_columns = {'expression', 'meaning', 'category', 'usage_count', 'is_active'}
+        
         try:
             if not kwargs:
                 return False
 
-            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            # 过滤只允许白名单中的列名
+            safe_kwargs = {k: v for k, v in kwargs.items() if k in allowed_columns}
+            if not safe_kwargs:
+                print(f"⚠ 没有有效的字段可更新")
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in safe_kwargs.keys()])
             set_clause += ", updated_at = ?"
-            values = list(kwargs.values()) + [datetime.now().isoformat(), expr_uuid]
+            values = list(safe_kwargs.values()) + [datetime.now().isoformat(), expr_uuid]
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1813,13 +1822,22 @@ class DatabaseManager:
         Returns:
             是否更新成功
         """
+        # 白名单验证允许更新的列名
+        allowed_columns = {'expression_pattern', 'meaning', 'frequency', 'confidence', 'learned_from_rounds'}
+        
         try:
             if not kwargs:
                 return False
 
-            set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+            # 过滤只允许白名单中的列名
+            safe_kwargs = {k: v for k, v in kwargs.items() if k in allowed_columns}
+            if not safe_kwargs:
+                print(f"⚠ 没有有效的字段可更新")
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in safe_kwargs.keys()])
             set_clause += ", updated_at = ?"
-            values = list(kwargs.values()) + [datetime.now().isoformat(), habit_uuid]
+            values = list(safe_kwargs.values()) + [datetime.now().isoformat(), habit_uuid]
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()

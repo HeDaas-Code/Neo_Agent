@@ -4,8 +4,8 @@
 """
 
 import os
+import re
 import json
-from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
@@ -120,17 +120,17 @@ class ExpressionStyleManager:
         """
         return self.db.delete_agent_expression(expr_uuid)
 
-    def generate_agent_expression_prompt(self) -> str:
+    def generate_agent_expression_prompt(self) -> Optional[str]:
         """
         生成智能体个性化表达提示词
 
         Returns:
-            提示词文本
+            提示词文本，如果没有表达则返回None
         """
         expressions = self.get_agent_expressions(active_only=True)
 
         if not expressions:
-            return ""
+            return None
 
         prompt_parts = ["【个性化表达风格】", "在合适的语境下，你可以使用以下个性化表达方式："]
 
@@ -184,7 +184,9 @@ class ExpressionStyleManager:
                 existing = self.db.find_user_expression_habit(habit['expression_pattern'])
                 if existing:
                     # 更新现有习惯的频率和置信度
-                    new_confidence = min(1.0, existing['confidence'] + self.CONFIDENCE_INCREMENT)
+                    # 确保置信度在有效范围 [0.0, 1.0] 内
+                    current_confidence = max(0.0, min(1.0, existing['confidence']))
+                    new_confidence = min(1.0, current_confidence + self.CONFIDENCE_INCREMENT)
                     self.db.increment_habit_frequency(existing['uuid'])
                     self.db.update_user_expression_habit(
                         existing['uuid'],
@@ -251,18 +253,20 @@ class ExpressionStyleManager:
                     {'role': 'system', 'content': '你是一个专业的语言分析助手，擅长识别用户的表达习惯和特殊用语。你只返回JSON格式的数据。'},
                     {'role': 'user', 'content': analysis_prompt}
                 ],
-                'temperature': 0.3,
+                'temperature': 0.0,
                 'max_tokens': 1000,
                 'stream': False
             }
 
             debug_logger.log_request('ExpressionStyleManager', self.api_url, payload, headers)
 
+            # 使用可配置的超时时间
+            api_timeout = int(os.getenv("LLM_API_TIMEOUT", "60"))
             response = requests.post(
                 self.api_url,
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=api_timeout
             )
 
             response.raise_for_status()
@@ -305,24 +309,33 @@ class ExpressionStyleManager:
         Returns:
             提取的JSON字符串
         """
-        import re
+        def is_valid_expression_json(json_str: str) -> bool:
+            """验证JSON数组是否包含预期的表达习惯结构"""
+            try:
+                data = json.loads(json_str)
+                if not isinstance(data, list):
+                    return False
+                # 空数组是有效的
+                if len(data) == 0:
+                    return True
+                # 检查第一个元素是否包含预期的键
+                if isinstance(data[0], dict):
+                    expected_keys = {'expression_pattern', 'meaning'}
+                    return expected_keys.issubset(set(data[0].keys()))
+                return False
+            except (json.JSONDecodeError, KeyError, IndexError):
+                return False
 
         # 尝试方法1：直接解析（如果内容本身就是有效JSON）
-        try:
-            json.loads(content)
+        if is_valid_expression_json(content):
             return content
-        except json.JSONDecodeError:
-            pass
 
         # 尝试方法2：使用正则表达式提取JSON数组
         json_array_pattern = r'\[[\s\S]*?\]'
         matches = re.findall(json_array_pattern, content)
         for match in matches:
-            try:
-                json.loads(match)
+            if is_valid_expression_json(match):
                 return match
-            except json.JSONDecodeError:
-                continue
 
         # 尝试方法3：处理markdown代码块
         if '```' in content:
@@ -330,11 +343,8 @@ class ExpressionStyleManager:
             code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)```', content)
             for block in code_blocks:
                 block = block.strip()
-                try:
-                    json.loads(block)
+                if is_valid_expression_json(block):
                     return block
-                except json.JSONDecodeError:
-                    continue
 
         # 如果都失败了，返回空数组字符串
         return '[]'
@@ -351,17 +361,17 @@ class ExpressionStyleManager:
         """
         return self.db.get_all_user_expression_habits(min_confidence)
 
-    def generate_user_expression_context(self) -> str:
+    def generate_user_expression_context(self) -> Optional[str]:
         """
         生成用户表达习惯上下文提示词
 
         Returns:
-            提示词文本
+            提示词文本，如果没有可用的表达习惯则返回None
         """
         habits = self.get_user_expression_habits(min_confidence=0.6)
 
         if not habits:
-            return ""
+            return None
 
         prompt_parts = ["【用户表达习惯参考】", "根据历史对话，用户有以下表达习惯："]
 

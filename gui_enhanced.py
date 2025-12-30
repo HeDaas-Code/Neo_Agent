@@ -3612,7 +3612,7 @@ class EnhancedChatDebugGUI:
                 return
 
             try:
-                expr_uuid = self.agent.add_agent_expression(expression, meaning, category)
+                self.agent.add_agent_expression(expression, meaning, category)
                 messagebox.showinfo("成功", f"已添加智能体表达:\n'{expression}' => '{meaning}'")
                 self.add_system_message(f"✨ 已添加智能体表达: '{expression}'")
                 dialog.destroy()
@@ -3679,17 +3679,25 @@ class EnhancedChatDebugGUI:
             width=10
         ).pack(side=tk.LEFT, padx=2)
 
+        def add_expression_and_refresh():
+            self.add_agent_expression_dialog()
+            self.refresh_expression_display(text_widget)
+
+        def learn_and_refresh():
+            self.learn_user_expressions_now()
+            self.refresh_expression_display(text_widget)
+
         ttk.Button(
             toolbar,
             text="➕ 添加表达",
-            command=lambda: [dialog.destroy(), self.add_agent_expression_dialog()],
+            command=add_expression_and_refresh,
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
         ttk.Button(
             toolbar,
             text="🎯 立即学习",
-            command=lambda: [dialog.destroy(), self.learn_user_expressions_now()],
+            command=learn_and_refresh,
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
@@ -3736,7 +3744,9 @@ class EnhancedChatDebugGUI:
         if agent_expressions:
             for expr in agent_expressions:
                 text_widget.insert(tk.END, f"  ✨ '{expr['expression']}' => {expr['meaning']}\n")
-                text_widget.insert(tk.END, f"     分类: {expr['category']} | 使用次数: {expr['usage_count']} | UUID: {expr['uuid'][:8]}...\n\n")
+                uuid_value = expr.get('uuid', '')
+                display_uuid = uuid_value[:8] if isinstance(uuid_value, str) and len(uuid_value) >= 8 else (uuid_value if uuid_value else "N/A")
+                text_widget.insert(tk.END, f"     分类: {expr['category']} | 使用次数: {expr['usage_count']} | UUID: {display_uuid}...\n\n")
         else:
             text_widget.insert(tk.END, "  暂无智能体表达。点击「添加表达」创建新的表达方式。\n\n")
 
@@ -3751,7 +3761,7 @@ class EnhancedChatDebugGUI:
             for habit in user_habits:
                 confidence_icon = "🟢" if habit['confidence'] >= 0.8 else "🟡" if habit['confidence'] >= 0.5 else "🔴"
                 text_widget.insert(tk.END, f"  {confidence_icon} '{habit['expression_pattern']}' => {habit['meaning']}\n")
-                text_widget.insert(tk.END, f"     频率: {habit['frequency']} | 置信度: {habit['confidence']:.2f} | 学习于第 {habit.get('learned_from_rounds', '?')} 轮\n\n")
+                text_widget.insert(tk.END, f"     频率: {habit['frequency']} | 置信度: {habit['confidence']:.2f} | 学习于第 {habit.get('learned_from_rounds', '未记录')} 轮\n\n")
         else:
             text_widget.insert(tk.END, "  暂无用户表达习惯。对话10轮后会自动学习，或点击「立即学习」。\n\n")
 
