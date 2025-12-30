@@ -236,8 +236,20 @@ class TimelineWidget(Canvas):
         )
         
         timestamp = point.get('timestamp', '')
-        if timestamp:
-            time_str = timestamp[11:16] if len(timestamp) > 16 else timestamp[:5]
+        time_str = ''
+        if isinstance(timestamp, str) and timestamp:
+            # Prefer extracting HH:MM from a full datetime-like string
+            if len(timestamp) >= 16:
+                candidate = timestamp[11:16]
+                if len(candidate) == 5 and candidate[2] == ':':
+                    time_str = candidate
+            # Fallback: accept a short HH:MM(/SS) string at the start
+            if not time_str and len(timestamp) >= 5:
+                candidate = timestamp[:5]
+                if len(candidate) == 5 and candidate[2] == ':':
+                    time_str = candidate
+        
+        if time_str:
             self.create_text(
                 x, y - 25,
                 text=time_str,
@@ -474,6 +486,13 @@ class UnifiedTimelineView(ttk.Frame):
         
         self.detail_panel = TimelineDetailPanel(detail_frame)
         self.detail_panel.pack(fill=tk.BOTH, expand=True)
+
+    def _safe_log_error(self, module: str, message: str):
+        """安全地记录错误日志"""
+        if hasattr(self, 'debug_logger') and self.debug_logger:
+            self.debug_logger.log_error(module, message)
+        else:
+            print(f"[{module}] {message}")
         
     def set_db_manager(self, db_manager):
         self.db = db_manager
@@ -494,12 +513,11 @@ class UnifiedTimelineView(ttk.Frame):
                     'title': f"{'用户' if msg['role'] == 'user' else '助手'}消息",
                     'data': {
                         '角色': msg.get('role', ''),
-                        '内容': msg.get('content', '')[:200] + ('...' if len(msg.get('content', '')) > 200 else ''),
-                        '完整内容': msg.get('content', '')
+                        '内容': msg.get('content', '')
                     }
                 })
         except Exception as e:
-            print(f"获取短期记忆失败: {e}")
+            self._safe_log_error("Timeline", f"获取短期记忆失败: {e}")
             
         try:
             summaries = self.db.get_long_term_summaries()
@@ -517,7 +535,7 @@ class UnifiedTimelineView(ttk.Frame):
                     }
                 })
         except Exception as e:
-            print(f"获取长期记忆失败: {e}")
+            self._safe_log_error("Timeline", f"获取长期记忆失败: {e}")
             
         try:
             emotions = self.db.get_emotion_history()
@@ -539,7 +557,7 @@ class UnifiedTimelineView(ttk.Frame):
                     }
                 })
         except Exception as e:
-            print(f"获取情感分析失败: {e}")
+            self._safe_log_error("Timeline", f"获取情感分析失败: {e}")
             
         try:
             entities = self.db.get_all_entities()
@@ -556,12 +574,30 @@ class UnifiedTimelineView(ttk.Frame):
                     }
                 })
         except Exception as e:
-            print(f"获取知识库失败: {e}")
+            self._safe_log_error("Timeline", f"获取知识库失败: {e}")
             
-        filtered_points = self._apply_filter(self.all_time_points)
+        limited_points = self._limit_time_points(self.all_time_points)
+        filtered_points = self._apply_filter(limited_points)
         self.timeline.set_time_points(filtered_points)
         self.stats_label.config(text=f"共 {len(filtered_points)} 条记录")
         self.detail_panel.clear()
+
+    def _limit_time_points(self, points: List[Dict], max_points: int = 1000) -> List[Dict]:
+        """
+        限制时间轴上展示的时间点数量，避免一次性加载过多数据导致内存或性能问题。
+        默认只保留按时间排序后的最新 max_points 条记录。
+        """
+        if not points:
+            return []
+        # 根据时间倒序排序，缺失时间戳的记录排在最后（使用1970-01-01作为fallback）
+        sorted_points = sorted(
+            points,
+            key=lambda p: p.get('timestamp') or "1970-01-01T00:00:00",
+            reverse=True
+        )
+        if max_points is None or max_points <= 0:
+            return sorted_points
+        return sorted_points[:max_points]
         
     def _apply_filter(self, points: List[Dict]) -> List[Dict]:
         type_map = {
@@ -887,17 +923,25 @@ class PyCharmStyleGUI:
         self.initialize_agent()
 
         # 绑定快捷键
-        self.root.bind('<Return>', lambda e: self.send_message() if not e.state & 0x1 else None)
+        # 按下回车发送消息；如果按下 Ctrl+回车，则只换行不发送
+        self.root.bind('<Return>', lambda e: self.send_message() if not e.state & 0x4 else None)
         self.root.bind('<Control-Return>', lambda e: self.input_text.insert(tk.INSERT, '\n'))
         self.root.bind('<F5>', lambda e: self.refresh_all())
         self.root.bind('<Control-Shift-t>', lambda e: self.show_timeline_view())
+
+    def _safe_log_error(self, module: str, message: str):
+        """安全地记录错误日志，如果debug_logger不可用则使用print"""
+        if hasattr(self, 'debug_logger') and self.debug_logger:
+            self.debug_logger.log_error(module, message)
+        else:
+            print(f"[{module}] {message}")
 
     def _configure_dark_theme(self):
         """配置深色主题"""
         style = ttk.Style()
         try:
             style.theme_use('clam')
-        except:
+        except Exception:
             pass
 
         # 配置主要样式
@@ -1416,12 +1460,17 @@ class PyCharmStyleGUI:
         """创建数据库管理面板"""
         try:
             from database_gui import DatabaseManagerGUI
-            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'db'):
+            # 要求已有已初始化的 agent 和其数据库连接，避免使用独立的数据库实例导致数据不一致
+            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'db') and self.agent.db:
                 db_manager = self.agent.db
+                self.db_gui = DatabaseManagerGUI(parent, db_manager)
             else:
-                from database_manager import DatabaseManager
-                db_manager = DatabaseManager()
-            self.db_gui = DatabaseManagerGUI(parent, db_manager)
+                # 代理未初始化，显示提示信息
+                ttk.Label(
+                    parent,
+                    text="数据库管理面板需要已初始化的代理。\n请等待代理初始化完成后刷新此页面。",
+                    font=("微软雅黑", 10)
+                ).pack(pady=50)
         except Exception as e:
             ttk.Label(
                 parent,
@@ -1660,45 +1709,57 @@ class PyCharmStyleGUI:
     def toggle_left_panel(self):
         """切换左侧面板显示/隐藏"""
         try:
-            # 检查左侧面板当前是否可见
-            current_width = self.left_panel.winfo_width()
-            if current_width > 50:
+            # 使用显式状态标志而不是宽度判断
+            is_visible = getattr(self, "_left_panel_visible", True)
+            if is_visible:
                 # 当前可见，隐藏它
                 self.left_panel.pack_forget()
                 self.horizontal_paned.forget(self.left_panel)
                 self.left_toggle_btn.config(text="▸")
+                self._left_panel_visible = False
             else:
                 # 当前隐藏，显示它
                 self.horizontal_paned.insert(0, self.left_panel, weight=0)
                 self.left_toggle_btn.config(text="◂")
+                self._left_panel_visible = True
         except Exception as e:
-            print(f"切换左侧面板失败: {e}")
+            self.debug_logger.log_error("GUI", f"切换左侧面板失败: {e}")
 
     def toggle_right_panel(self):
         """切换右侧面板显示/隐藏"""
         try:
-            current_width = self.right_panel.winfo_width()
-            if current_width > 50:
+            # 使用显式状态标志而不是宽度判断
+            is_visible = getattr(self, "_right_panel_visible", True)
+            if is_visible:
+                # 当前可见，隐藏它
                 self.horizontal_paned.forget(self.right_panel)
                 self.right_toggle_btn.config(text="◂")
+                self._right_panel_visible = False
             else:
+                # 当前隐藏，显示它
                 self.horizontal_paned.add(self.right_panel, weight=0)
                 self.right_toggle_btn.config(text="▸")
+                self._right_panel_visible = True
         except Exception as e:
-            print(f"切换右侧面板失败: {e}")
+            self.debug_logger.log_error("GUI", f"切换右侧面板失败: {e}")
 
     def toggle_bottom_panel(self):
         """切换底部面板显示/隐藏"""
         try:
-            current_height = self.bottom_panel.winfo_height()
-            if current_height > 50:
+            # 使用显式状态标志而不是高度判断
+            is_visible = getattr(self, "_bottom_panel_visible", True)
+            if is_visible:
+                # 当前可见，隐藏它
                 self.vertical_paned.forget(self.bottom_panel)
                 self.bottom_toggle_btn.config(text="▴")
+                self._bottom_panel_visible = False
             else:
+                # 当前隐藏，显示它
                 self.vertical_paned.add(self.bottom_panel, weight=0)
                 self.bottom_toggle_btn.config(text="▾")
+                self._bottom_panel_visible = True
         except Exception as e:
-            print(f"切换底部面板失败: {e}")
+            self.debug_logger.log_error("GUI", f"切换底部面板失败: {e}")
 
     # ==================== 代理初始化和聊天功能 ====================
 
@@ -1750,10 +1811,26 @@ class PyCharmStyleGUI:
         def process_chat():
             try:
                 response = self.agent.chat(user_input)
+                # 如果窗口已关闭，则不再尝试更新UI
+                try:
+                    if not self.root.winfo_exists():
+                        return
+                except Exception:
+                    return  # 窗口已销毁
                 self.root.after(0, lambda: self.handle_response(response, old_summary_count))
             except Exception as e:
+                # 如果在错误处理期间窗口已经销毁，静默退出以避免崩溃
+                try:
+                    if not self.root.winfo_exists():
+                        return
+                except Exception:
+                    return  # 窗口已销毁
                 error_msg = f"处理消息时出错: {str(e)}"
-                self.root.after(0, lambda: self.handle_error(error_msg))
+                try:
+                    self.root.after(0, lambda: self.handle_error(error_msg))
+                except Exception:
+                    # 根窗口或事件循环可能已经被销毁，忽略后续UI更新
+                    return
 
         thread = threading.Thread(target=process_chat, daemon=True)
         thread.start()
@@ -1855,6 +1932,11 @@ class PyCharmStyleGUI:
         if not self.agent:
             return
 
+        # 验证代理是否正确初始化
+        if not hasattr(self.agent, 'db') or not self.agent.db:
+            self.debug_logger.log_error("GUI", "代理数据库未正确初始化")
+            return
+
         try:
             self.refresh_memory_status()
             self.refresh_short_term()
@@ -1866,7 +1948,7 @@ class PyCharmStyleGUI:
             self.update_info_display()
             self.unified_timeline.refresh_data()
         except Exception as e:
-            print(f"刷新数据时出错: {e}")
+            self.debug_logger.log_error("GUI", f"刷新数据时出错: {e}")
 
     def refresh_memory_status(self):
         """刷新记忆状态"""
@@ -1881,7 +1963,7 @@ class PyCharmStyleGUI:
                 text=f"短期记忆: {short_term_rounds}轮 | 长期记忆: {long_term_count}个主题"
             )
         except Exception as e:
-            print(f"刷新记忆状态失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新记忆状态失败: {e}")
 
     def refresh_short_term(self):
         """刷新短期记忆"""
@@ -1904,7 +1986,7 @@ class PyCharmStyleGUI:
 
             self.short_term_display.config(state=tk.DISABLED)
         except Exception as e:
-            print(f"刷新短期记忆失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新短期记忆失败: {e}")
 
     def refresh_long_term(self):
         """刷新长期记忆"""
@@ -1926,7 +2008,7 @@ class PyCharmStyleGUI:
 
             self.long_term_display.config(state=tk.DISABLED)
         except Exception as e:
-            print(f"刷新长期记忆失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新长期记忆失败: {e}")
 
     def refresh_knowledge(self):
         """刷新知识库"""
@@ -1960,7 +2042,7 @@ class PyCharmStyleGUI:
 
             self.knowledge_display.config(state=tk.DISABLED)
         except Exception as e:
-            print(f"刷新知识库失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新知识库失败: {e}")
 
     def refresh_events(self):
         """刷新事件列表"""
@@ -2007,7 +2089,7 @@ class PyCharmStyleGUI:
                 text=f"总计: {stats['total_events']} | 待处理: {stats['pending']} | 已完成: {stats['completed']}"
             )
         except Exception as e:
-            print(f"刷新事件列表失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新事件列表失败: {e}")
 
     def refresh_environment(self):
         """刷新环境显示"""
@@ -2046,7 +2128,7 @@ class PyCharmStyleGUI:
 
             self.environment_display.config(state=tk.DISABLED)
         except Exception as e:
-            print(f"刷新环境显示失败: {e}")
+            self.debug_logger.log_error("GUI", f"刷新环境显示失败: {e}")
 
     def update_topic_timeline(self):
         """更新主题时间线"""
@@ -2057,7 +2139,7 @@ class PyCharmStyleGUI:
             summaries = self.agent.get_long_term_summaries()
             self.topic_timeline.update_topics(summaries)
         except Exception as e:
-            print(f"更新主题时间线失败: {e}")
+            self.debug_logger.log_error("GUI", f"更新主题时间线失败: {e}")
 
     def update_info_display(self):
         """更新系统信息显示"""
@@ -2082,7 +2164,7 @@ class PyCharmStyleGUI:
             self.info_display.insert(tk.END, info_text)
             self.info_display.config(state=tk.DISABLED)
         except Exception as e:
-            print(f"更新系统信息失败: {e}")
+            self.debug_logger.log_error("GUI", f"更新系统信息失败: {e}")
 
     def update_understanding_display(self, understanding_result):
         """更新理解阶段显示"""
@@ -2132,7 +2214,7 @@ class PyCharmStyleGUI:
         try:
             info = format_emotion_summary(emotion_data)
             self.emotion_info_text.insert(tk.END, info)
-        except:
+        except Exception:
             self.emotion_info_text.insert(tk.END, json.dumps(emotion_data, ensure_ascii=False, indent=2))
 
         self.emotion_info_text.config(state=tk.DISABLED)
@@ -2146,8 +2228,50 @@ class PyCharmStyleGUI:
             self.refresh_knowledge()
             return
 
-        # 简单实现，后续可以增强
-        messagebox.showinfo("搜索", f"搜索功能: {search_text}\n(功能开发中...)")
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化，无法搜索知识库")
+            return
+
+        # 使用知识库本地搜索
+        self.update_status("搜索知识库中...", ColorTheme.STATUS_WARNING)
+
+        def do_search():
+            try:
+                # 在知识库中搜索实体和基础知识
+                entities = self.agent.db.get_all_entities()
+                base_facts = self.agent.db.get_all_base_facts()
+                
+                # 过滤匹配的实体
+                matched_entities = [e for e in entities if search_text.lower() in e.get('name', '').lower()]
+                matched_facts = [f for f in base_facts if search_text.lower() in f.get('entity_name', '').lower() or search_text.lower() in f.get('content', '').lower()]
+                
+                result_text = f"搜索关键词: {search_text}\n\n"
+                result_text += f"【匹配的实体】({len(matched_entities)} 个)\n"
+                for e in matched_entities[:10]:
+                    result_text += f"• {e.get('name', '')}\n"
+                if len(matched_entities) > 10:
+                    result_text += f"... 还有 {len(matched_entities) - 10} 个\n"
+                    
+                result_text += f"\n【匹配的基础知识】({len(matched_facts)} 条)\n"
+                for f in matched_facts[:10]:
+                    result_text += f"• {f.get('entity_name', '')}: {f.get('content', '')[:50]}...\n"
+                if len(matched_facts) > 10:
+                    result_text += f"... 还有 {len(matched_facts) - 10} 条\n"
+
+                def on_success():
+                    messagebox.showinfo("搜索结果", result_text)
+                    self.update_status("就绪", ColorTheme.STATUS_OK)
+
+                self.root.after(0, on_success)
+            except Exception as e:
+                def on_error():
+                    self.update_status("搜索失败", ColorTheme.STATUS_ERROR)
+                    messagebox.showerror("错误", f"知识库搜索失败: {e}")
+
+                self.root.after(0, on_error)
+
+        thread = threading.Thread(target=do_search, daemon=True)
+        thread.start()
 
     def create_new_event(self):
         """创建新事件"""
@@ -2208,10 +2332,17 @@ class PyCharmStyleGUI:
             except Exception as e:
                 messagebox.showerror("错误", f"创建失败：{str(e)}")
 
+        def on_close():
+            """统一处理事件创建对话框的关闭逻辑"""
+            dialog.destroy()
+
         btn_frame = ttk.Frame(container)
         btn_frame.pack(pady=20)
         ttk.Button(btn_frame, text="创建", command=do_create, width=15).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="取消", command=on_close, width=15).pack(side=tk.LEFT, padx=5)
+
+        # 确保点击窗口关闭按钮(X)时也执行统一的关闭逻辑
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
 
     def trigger_event(self):
         """触发选中的事件"""
@@ -2268,8 +2399,13 @@ class PyCharmStyleGUI:
             name = name_entry.get().strip()
             desc = desc_text.get("1.0", tk.END).strip()
 
-            if not name or not desc:
-                messagebox.showerror("错误", "名称和描述不能为空！")
+            missing_fields = []
+            if not name:
+                missing_fields.append("名称")
+            if not desc:
+                missing_fields.append("描述")
+            if missing_fields:
+                messagebox.showerror("错误", "、".join(missing_fields) + " 不能为空！")
                 return
 
             try:
@@ -2524,7 +2660,7 @@ class PyCharmStyleGUI:
 def main():
     """主函数"""
     root = tk.Tk()
-    app = PyCharmStyleGUI(root)
+    PyCharmStyleGUI(root)
     root.mainloop()
 
 
