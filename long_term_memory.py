@@ -212,18 +212,29 @@ class LongTermMemoryManager:
                         source=knowledge_data.get('source', '对话提取'),
                         confidence=knowledge_data.get('confidence', 0.8)
                     )
+                    print(f"    置信度: {knowledge_data.get('confidence', 0.8):.2f} | 实体UUID: {entity_uuid}")
                 else:
-                    # 保存为相关信息
-                    self.db.add_entity_related_info(
+                    # 保存为相关信息，默认状态为"疑似"
+                    # add_entity_related_info 会检查是否已存在相同信息，如果存在会增加mention_count
+                    info_uuid = self.db.add_entity_related_info(
                         entity_uuid=entity_uuid,
                         content=content,
                         type_=knowledge_data.get('type', '其他'),
                         source=knowledge_data.get('source', '对话提取'),
-                        confidence=knowledge_data.get('confidence', 0.7)
+                        confidence=knowledge_data.get('confidence', 0.7),
+                        status='疑似'
                     )
-
-                confidence = knowledge_data.get('confidence', 0.8)
-                print(f"    置信度: {confidence:.2f} | 实体UUID: {entity_uuid}")
+                    
+                    # 获取信息状态以显示
+                    info = self.db.get_entity_related_info(entity_uuid)
+                    saved_info = next((i for i in info if i['uuid'] == info_uuid), None)
+                    if saved_info:
+                        status = saved_info.get('status', '疑似')
+                        mention_count = saved_info.get('mention_count', 1)
+                        status_label = f"[{status}]" if status == "确认" else f"[{status}×{mention_count}]"
+                        print(f"    状态: {status_label} | 置信度: {knowledge_data.get('confidence', 0.7):.2f} | 实体UUID: {entity_uuid}")
+                    else:
+                        print(f"    置信度: {knowledge_data.get('confidence', 0.7):.2f} | 实体UUID: {entity_uuid}")
 
             # 每次提取知识后，检查是否需要清理过时信息
             # 每10次提取清理一次（即每50轮对话）
