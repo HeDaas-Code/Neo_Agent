@@ -1962,10 +1962,14 @@ class EnhancedChatDebugGUI:
         # 显示统计信息
         if hasattr(self.agent.memory_manager.knowledge_base, 'get_statistics'):
             stats = self.agent.memory_manager.knowledge_base.get_statistics()
+            status_dist = stats.get('status_distribution', {})
             text.append(f"基础知识: {stats.get('base_knowledge_facts', 0)} 条 (优先级100%) | "
                        f"主体数: {stats.get('total_entities', 0)} | "
                        f"定义: {stats.get('total_definitions', 0)} | "
                        f"相关信息: {stats.get('total_related_info', 0)}")
+            if status_dist:
+                text.append(f"知识状态: 确认 {status_dist.get('确认', 0)} 条 | "
+                           f"疑似 {status_dist.get('疑似', 0)} 条")
 
         text.append("=" * 60)
         text.append("")
@@ -2038,7 +2042,16 @@ class EnhancedChatDebugGUI:
                 for i, info in enumerate(items['related'], 1):
                     confidence = info.get('confidence', 0.8)
                     confidence_icon = "•" if confidence >= 0.7 else "◦"
-                    text.append(f"    {confidence_icon} [{info.get('type', '其他')}] (置信度: {confidence:.2f})")
+                    
+                    # 显示状态和提及次数
+                    status = info.get('status', '疑似')
+                    mention_count = info.get('mention_count', 1)
+                    status_icon = "✓" if status == "确认" else "?"
+                    status_text = f"{status_icon} {status}"
+                    if status == "疑似":
+                        status_text += f" (提及×{mention_count})"
+                    
+                    text.append(f"    {confidence_icon} [{info.get('type', '其他')}] {status_text} (置信度: {confidence:.2f})")
                     text.append(f"       {info.get('content', '')}")
                     text.append(f"       时间: {info.get('created_at', '')[:19]} | UUID: {info.get('uuid', '')}")
                     if i < len(items['related']):
@@ -2090,6 +2103,17 @@ class EnhancedChatDebugGUI:
                 confidence_icon = "⭐" if confidence >= 0.9 else "✓" if confidence >= 0.7 else "◦"
 
                 text.append(f"  {confidence_icon} [{type_label}] (置信度: {confidence:.2f})")
+                
+                # 显示状态信息（如果不是定义）
+                if not is_def:
+                    status = item.get('status', '疑似')
+                    mention_count = item.get('mention_count', 1)
+                    status_icon = "✓" if status == "确认" else "?"
+                    status_text = f"{status_icon} {status}"
+                    if status == "疑似":
+                        status_text += f" (提及×{mention_count})"
+                    text.append(f"     状态: {status_text}")
+                
                 text.append(f"     内容: {item.get('content', '')}")
                 text.append(f"     来源: {item.get('source', '')}")
                 text.append(f"     时间: {item.get('created_at', '')[:19]}")
@@ -2140,6 +2164,17 @@ class EnhancedChatDebugGUI:
                 confidence_icon = "⭐" if confidence >= 0.9 else "✓" if confidence >= 0.7 else "◦"
 
                 text.append(f"  {confidence_icon} {'定义' if is_def else '相关信息'} (置信度: {confidence:.2f})")
+                
+                # 显示状态信息（如果不是定义）
+                if not is_def:
+                    status = item.get('status', '疑似')
+                    mention_count = item.get('mention_count', 1)
+                    status_icon = "✓" if status == "确认" else "?"
+                    status_text = f"{status_icon} {status}"
+                    if status == "疑似":
+                        status_text += f" (提及×{mention_count})"
+                    text.append(f"     状态: {status_text}")
+                
                 text.append(f"     内容: {item.get('content', '')}")
                 text.append(f"     来源: {item.get('source', '')}")
                 text.append(f"     时间: {item.get('created_at', '')[:19]}")

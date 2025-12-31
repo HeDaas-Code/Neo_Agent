@@ -765,6 +765,16 @@ class KnowledgeBase:
 
         # 获取数据库统计
         db_stats = self.db.get_statistics()
+        
+        # 统计知识状态分布（仅对相关信息）
+        status_counts = {
+            '疑似': 0,
+            '确认': 0
+        }
+        for item in all_knowledge:
+            if not item.get('is_definition', False):
+                status = item.get('status', '疑似')
+                status_counts[status] = status_counts.get(status, 0) + 1
 
         return {
             'total_entities': db_stats['entities_count'],
@@ -778,6 +788,7 @@ class KnowledgeBase:
                 'medium (0.7-0.9)': medium_confidence,
                 'low (<0.7)': low_confidence
             },
+            'status_distribution': status_counts,
             'database_size_kb': db_stats.get('db_size_kb', 0)
         }
 
