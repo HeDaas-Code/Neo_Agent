@@ -288,13 +288,18 @@ class KnowledgeBase:
 
                 # 添加相关信息（第三优先级，优先确认状态的知识）
                 related_infos = self.db.get_entity_related_info(entity_uuid)
-                # 先按状态排序（确认优先），再按创建时间降序排序
-                related_infos_sorted = sorted(
-                    related_infos, 
-                    key=lambda x: (x.get('status', '疑似') != '确认', x.get('created_at', '')), 
-                    reverse=False
-                )
-                # 取前3条（优先确认的，然后是最新的）
+                
+                # 分离确认和疑似的知识
+                confirmed = [i for i in related_infos if i.get('status') == '确认']
+                suspected = [i for i in related_infos if i.get('status') != '确认']
+                
+                # 确认的按时间倒序，疑似的也按时间倒序
+                confirmed.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                suspected.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                
+                # 合并：确认的在前，疑似的在后，取前3条
+                related_infos_sorted = confirmed + suspected
+                
                 for info in related_infos_sorted[:3]:
                     knowledge_items.append({
                         'entity_name': entity['name'],

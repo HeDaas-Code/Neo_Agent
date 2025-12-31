@@ -18,6 +18,9 @@ class DatabaseManager:
     数据库管理器
     管理所有数据表的创建、查询、更新和删除操作
     """
+    
+    # 知识状态升级阈值：当提及次数达到此值时，状态从"疑似"升级为"确认"
+    KNOWLEDGE_CONFIRMATION_THRESHOLD = 3
 
     def __init__(self, db_path: str = "chat_agent.db", debug: bool = False):
         """
@@ -672,8 +675,8 @@ class DatabaseManager:
                 # 如果已存在相同信息，增加mention_count
                 existing_uuid = existing[0]
                 new_mention_count = existing[1] + 1
-                # 如果提及次数达到3次，状态升级为"确认"
-                new_status = "确认" if new_mention_count >= 3 else existing[2]
+                # 如果提及次数达到阈值，状态升级为"确认"
+                new_status = "确认" if new_mention_count >= self.KNOWLEDGE_CONFIRMATION_THRESHOLD else existing[2]
                 
                 cursor.execute('''
                     UPDATE entity_related_info 
