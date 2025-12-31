@@ -19,6 +19,10 @@ class DatabaseManager:
     管理所有数据表的创建、查询、更新和删除操作
     """
     
+    # 知识状态常量
+    STATUS_SUSPECTED = "疑似"  # 疑似状态：首次提及，需要进一步确认
+    STATUS_CONFIRMED = "确认"  # 确认状态：多次提及，高可信度
+    
     # 知识状态升级阈值：当提及次数达到此值时，状态从"疑似"升级为"确认"
     KNOWLEDGE_CONFIRMATION_THRESHOLD = 3
 
@@ -316,7 +320,7 @@ class DatabaseManager:
             
             migrations_needed = []
             if 'status' not in columns:
-                migrations_needed.append(('status', "ALTER TABLE entity_related_info ADD COLUMN status TEXT DEFAULT '疑似'"))
+                migrations_needed.append(('status', f"ALTER TABLE entity_related_info ADD COLUMN status TEXT DEFAULT '{self.STATUS_SUSPECTED}'"))
             if 'mention_count' not in columns:
                 migrations_needed.append(('mention_count', "ALTER TABLE entity_related_info ADD COLUMN mention_count INTEGER DEFAULT 1"))
             if 'last_mentioned_at' not in columns:
@@ -673,10 +677,10 @@ class DatabaseManager:
             
             if existing:
                 # 如果已存在相同信息，增加mention_count
-                existing_uuid = existing[0]
-                new_mention_count = existing[1] + 1
+                existing_uuid, existing_mention_count, existing_status = existing[0], existing[1], existing[2]
+                new_mention_count = existing_mention_count + 1
                 # 如果提及次数达到阈值，状态升级为"确认"
-                new_status = "确认" if new_mention_count >= self.KNOWLEDGE_CONFIRMATION_THRESHOLD else existing[2]
+                new_status = self.STATUS_CONFIRMED if new_mention_count >= self.KNOWLEDGE_CONFIRMATION_THRESHOLD else existing_status
                 
                 cursor.execute('''
                     UPDATE entity_related_info 

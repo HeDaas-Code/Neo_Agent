@@ -290,8 +290,8 @@ class KnowledgeBase:
                 related_infos = self.db.get_entity_related_info(entity_uuid)
                 
                 # 分离确认和疑似的知识
-                confirmed = [i for i in related_infos if i.get('status') == '确认']
-                suspected = [i for i in related_infos if i.get('status') != '确认']
+                confirmed = [i for i in related_infos if i.get('status') == DatabaseManager.STATUS_CONFIRMED]
+                suspected = [i for i in related_infos if i.get('status') != DatabaseManager.STATUS_CONFIRMED]
                 
                 # 确认的按时间倒序，疑似的也按时间倒序
                 confirmed.sort(key=lambda x: x.get('created_at', ''), reverse=True)
@@ -773,12 +773,12 @@ class KnowledgeBase:
         
         # 统计知识状态分布（仅对相关信息）
         status_counts = {
-            '疑似': 0,
-            '确认': 0
+            DatabaseManager.STATUS_SUSPECTED: 0,
+            DatabaseManager.STATUS_CONFIRMED: 0
         }
         for item in all_knowledge:
             if not item.get('is_definition', False):
-                status = item.get('status', '疑似')
+                status = item.get('status', DatabaseManager.STATUS_SUSPECTED)
                 status_counts[status] = status_counts.get(status, 0) + 1
 
         return {

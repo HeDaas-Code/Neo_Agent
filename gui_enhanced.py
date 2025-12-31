@@ -11,6 +11,7 @@ import threading
 import math
 from typing import Dict, Any, List, Optional
 from chat_agent import ChatAgent
+from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 
@@ -2044,11 +2045,11 @@ class EnhancedChatDebugGUI:
                     confidence_icon = "•" if confidence >= 0.7 else "◦"
                     
                     # 显示状态和提及次数
-                    status = info.get('status', '疑似')
+                    status = info.get('status', DatabaseManager.STATUS_SUSPECTED)
                     mention_count = info.get('mention_count', 1)
-                    status_icon = "✓" if status == "确认" else "?"
+                    status_icon = "✓" if status == DatabaseManager.STATUS_CONFIRMED else "?"
                     status_text = f"{status_icon} {status}"
-                    if status == "疑似":
+                    if status == DatabaseManager.STATUS_SUSPECTED:
                         status_text += f" (提及×{mention_count})"
                     
                     text.append(f"    {confidence_icon} [{info.get('type', '其他')}] {status_text} (置信度: {confidence:.2f})")
@@ -2106,11 +2107,11 @@ class EnhancedChatDebugGUI:
                 
                 # 显示状态信息（如果不是定义）
                 if not is_def:
-                    status = item.get('status', '疑似')
+                    status = item.get('status', DatabaseManager.STATUS_SUSPECTED)
                     mention_count = item.get('mention_count', 1)
-                    status_icon = "✓" if status == "确认" else "?"
+                    status_icon = "✓" if status == DatabaseManager.STATUS_CONFIRMED else "?"
                     status_text = f"{status_icon} {status}"
-                    if status == "疑似":
+                    if status == DatabaseManager.STATUS_SUSPECTED:
                         status_text += f" (提及×{mention_count})"
                     text.append(f"     状态: {status_text}")
                 
@@ -2167,11 +2168,11 @@ class EnhancedChatDebugGUI:
                 
                 # 显示状态信息（如果不是定义）
                 if not is_def:
-                    status = item.get('status', '疑似')
+                    status = item.get('status', DatabaseManager.STATUS_SUSPECTED)
                     mention_count = item.get('mention_count', 1)
-                    status_icon = "✓" if status == "确认" else "?"
+                    status_icon = "✓" if status == DatabaseManager.STATUS_CONFIRMED else "?"
                     status_text = f"{status_icon} {status}"
-                    if status == "疑似":
+                    if status == DatabaseManager.STATUS_SUSPECTED:
                         status_text += f" (提及×{mention_count})"
                     text.append(f"     状态: {status_text}")
                 
