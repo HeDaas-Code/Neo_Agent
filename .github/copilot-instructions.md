@@ -1,187 +1,187 @@
-# Neo Agent - Copilot Instructions
+# Neo Agent - Copilot 指令
 
-## Project Overview
+## 项目概述
 
-Neo Agent is an intelligent dialogue agent system based on LangChain, supporting role-playing, long-term memory management, and emotional relationship analysis. The system implements intelligent dialogue experiences with persistent memory capabilities through hierarchical memory architecture and knowledge base management.
+Neo Agent 是一个基于 LangChain 的智能对话代理系统，支持角色扮演、长期记忆管理和情感关系分析。该系统通过分层记忆架构和知识库管理实现具有持久记忆能力的智能对话体验。
 
-**Primary Language**: Python 3.8+  
-**Main Framework**: LangChain  
+**主要语言**: Python 3.8+  
+**主要框架**: LangChain  
 **GUI**: Tkinter  
-**Database**: SQLite  
-**API**: SiliconFlow (compatible with OpenAI format)
+**数据库**: SQLite  
+**API**: SiliconFlow（兼容 OpenAI 格式）
 
-## Core Architecture
+## 核心架构
 
-### Memory Hierarchy
-1. **Short-term Memory**: Recent 20 rounds of detailed conversation (managed by `MemoryManager`)
-2. **Long-term Memory**: Summarized historical conversations (managed by `LongTermMemoryManager`)
-3. **Knowledge Base**: Extracted and persistent knowledge from conversations (managed by `KnowledgeBase`)
-4. **Base Knowledge**: Preset immutable core knowledge (managed by `BaseKnowledgeManager`)
+### 记忆层次
+1. **短期记忆**: 最近 20 轮的详细对话（由 `MemoryManager` 管理）
+2. **长期记忆**: 总结的历史对话（由 `LongTermMemoryManager` 管理）
+3. **知识库**: 从对话中提取的持久化知识（由 `KnowledgeBase` 管理）
+4. **基础知识**: 预设的不可变核心知识（由 `BaseKnowledgeManager` 管理）
 
-### Key Components
-- `chat_agent.py` - Core dialogue agent with memory management
-- `database_manager.py` - Unified SQLite database operations
-- `long_term_memory.py` - Long-term memory generation and management
-- `knowledge_base.py` - Knowledge extraction and retrieval
-- `emotion_analyzer.py` - Emotional relationship analysis
-- `event_manager.py` - Event-driven system for notifications and tasks
-- `multi_agent_coordinator.py` - Multi-agent collaboration system
-- `agent_vision.py` - Vision tool for environment perception simulation
-- `gui_enhanced.py` - Main GUI interface (~3000 lines)
+### 关键组件
+- `chat_agent.py` - 带记忆管理的核心对话代理
+- `database_manager.py` - 统一的 SQLite 数据库操作
+- `long_term_memory.py` - 长期记忆生成和管理
+- `knowledge_base.py` - 知识提取和检索
+- `emotion_analyzer.py` - 情感关系分析
+- `event_manager.py` - 用于通知和任务的事件驱动系统
+- `multi_agent_coordinator.py` - 多代理协作系统
+- `agent_vision.py` - 用于环境感知模拟的视觉工具
+- `gui_enhanced.py` - 主要 GUI 界面（约 3000 行）
 
-## Development Setup
+## 开发环境设置
 
-### Prerequisites
+### 前置条件
 ```bash
-python --version  # Should be 3.8 or higher
+python --version  # 应为 3.8 或更高版本
 pip install -r requirements.txt
 ```
 
-### Configuration
-1. Copy `example.env` to `.env`
-2. Configure required environment variables:
-   - `SILICONFLOW_API_KEY` - Your API key
-   - `MODEL_NAME` - LLM model (default: deepseek-ai/DeepSeek-V3)
-   - Character settings (NAME, GENDER, AGE, PERSONALITY, etc.)
-   - Memory settings (MAX_MEMORY_MESSAGES, MAX_SHORT_TERM_ROUNDS)
+### 配置
+1. 将 `example.env` 复制为 `.env`
+2. 配置必需的环境变量：
+   - `SILICONFLOW_API_KEY` - 你的 API 密钥
+   - `MODEL_NAME` - LLM 模型（默认: deepseek-ai/DeepSeek-V3）
+   - 角色设置（NAME、GENDER、AGE、PERSONALITY 等）
+   - 记忆设置（MAX_MEMORY_MESSAGES、MAX_SHORT_TERM_ROUNDS）
 
-### Running the Application
+### 运行应用程序
 ```bash
-python gui_enhanced.py  # Main GUI application
-python test_event_system.py  # Test event system
+python gui_enhanced.py  # 主 GUI 应用程序
+python test_event_system.py  # 测试事件系统
 ```
 
-## Code Style and Conventions
+## 代码风格和约定
 
-### Python Style
-- **Docstrings**: Use triple-quoted strings with Chinese descriptions for classes and functions
-- **Type Hints**: Use type hints from `typing` module (List, Dict, Any, Optional)
-- **Imports**: Group imports as: standard library, third-party, local modules
-- **Naming**: 
-  - Classes: PascalCase (e.g., `ChatAgent`, `DatabaseManager`)
-  - Functions/Methods: snake_case (e.g., `load_memory`, `get_recent_messages`)
-  - Constants: UPPER_SNAKE_CASE (e.g., `MAX_MEMORY_MESSAGES`)
+### Python 风格
+- **文档字符串**: 为类和函数使用三引号字符串和中文描述
+- **类型提示**: 使用 `typing` 模块的类型提示（List、Dict、Any、Optional）
+- **导入**: 按以下顺序分组导入：标准库、第三方库、本地模块
+- **命名**: 
+  - 类: PascalCase（例如 `ChatAgent`、`DatabaseManager`）
+  - 函数/方法: snake_case（例如 `load_memory`、`get_recent_messages`）
+  - 常量: UPPER_SNAKE_CASE（例如 `MAX_MEMORY_MESSAGES`）
 
-### Documentation
-- Primary documentation is in Chinese (zh-cn)
-- English translations available in docs/en/
-- Use descriptive comments for complex logic
-- Include examples in docstrings where appropriate
+### 文档
+- 主要文档使用中文（zh-cn）
+- 英文翻译可在 docs/en/ 中找到
+- 对复杂逻辑使用描述性注释
+- 在适当的地方在文档字符串中包含示例
 
-### Environment Variables
-- All configurable parameters should use environment variables with defaults
-- Use `python-dotenv` for loading `.env` files
-- Document all environment variables in `example.env`
+### 环境变量
+- 所有可配置参数都应使用带默认值的环境变量
+- 使用 `python-dotenv` 加载 `.env` 文件
+- 在 `example.env` 中记录所有环境变量
 
-## Database Management
+## 数据库管理
 
-### Schema
-The SQLite database (`chat_agent.db`) contains:
-- `short_term_memory` - Recent conversation history
-- `long_term_memory` - Summarized historical conversations
-- `knowledge_base` - Extracted knowledge with status tracking
-- `base_knowledge` - Immutable core knowledge
-- `environment_descriptions` - Environment context for vision tool
-- `events` - Event-driven system events
-- `event_logs` - Event processing logs
+### 模式
+SQLite 数据库（`chat_agent.db`）包含：
+- `short_term_memory` - 最近的对话历史
+- `long_term_memory` - 总结的历史对话
+- `knowledge_base` - 提取的知识及状态跟踪
+- `base_knowledge` - 不可变的核心知识
+- `environment_descriptions` - 视觉工具的环境上下文
+- `events` - 事件驱动系统事件
+- `event_logs` - 事件处理日志
 
-### Best Practices
-- Always use `DatabaseManager` for database operations
-- Use transactions for batch operations
-- Handle database locks gracefully with retry logic
-- Close database connections properly
+### 最佳实践
+- 始终使用 `DatabaseManager` 进行数据库操作
+- 对批量操作使用事务
+- 使用重试逻辑优雅地处理数据库锁
+- 正确关闭数据库连接
 
-## LLM Integration
+## LLM 集成
 
-### API Calls
-- Use `requests` library for HTTP calls to SiliconFlow API
-- API format is compatible with OpenAI's chat completion format
-- Implement retry logic with exponential backoff
-- Log all API calls using `debug_logger` when DEBUG_MODE is enabled
+### API 调用
+- 使用 `requests` 库进行对 SiliconFlow API 的 HTTP 调用
+- API 格式与 OpenAI 的聊天完成格式兼容
+- 实现带指数退避的重试逻辑
+- 当 DEBUG_MODE 启用时使用 `debug_logger` 记录所有 API 调用
 
-### Prompt Construction
-- Build prompts with character personality and background
-- Include relevant memory context (short-term, long-term, knowledge)
-- Use system messages for role definition
-- Keep prompts under token limits (default: MAX_TOKENS=2000)
+### 提示词构建
+- 使用角色个性和背景构建提示词
+- 包含相关的记忆上下文（短期、长期、知识）
+- 使用系统消息进行角色定义
+- 保持提示词在令牌限制之下（默认: MAX_TOKENS=2000）
 
-## Event-Driven System
+## 事件驱动系统
 
-### Event Types
-1. **Notification Events**: Agent immediately understands and explains external information
-2. **Task Events**: Multi-agent collaboration for complex tasks with progress updates
+### 事件类型
+1. **通知事件**: 代理立即理解并解释外部信息
+2. **任务事件**: 带进度更新的复杂任务的多代理协作
 
-### Event Management
-- Create events via `EventManager.create_event()`
-- Events stored in database with status tracking
-- Support for priority levels (LOW, NORMAL, HIGH, URGENT)
-- Event logs track processing history
+### 事件管理
+- 通过 `EventManager.create_event()` 创建事件
+- 事件存储在数据库中并进行状态跟踪
+- 支持优先级级别（LOW、NORMAL、HIGH、URGENT）
+- 事件日志跟踪处理历史
 
-## Testing
+## 测试
 
-### Test Files
-- `test_event_system.py` - Demonstrates event system functionality
-- Manual testing through GUI is the primary validation method
+### 测试文件
+- `test_event_system.py` - 演示事件系统功能
+- 通过 GUI 进行手动测试是主要的验证方法
 
-### Testing Approach
-- Test core functionality through the GUI
-- Verify memory persistence across sessions
-- Check database integrity after operations
-- Validate API integration with debug logs
+### 测试方法
+- 通过 GUI 测试核心功能
+- 验证跨会话的记忆持久性
+- 在操作后检查数据库完整性
+- 使用调试日志验证 API 集成
 
-## Important Notes
+## 重要说明
 
-### Memory Management
-- Short-term memory is limited to `MAX_SHORT_TERM_ROUNDS` (default: 20)
-- Long-term memory is generated when short-term exceeds capacity
-- Knowledge extraction happens during long-term memory generation
-- Base knowledge is read-only and loaded at initialization
+### 记忆管理
+- 短期记忆限制为 `MAX_SHORT_TERM_ROUNDS`（默认: 20）
+- 当短期记忆超出容量时生成长期记忆
+- 知识提取在长期记忆生成期间发生
+- 基础知识是只读的，在初始化时加载
 
-### Debug Mode
-- Enable `DEBUG_MODE=True` in `.env` for detailed logging
-- Logs include prompts, API calls, and responses
-- Check `debug.log` or GUI debug viewer for troubleshooting
+### 调试模式
+- 在 `.env` 中启用 `DEBUG_MODE=True` 以进行详细日志记录
+- 日志包括提示词、API 调用和响应
+- 检查 `debug.log` 或 GUI 调试查看器以进行故障排查
 
-### GUI Components
-- Built with Tkinter for cross-platform compatibility
-- Includes emotion radar chart, timeline visualization
-- Database management GUI for data inspection
-- Real-time debug log viewer
+### GUI 组件
+- 使用 Tkinter 构建以实现跨平台兼容性
+- 包含情感雷达图、时间线可视化
+- 用于数据检查的数据库管理 GUI
+- 实时调试日志查看器
 
-### Vision Tool
-- Uses LLM to intelligently determine when environment info is needed
-- Falls back to keyword matching if LLM is unavailable
-- Simulates visual perception through environment descriptions
-- Configurable timeout and token limits
+### 视觉工具
+- 使用 LLM 智能确定何时需要环境信息
+- 如果 LLM 不可用，则回退到关键字匹配
+- 通过环境描述模拟视觉感知
+- 可配置的超时和令牌限制
 
-## Common Tasks
+## 常见任务
 
-### Adding New Features
-1. Check if feature fits into existing component structure
-2. Update database schema if needed (via `DatabaseManager`)
-3. Add configuration to `example.env` if configurable
-4. Update relevant documentation in `docs/zh-cn/`
-5. Test through GUI before committing
+### 添加新功能
+1. 检查功能是否适合现有组件结构
+2. 如有需要更新数据库模式（通过 `DatabaseManager`）
+3. 如果可配置，将配置添加到 `example.env`
+4. 更新 `docs/zh-cn/` 中的相关文档
+5. 在提交前通过 GUI 进行测试
 
-### Modifying Memory System
-- Changes should maintain backward compatibility with existing data
-- Update migration logic in `DatabaseManager` if schema changes
-- Test memory persistence across application restarts
+### 修改记忆系统
+- 更改应保持与现有数据的向后兼容性
+- 如果模式更改，更新 `DatabaseManager` 中的迁移逻辑
+- 测试跨应用程序重启的记忆持久性
 
-### Extending Event System
-- New event types should inherit from `NotificationEvent` or `TaskEvent`
-- Register event handlers in `EventManager`
-- Update event processing logic in `ChatAgent`
+### 扩展事件系统
+- 新的事件类型应继承自 `NotificationEvent` 或 `TaskEvent`
+- 在 `EventManager` 中注册事件处理程序
+- 更新 `ChatAgent` 中的事件处理逻辑
 
-## Resources
+## 资源
 
-- [Architecture Documentation](docs/zh-cn/ARCHITECTURE.md)
-- [API Documentation](docs/zh-cn/API.md)
-- [Event System Guide](docs/zh-cn/EVENT_SYSTEM.md)
-- [Quick Start Guide](docs/zh-cn/QUICKSTART.md)
-- [Development Guide](docs/zh-cn/DEVELOPMENT.md)
+- [架构文档](docs/zh-cn/ARCHITECTURE.md)
+- [API 文档](docs/zh-cn/API.md)
+- [事件系统指南](docs/zh-cn/EVENT_SYSTEM.md)
+- [快速入门指南](docs/zh-cn/QUICKSTART.md)
+- [开发指南](docs/zh-cn/DEVELOPMENT.md)
 
-## Contact
+## 联系方式
 
 - Issues: https://github.com/HeDaas-Code/Neo_Agent/issues
 - Discussions: https://github.com/HeDaas-Code/Neo_Agent/discussions
