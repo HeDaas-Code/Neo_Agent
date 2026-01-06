@@ -560,17 +560,38 @@ update_prompt = f"""
 
 ```python
 class AgentVisionTool:
-    def set_environment(self, description: str):
-        """设置当前环境描述"""
-        self.db.set_environment_description(description)
+    def should_use_vision_llm(self, user_query: str) -> bool:
+        """使用LLM智能判断是否需要观察环境"""
+        # 调用LLM判断用户问题是否需要环境信息
+        # 例如："你在哪？" -> 需要环境信息
+        # "今天天气怎么样？" -> 不需要环境信息
+        
+    def should_use_vision_keyword(self, user_query: str) -> bool:
+        """基于关键词判断（备用方法）"""
+        # 当LLM不可用时，使用关键词匹配作为后备
+        
+    def should_use_vision(self, user_query: str, use_llm: bool = True) -> bool:
+        """智能判断是否需要使用视觉工具"""
+        # 默认使用LLM智能判断，可选降级到关键词匹配
     
-    def get_visual_context(self) -> str:
+    def get_vision_context(self, user_query: str) -> Dict:
         """获取视觉上下文用于提示词"""
-        env = self.db.get_current_environment()
-        if env:
-            return f"当前环境：{env['description']}"
-        return ""
+        # 首先判断是否需要视觉
+        # 然后从数据库获取环境描述和物体信息
+        # 返回格式化的视觉上下文
 ```
+
+#### 智能判断机制
+
+视觉工具现在采用两级判断机制：
+
+1. **LLM智能判断（主要方法）**：使用LLM理解用户问题的语义，判断是否需要环境信息
+   - 可以识别如"你在哪？"这类隐式需要环境信息的问题
+   - 判断更加准确和灵活
+   
+2. **关键词匹配（备用方法）**：当LLM不可用时使用
+   - 快速、可靠的备选方案
+   - 基于预定义的环境相关关键词列表
 
 ### 7. 事件驱动系统（Event-Driven System）
 
