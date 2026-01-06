@@ -76,7 +76,7 @@ python test_event_system.py  # Test event system
 ## Database Management
 
 ### Schema
-The SQLite database (`neo_agent.db`) contains:
+The SQLite database (`chat_agent.db`) contains:
 - `short_term_memory` - Recent conversation history
 - `long_term_memory` - Summarized historical conversations
 - `knowledge_base` - Extracted knowledge with status tracking
