@@ -56,6 +56,11 @@ class AgentVisionTool:
         """
         使用LLM智能判断是否需要使用视觉工具
         
+        注意：
+        - 输入清理可防止基本的注入攻击，但不是完全安全
+        - 响应解析目前仅支持中文，需要国际化时需修改
+        - 同步HTTP请求可能造成阻塞，高频调用时建议使用异步方式
+        
         Args:
             user_query: 用户查询
             
@@ -67,7 +72,8 @@ class AgentVisionTool:
         })
         
         try:
-            # 对用户输入进行简单清理，防止注入
+            # 对用户输入进行简单清理，防止基本注入攻击
+            # 注意：这不能防止所有类型的prompt注入，仅作为基本防护
             cleaned_query = user_query.replace('"', '\\"').replace('\n', ' ').strip()
             if len(cleaned_query) > 500:  # 限制查询长度
                 cleaned_query = cleaned_query[:500]
@@ -92,9 +98,23 @@ class AgentVisionTool:
             }
             
             # 从环境变量读取配置或使用默认值
-            llm_temperature = float(os.getenv('VISION_LLM_TEMPERATURE', '0.3'))
-            llm_max_tokens = int(os.getenv('VISION_LLM_MAX_TOKENS', '10'))
-            llm_timeout = int(os.getenv('VISION_LLM_TIMEOUT', '10'))
+            try:
+                llm_temperature = float(os.getenv('VISION_LLM_TEMPERATURE', '0.3'))
+            except ValueError:
+                llm_temperature = 0.3
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_TEMPERATURE，使用默认值0.3')
+            
+            try:
+                llm_max_tokens = int(os.getenv('VISION_LLM_MAX_TOKENS', '10'))
+            except ValueError:
+                llm_max_tokens = 10
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_MAX_TOKENS，使用默认值10')
+            
+            try:
+                llm_timeout = int(os.getenv('VISION_LLM_TIMEOUT', '10'))
+            except ValueError:
+                llm_timeout = 10
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_TIMEOUT，使用默认值10')
             
             payload = {
                 'model': self.model_name,
@@ -121,6 +141,7 @@ class AgentVisionTool:
             if 'choices' in result and len(result['choices']) > 0:
                 answer = result['choices'][0]['message']['content'].strip()
                 # 更精确的判断：完全匹配"是"或以"是"开头
+                # 注意：此判断逻辑仅适用于中文，国际化时需要修改
                 needs_vision = (answer == '是' or answer.startswith('是，') or answer.startswith('是。'))
                 
                 debug_logger.log_info('AgentVisionTool', 'LLM判断完成', {
