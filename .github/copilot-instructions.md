@@ -45,6 +45,8 @@ Neo Agent is an intelligent conversation agent system based on LangChain, suppor
 - **Docstrings**: Use Chinese for detailed docstrings explaining functionality
 - Example:
   ```python
+  from typing import List, Dict, Any
+  
   def analyze_emotion(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
       """
       分析情感关系
@@ -227,10 +229,13 @@ DEBUG_LOG_FILE=debug.log
 
 ## Vision System
 
-- LLM-based semantic understanding for vision needs
-- Keyword matching as fallback mechanism
-- Environment description simulates visual perception
-- Intelligently determines when context information is needed
+The `agent_vision.py` module provides intelligent environment perception:
+
+- **LLM-based semantic understanding**: Uses LLM to analyze user queries and determine if environment information is needed (e.g., "你在哪？" / "Where are you?")
+- **Keyword matching fallback**: When LLM is unavailable, falls back to keyword matching for common phrases
+- **Environment description simulation**: Provides textual environment descriptions to simulate visual perception without actual image processing
+- **Intelligent context detection**: Automatically identifies both explicit and implicit requests for environmental information
+- **Configurable parameters**: Vision LLM temperature, max tokens, and timeout can be configured via environment variables
 
 ## Multi-Agent System
 
