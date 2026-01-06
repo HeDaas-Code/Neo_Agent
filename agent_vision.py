@@ -67,10 +67,15 @@ class AgentVisionTool:
         })
         
         try:
+            # 对用户输入进行简单清理，防止注入
+            cleaned_query = user_query.replace('"', '\\"').replace('\n', ' ').strip()
+            if len(cleaned_query) > 500:  # 限制查询长度
+                cleaned_query = cleaned_query[:500]
+            
             # 构建判断提示词
             judge_prompt = f"""请判断以下用户问题是否需要智能体观察周围环境才能回答。
 
-用户问题：{user_query}
+用户问题："{cleaned_query}"
 
 需要观察环境的情况包括但不限于：
 1. 询问智能体的位置或所在地（如：你在哪？你在哪里？）
@@ -86,14 +91,19 @@ class AgentVisionTool:
                 'Content-Type': 'application/json'
             }
             
+            # 从环境变量读取配置或使用默认值
+            llm_temperature = float(os.getenv('VISION_LLM_TEMPERATURE', '0.3'))
+            llm_max_tokens = int(os.getenv('VISION_LLM_MAX_TOKENS', '10'))
+            llm_timeout = int(os.getenv('VISION_LLM_TIMEOUT', '10'))
+            
             payload = {
                 'model': self.model_name,
                 'messages': [
                     {'role': 'system', 'content': '你是一个智能判断助手，负责判断用户问题是否需要观察环境。'},
                     {'role': 'user', 'content': judge_prompt}
                 ],
-                'temperature': 0.3,  # 使用较低的temperature以获得更稳定的判断
-                'max_tokens': 10
+                'temperature': llm_temperature,
+                'max_tokens': llm_max_tokens
             }
             
             debug_logger.log_info('AgentVisionTool', '发送LLM判断请求')
@@ -102,7 +112,7 @@ class AgentVisionTool:
                 self.api_url,
                 headers=headers,
                 json=payload,
-                timeout=10
+                timeout=llm_timeout
             )
             
             response.raise_for_status()
@@ -110,7 +120,8 @@ class AgentVisionTool:
             
             if 'choices' in result and len(result['choices']) > 0:
                 answer = result['choices'][0]['message']['content'].strip()
-                needs_vision = '是' in answer
+                # 更精确的判断：完全匹配"是"或以"是"开头
+                needs_vision = (answer == '是' or answer.startswith('是，') or answer.startswith('是。'))
                 
                 debug_logger.log_info('AgentVisionTool', 'LLM判断完成', {
                     'query': user_query,
@@ -121,12 +132,25 @@ class AgentVisionTool:
                 return needs_vision
             else:
                 debug_logger.log_info('AgentVisionTool', 'LLM响应无效，回退到关键词匹配')
-                return self.should_use_vision_keyword(user_query)
+                return self._fallback_to_keyword(user_query)
                 
         except Exception as e:
             debug_logger.log_error('AgentVisionTool', f'LLM判断失败: {str(e)}', e)
             # 如果LLM调用失败，回退到关键词匹配
-            return self.should_use_vision_keyword(user_query)
+            return self._fallback_to_keyword(user_query)
+
+    def _fallback_to_keyword(self, user_query: str) -> bool:
+        """
+        回退到关键词匹配（内部方法）
+        
+        Args:
+            user_query: 用户查询
+            
+        Returns:
+            是否需要使用视觉
+        """
+        debug_logger.log_info('AgentVisionTool', '使用关键词匹配作为后备方案')
+        return self.should_use_vision_keyword(user_query)
 
     def should_use_vision_keyword(self, user_query: str) -> bool:
         """
