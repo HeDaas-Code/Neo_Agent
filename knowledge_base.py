@@ -167,9 +167,11 @@ class KnowledgeBase:
                                    info_content: str = '',
                                    info_type: str = '相关信息',
                                    source: str = '',
-                                   confidence: float = 0.8) -> Optional[str]:
+                                   confidence: float = 0.8,
+                                   status: str = '疑似') -> Optional[str]:
         """
         为主体添加相关信息（不限数量，使用数据库）
+        新添加的信息默认标记为"疑似"状态
 
         Args:
             entity_uuid: 主体UUID（优先使用）
@@ -178,6 +180,7 @@ class KnowledgeBase:
             info_type: 信息类型
             source: 来源
             confidence: 置信度（相关信息的置信度低于定义）
+            status: 状态（疑似/确认），默认为"疑似"
 
         Returns:
             信息UUID，失败返回None
@@ -196,13 +199,14 @@ class KnowledgeBase:
             print(f"✗ 主体UUID {entity_uuid} 不存在")
             return None
 
-        # 添加相关信息到数据库
+        # 添加相关信息到数据库（包含状态字段）
         info_uuid = self.db.add_entity_related_info(
             entity_uuid=entity_uuid,
             content=info_content,
             type_=info_type,
             source=source,
-            confidence=confidence
+            confidence=confidence,
+            status=status
         )
 
         return info_uuid
@@ -282,16 +286,28 @@ class KnowledgeBase:
                         'created_at': definition['created_at']
                     })
 
-                # 添加相关信息（第三优先级，只取最新的几条）
+                # 添加相关信息（第三优先级，优先确认状态的知识）
                 related_infos = self.db.get_entity_related_info(entity_uuid)
-                # 按创建时间降序排序，取最新的3条
-                related_infos_sorted = sorted(related_infos, key=lambda x: x.get('created_at', ''), reverse=True)
+                
+                # 分离确认和疑似的知识
+                confirmed = [i for i in related_infos if i.get('status') == DatabaseManager.STATUS_CONFIRMED]
+                suspected = [i for i in related_infos if i.get('status') != DatabaseManager.STATUS_CONFIRMED]
+                
+                # 确认的按时间倒序，疑似的也按时间倒序
+                confirmed.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                suspected.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+                
+                # 合并：确认的在前，疑似的在后，取前3条
+                related_infos_sorted = confirmed + suspected
+                
                 for info in related_infos_sorted[:3]:
                     knowledge_items.append({
                         'entity_name': entity['name'],
                         'type': info['type'],
                         'content': info['content'],
                         'confidence': info['confidence'],
+                        'status': info.get('status', '疑似'),
+                        'mention_count': info.get('mention_count', 1),
                         'priority': 2,
                         'created_at': info['created_at']
                     })
@@ -407,8 +423,8 @@ class KnowledgeBase:
     def extract_knowledge(self, messages: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
         """
         从最近的对话中提取知识
-        提取主体、定义和相关信息的结构化知识
-
+        只从用户的语句中提取信息，不从助手的回复中提取
+        
         Args:
             messages: 最近5轮的对话消息列表
 
@@ -416,22 +432,28 @@ class KnowledgeBase:
             提取的知识列表，每个知识包含entity(主体)、is_definition(是否为定义)、content等
         """
         try:
-            # 构建对话文本
-            conversation_text = ""
-            for msg in messages:
-                role_name = "用户" if msg['role'] == 'user' else "助手"
-                conversation_text += f"{role_name}: {msg['content']}\n"
+            # 只提取用户消息
+            user_messages = [msg for msg in messages if msg.get('role') == 'user']
+            
+            if not user_messages:
+                print("○ 没有用户消息，无法提取知识")
+                return None
+            
+            # 构建用户对话文本
+            user_text = ""
+            for msg in user_messages:
+                user_text += f"用户: {msg['content']}\n"
 
-            # 构建知识提取请求（新版提示词，关注主体-定义-信息结构）
-            extraction_prompt = f"""请从以下对话中提取用户提到的关键信息和知识点。
+            # 构建知识提取请求（新版提示词，只关注用户的陈述）
+            extraction_prompt = f"""请从以下用户的语句中提取关键信息和知识点。
 
 重要要求：
-1. 识别对话中的**主体**（entity）：如人名、物品名、概念名等
-2. 对每个主体，区分以下两类信息：
+1. **只提取用户明确陈述的信息**，不要推断或假设
+2. 识别用户提到的**主体**（entity）：如人名、物品名、概念名等
+3. 对每个主体，区分以下两类信息：
    - **定义**（definition）：主体的核心定义、本质属性（如"是什么"）
-   - **相关信息**（related_info）：主体的其他属性、特征、用途等（不限数量）
-3. 每个主体只应有一个定义，如果对话中有冲突的定义，以最新的为准
-4. 如果用户纠正了之前的错误信息，标记old_info_correction=true
+   - **相关信息**（related_info）：主体的其他属性、特征、用途、偏好等（不限数量）
+4. 每个主体只应有一个定义，如果用户多次提到冲突的定义，以最新的为准
 5. 知识类型包括：个人信息、偏好、事实、经历、观点、定义等
 6. 只提取明确的、有价值的信息，避免重复和模糊的内容
 7. 如果没有值得记录的知识，返回空列表
@@ -443,14 +465,13 @@ class KnowledgeBase:
     "is_definition": true,
     "content": "定义内容或相关信息内容",
     "type": "知识类型",
-    "source": "来源概述",
-    "confidence": 0.9,
-    "is_correction": false
+    "source": "用户陈述",
+    "confidence": 0.9
   }}
 ]
 
-对话内容：
-{conversation_text}
+用户语句：
+{user_text}
 
 请提取知识点（只返回JSON数组）："""
 
@@ -462,7 +483,7 @@ class KnowledgeBase:
             payload = {
                 'model': self.model_name,
                 'messages': [
-                    {'role': 'system', 'content': '你是一个专业的知识提取助手，擅长识别主体、定义和相关信息。你只返回JSON格式的数据，不添加任何解释。'},
+                    {'role': 'system', 'content': '你是一个专业的知识提取助手，擅长从用户的陈述中识别主体、定义和相关信息。你只从用户明确说出的内容中提取信息，不进行推断。你只返回JSON格式的数据，不添加任何解释。'},
                     {'role': 'user', 'content': extraction_prompt}
                 ],
                 'temperature': 0.3,
@@ -677,6 +698,8 @@ class KnowledgeBase:
                     'type': info['type'],
                     'source': info.get('source', ''),
                     'confidence': info['confidence'],
+                    'status': info.get('status', '疑似'),
+                    'mention_count': info.get('mention_count', 1),
                     'is_definition': False,
                     'created_at': info['created_at'],
                     'updated_at': info.get('created_at')
@@ -747,6 +770,16 @@ class KnowledgeBase:
 
         # 获取数据库统计
         db_stats = self.db.get_statistics()
+        
+        # 统计知识状态分布（仅对相关信息）
+        status_counts = {
+            DatabaseManager.STATUS_SUSPECTED: 0,
+            DatabaseManager.STATUS_CONFIRMED: 0
+        }
+        for item in all_knowledge:
+            if not item.get('is_definition', False):
+                status = item.get('status', DatabaseManager.STATUS_SUSPECTED)
+                status_counts[status] = status_counts.get(status, 0) + 1
 
         return {
             'total_entities': db_stats['entities_count'],
@@ -760,6 +793,7 @@ class KnowledgeBase:
                 'medium (0.7-0.9)': medium_confidence,
                 'low (<0.7)': low_confidence
             },
+            'status_distribution': status_counts,
             'database_size_kb': db_stats.get('db_size_kb', 0)
         }
 
