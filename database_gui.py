@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
 from typing import Dict, Any, List
 from database_manager import DatabaseManager
+from tooltip_utils import create_treeview_tooltip
 
 
 class DatabaseManagerGUI:
@@ -30,6 +31,11 @@ class DatabaseManagerGUI:
         self.auto_refresh_enabled = True
         self.refresh_interval = 2000  # 默认2秒刷新一次
         self.refresh_job = None
+        
+        # 数据缓存（用于tooltip性能优化）
+        self._base_facts_cache = None
+        self._entities_cache = {}
+        self._emotions_cache = None
 
         # 创建界面
         self.create_widgets()
@@ -149,18 +155,18 @@ class DatabaseManagerGUI:
             xscrollcommand=scrollbar_x.set
         )
 
-        # 配置列
+        # 配置列 - 优化列宽
         self.base_tree.heading("entity", text="实体名称")
         self.base_tree.heading("content", text="内容")
         self.base_tree.heading("category", text="分类")
         self.base_tree.heading("confidence", text="置信度")
         self.base_tree.heading("created", text="创建时间")
 
-        self.base_tree.column("entity", width=120)
-        self.base_tree.column("content", width=300)
-        self.base_tree.column("category", width=100)
-        self.base_tree.column("confidence", width=80)
-        self.base_tree.column("created", width=150)
+        self.base_tree.column("entity", width=150, minwidth=100, stretch=False)
+        self.base_tree.column("content", width=400, minwidth=200, stretch=True)
+        self.base_tree.column("category", width=100, minwidth=80, stretch=False)
+        self.base_tree.column("confidence", width=80, minwidth=70, stretch=False)
+        self.base_tree.column("created", width=160, minwidth=140, stretch=False)
 
         scrollbar_y.config(command=self.base_tree.yview)
         scrollbar_x.config(command=self.base_tree.xview)
@@ -175,6 +181,30 @@ class DatabaseManagerGUI:
 
         # 双击编辑
         self.base_tree.bind("<Double-1>", lambda e: self.edit_base_knowledge())
+        
+        # 添加鼠标悬停提示
+        def get_base_tooltip(item_id, values, tags):
+            """获取基础知识的工具提示文本"""
+            if not tags:
+                return None
+            
+            fact_id = tags[0]
+            # 使用缓存的数据，避免每次悬停都查询数据库
+            if self._base_facts_cache is None:
+                self._base_facts_cache = self.db.get_all_base_facts()
+            
+            fact = next((f for f in self._base_facts_cache if f['id'] == fact_id), None)
+            
+            if fact:
+                tooltip_text = f"实体名称: {fact['entity_name']}\n"
+                tooltip_text += f"分类: {fact['category']}\n"
+                tooltip_text += f"置信度: {fact['confidence']:.2f}\n"
+                tooltip_text += f"创建时间: {fact['created_at'][:19] if fact.get('created_at') else 'N/A'}\n"
+                tooltip_text += f"\n完整内容:\n{fact['content']}"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.base_tree, get_base_tooltip)
 
     def create_entities_tab(self):
         """
@@ -220,11 +250,11 @@ class DatabaseManagerGUI:
         self.entity_tree.heading("created", text="创建时间")
         self.entity_tree.heading("updated", text="更新时间")
 
-        self.entity_tree.column("name", width=200)
-        self.entity_tree.column("has_def", width=80)
-        self.entity_tree.column("info_count", width=100)
-        self.entity_tree.column("created", width=150)
-        self.entity_tree.column("updated", width=150)
+        self.entity_tree.column("name", width=250, minwidth=150, stretch=True)
+        self.entity_tree.column("has_def", width=80, minwidth=60, stretch=False)
+        self.entity_tree.column("info_count", width=110, minwidth=90, stretch=False)
+        self.entity_tree.column("created", width=160, minwidth=140, stretch=False)
+        self.entity_tree.column("updated", width=160, minwidth=140, stretch=False)
 
         scrollbar_y.config(command=self.entity_tree.yview)
         scrollbar_x.config(command=self.entity_tree.xview)
@@ -238,6 +268,35 @@ class DatabaseManagerGUI:
 
         # 双击查看详情
         self.entity_tree.bind("<Double-1>", lambda e: self.view_entity_detail())
+        
+        # 添加鼠标悬停提示
+        def get_entity_tooltip(item_id, values, tags):
+            """获取实体的工具提示文本"""
+            if not tags:
+                return None
+            
+            entity_uuid = tags[0]
+            # 使用缓存避免重复查询
+            if entity_uuid not in self._entities_cache:
+                entity = self.db.get_entity_by_uuid(entity_uuid)
+                definition = self.db.get_entity_definition(entity_uuid)
+                self._entities_cache[entity_uuid] = (entity, definition)
+            else:
+                entity, definition = self._entities_cache[entity_uuid]
+            
+            if entity:
+                tooltip_text = f"实体名称: {entity['name']}\n"
+                tooltip_text += f"UUID: {entity['uuid']}\n"
+                tooltip_text += f"创建时间: {entity['created_at'][:19]}\n"
+                tooltip_text += f"更新时间: {entity['updated_at'][:19]}\n"
+                
+                if definition:
+                    tooltip_text += f"\n定义:\n{definition['content'][:200]}{'...' if len(definition['content']) > 200 else ''}"
+                
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.entity_tree, get_entity_tooltip)
 
     def create_short_term_tab(self):
         """
@@ -337,10 +396,10 @@ class DatabaseManagerGUI:
         self.emotion_tree.heading("score", text="总评分")
         self.emotion_tree.heading("created", text="分析时间")
 
-        self.emotion_tree.column("relationship", width=150)
-        self.emotion_tree.column("tone", width=150)
-        self.emotion_tree.column("score", width=80)
-        self.emotion_tree.column("created", width=180)
+        self.emotion_tree.column("relationship", width=180, minwidth=120, stretch=True)
+        self.emotion_tree.column("tone", width=180, minwidth=120, stretch=True)
+        self.emotion_tree.column("score", width=100, minwidth=80, stretch=False)
+        self.emotion_tree.column("created", width=180, minwidth=150, stretch=False)
 
         scrollbar_y.config(command=self.emotion_tree.yview)
 
@@ -352,6 +411,35 @@ class DatabaseManagerGUI:
 
         # 双击查看详情
         self.emotion_tree.bind("<Double-1>", lambda e: self.view_emotion_detail())
+        
+        # 添加鼠标悬停提示
+        def get_emotion_tooltip(item_id, values, tags):
+            """获取情感分析的工具提示文本"""
+            if not tags:
+                return None
+            
+            emotion_uuid = tags[0]
+            # 使用缓存的情感历史数据
+            if self._emotions_cache is None:
+                self._emotions_cache = self.db.get_emotion_history()
+            
+            emotion = next((e for e in self._emotions_cache if e['uuid'] == emotion_uuid), None)
+            
+            if emotion:
+                tooltip_text = f"关系类型: {emotion.get('relationship_type', '未知')}\n"
+                tooltip_text += f"情感基调: {emotion.get('emotional_tone', '未知')}\n"
+                tooltip_text += f"总评分: {emotion.get('overall_score', 0)}/100\n"
+                tooltip_text += f"分析时间: {emotion['created_at'][:19]}\n"
+                tooltip_text += f"\n五维度评分:\n"
+                tooltip_text += f"• 亲密度: {emotion.get('intimacy', 0)}/100\n"
+                tooltip_text += f"• 信任度: {emotion.get('trust', 0)}/100\n"
+                tooltip_text += f"• 愉悦度: {emotion.get('pleasure', 0)}/100\n"
+                tooltip_text += f"• 共鸣度: {emotion.get('resonance', 0)}/100\n"
+                tooltip_text += f"• 依赖度: {emotion.get('dependence', 0)}/100"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.emotion_tree, get_emotion_tooltip)
 
     # ==================== 刷新方法 ====================
 
@@ -380,6 +468,9 @@ class DatabaseManagerGUI:
 
     def refresh_base_knowledge(self):
         """刷新基础知识列表"""
+        # 清空缓存
+        self._base_facts_cache = None
+        
         # 保存当前选中项
         selected_items = self.base_tree.selection()
         selected_ids = []
@@ -392,8 +483,9 @@ class DatabaseManagerGUI:
         for item in self.base_tree.get_children():
             self.base_tree.delete(item)
 
-        # 获取所有基础知识
+        # 获取所有基础知识并更新缓存
         base_facts = self.db.get_all_base_facts()
+        self._base_facts_cache = base_facts
 
         # 应用搜索过滤
         search_text = self.base_search_var.get().lower()
@@ -416,6 +508,9 @@ class DatabaseManagerGUI:
 
     def refresh_entities(self):
         """刷新实体列表"""
+        # 清空缓存
+        self._entities_cache = {}
+        
         # 保存当前选中项
         selected_items = self.entity_tree.selection()
         selected_uuids = []
@@ -441,6 +536,9 @@ class DatabaseManagerGUI:
             # 获取定义和相关信息
             definition = self.db.get_entity_definition(entity['uuid'])
             related_info = self.db.get_entity_related_info(entity['uuid'])
+            
+            # 预填充缓存以提高tooltip性能
+            self._entities_cache[entity['uuid']] = (entity, definition)
 
             item_id = self.entity_tree.insert("", "end", values=(
                 entity['name'],
@@ -503,12 +601,16 @@ class DatabaseManagerGUI:
 
     def refresh_emotion(self):
         """刷新情感分析历史"""
+        # 清空缓存
+        self._emotions_cache = None
+        
         # 清空现有项
         for item in self.emotion_tree.get_children():
             self.emotion_tree.delete(item)
 
-        # 获取情感分析历史
+        # 获取情感分析历史并更新缓存
         emotions = self.db.get_emotion_history()
+        self._emotions_cache = emotions
         self.emotion_count_label.config(text=f"分析数: {len(emotions)}")
 
         for emotion in emotions:
@@ -783,4 +885,6 @@ class DatabaseManagerGUI:
             if messagebox.askyesno("二次确认", "真的确定要清空所有数据吗？", icon='warning'):
                 # 这里需要实现清空所有数据的功能
                 messagebox.showinfo("提示", "清空所有数据功能需要在DatabaseManager中实现。")
+    
+
 
