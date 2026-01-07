@@ -13,12 +13,18 @@ docs/
 │   ├── ARCHITECTURE_EVENT_SYSTEM.md  # 事件系统架构图
 │   ├── DEVELOPMENT.md      # 开发指南
 │   ├── EVENT_SYSTEM.md     # 事件系统使用文档
+│   ├── IMPLEMENTATION_SUMMARY.md  # 实现总结
+│   ├── KNOWLEDGE_STATUS_SYSTEM.md  # 知识状态系统
 │   └── QUICKSTART.md       # 快速开始指南
 │
 └── en/                 # 英文文档 / English Documentation
     ├── API.md              # API Documentation
     ├── ARCHITECTURE.md     # Architecture Design
+    ├── ARCHITECTURE_EVENT_SYSTEM.md  # Event System Architecture
     ├── DEVELOPMENT.md      # Development Guide
+    ├── EVENT_SYSTEM.md     # Event System Documentation
+    ├── IMPLEMENTATION_SUMMARY.md  # Implementation Summary
+    ├── KNOWLEDGE_STATUS_SYSTEM.md  # Knowledge Status System
     └── QUICKSTART.md       # Quick Start Guide
 ```
 
@@ -38,6 +44,8 @@ docs/
 
 - **[事件系统文档](zh-cn/EVENT_SYSTEM.md)** - 事件驱动模块使用指南
 - **[事件系统架构](zh-cn/ARCHITECTURE_EVENT_SYSTEM.md)** - 事件系统架构图和设计
+- **[实现总结](zh-cn/IMPLEMENTATION_SUMMARY.md)** - 事件系统实现总结
+- **[知识状态系统](zh-cn/KNOWLEDGE_STATUS_SYSTEM.md)** - 知识状态管理
 
 ## 📖 English Documentation
 
@@ -50,6 +58,13 @@ docs/
 
 - **[Development Guide](en/DEVELOPMENT.md)** - Project structure, workflow and best practices
 - **[Architecture Design](en/ARCHITECTURE.md)** - System architecture and design principles
+
+### Advanced Features
+
+- **[Event System Documentation](en/EVENT_SYSTEM.md)** - Event-driven module usage guide
+- **[Event System Architecture](en/ARCHITECTURE_EVENT_SYSTEM.md)** - Event system architecture diagrams
+- **[Implementation Summary](en/IMPLEMENTATION_SUMMARY.md)** - Event system implementation summary
+- **[Knowledge Status System](en/KNOWLEDGE_STATUS_SYSTEM.md)** - Knowledge status management
 
 ## 🔗 相关链接 / Related Links
 
@@ -82,4 +97,4 @@ Documentation is licensed under MIT License.
 
 ---
 
-最后更新 / Last Updated: 2025-01-19
+最后更新 / Last Updated: 2025-01-07
