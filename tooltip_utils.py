@@ -85,7 +85,7 @@ class ToolTip:
             relief=tk.SOLID,
             borderwidth=1,
             wraplength=self.wraplength,
-            font=("微软雅黑", 9),
+            font=("微软雅黑", "Arial", "Helvetica", 9),  # 字体fallback列表
             padx=5,
             pady=3
         )
@@ -114,17 +114,57 @@ def create_treeview_tooltip(tree, get_tooltip_text_func):
         绑定的事件ID
     """
     tooltip_window = None
+    last_item = None
+    show_timer = None
     
-    def on_motion(event):
+    def hide_tooltip():
+        """隐藏tooltip窗口"""
         nonlocal tooltip_window
-        
-        # 隐藏旧的提示
         if tooltip_window:
             tooltip_window.destroy()
             tooltip_window = None
+    
+    def show_tooltip(item, tooltip_text, x, y):
+        """显示tooltip窗口"""
+        nonlocal tooltip_window
+        
+        hide_tooltip()
+        
+        # 创建提示窗口
+        tooltip_window = tw = tk.Toplevel(tree)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        # 创建标签
+        label = tk.Label(
+            tw,
+            text=tooltip_text,
+            justify=tk.LEFT,
+            background="#ffffe0",
+            foreground="#000000",
+            relief=tk.SOLID,
+            borderwidth=1,
+            wraplength=400,
+            font=("微软雅黑", "Arial", "Helvetica", 9),  # 字体fallback列表
+            padx=5,
+            pady=3
+        )
+        label.pack()
+    
+    def on_motion(event):
+        nonlocal last_item, show_timer
         
         # 获取鼠标所在的行
         item = tree.identify_row(event.y)
+        
+        # 如果移动到不同的行，取消之前的定时器
+        if item != last_item:
+            if show_timer:
+                tree.after_cancel(show_timer)
+                show_timer = None
+            hide_tooltip()
+            last_item = item
+        
         if not item:
             return
         
@@ -140,36 +180,22 @@ def create_treeview_tooltip(tree, get_tooltip_text_func):
         if not tooltip_text:
             return
         
-        # 创建提示窗口
-        tooltip_window = tw = tk.Toplevel(tree)
-        tw.wm_overrideredirect(True)
-        
-        # 计算位置
-        x = event.x_root + 10
-        y = event.y_root + 10
-        tw.wm_geometry(f"+{x}+{y}")
-        
-        # 创建标签
-        label = tk.Label(
-            tw,
-            text=tooltip_text,
-            justify=tk.LEFT,
-            background="#ffffe0",
-            foreground="#000000",
-            relief=tk.SOLID,
-            borderwidth=1,
-            wraplength=400,
-            font=("微软雅黑", 9),
-            padx=5,
-            pady=3
-        )
-        label.pack()
+        # 如果还没有定时器，设置一个
+        if not show_timer:
+            x = event.x_root + 10
+            y = event.y_root + 10
+            show_timer = tree.after(
+                800,  # 延迟800ms
+                lambda: show_tooltip(item, tooltip_text, x, y)
+            )
     
     def on_leave(event):
-        nonlocal tooltip_window
-        if tooltip_window:
-            tooltip_window.destroy()
-            tooltip_window = None
+        nonlocal show_timer, last_item
+        if show_timer:
+            tree.after_cancel(show_timer)
+            show_timer = None
+        hide_tooltip()
+        last_item = None
     
     # 绑定事件
     tree.bind('<Motion>', on_motion)
