@@ -76,6 +76,12 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         
         # 创建标签
+        # 尝试使用微软雅黑字体，如果不可用则使用系统默认字体
+        try:
+            label_font = ("微软雅黑", 9)
+        except:
+            label_font = ("Arial", 9)
+        
         label = tk.Label(
             tw,
             text=self.text,
@@ -85,7 +91,7 @@ class ToolTip:
             relief=tk.SOLID,
             borderwidth=1,
             wraplength=self.wraplength,
-            font=("微软雅黑", "Arial", "Helvetica", 9),  # 字体fallback列表
+            font=label_font,
             padx=5,
             pady=3
         )
@@ -136,6 +142,12 @@ def create_treeview_tooltip(tree, get_tooltip_text_func):
         tw.wm_geometry(f"+{x}+{y}")
         
         # 创建标签
+        # 尝试使用微软雅黑字体，如果不可用则使用系统默认字体
+        try:
+            label_font = ("微软雅黑", 9)
+        except:
+            label_font = ("Arial", 9)
+        
         label = tk.Label(
             tw,
             text=tooltip_text,
@@ -145,7 +157,7 @@ def create_treeview_tooltip(tree, get_tooltip_text_func):
             relief=tk.SOLID,
             borderwidth=1,
             wraplength=400,
-            font=("微软雅黑", "Arial", "Helvetica", 9),  # 字体fallback列表
+            font=label_font,
             padx=5,
             pady=3
         )

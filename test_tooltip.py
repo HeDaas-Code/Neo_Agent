@@ -22,7 +22,7 @@ def main():
     frame.pack(fill=tk.BOTH, expand=True)
     
     # 测试标签
-    label1 = ttk.Label(frame, text="悬停此处查看长文本", font=("微软雅黑", "Arial", "Helvetica", 12))
+    label1 = ttk.Label(frame, text="悬停此处查看长文本", font=("微软雅黑", 12))
     label1.pack(pady=10)
     ToolTip(label1, "这是一个很长的文本，用于测试工具提示功能。当鼠标悬停在控件上时，应该会显示这段完整的文本内容。这个功能对于显示那些在界面上被截断的文本特别有用。", delay=500, wraplength=400)
     

@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
 from typing import Dict, Any, List
 from database_manager import DatabaseManager
-from tooltip_utils import ToolTip, create_treeview_tooltip
+from tooltip_utils import create_treeview_tooltip
 
 
 class DatabaseManagerGUI:
@@ -31,6 +31,11 @@ class DatabaseManagerGUI:
         self.auto_refresh_enabled = True
         self.refresh_interval = 2000  # 默认2秒刷新一次
         self.refresh_job = None
+        
+        # 数据缓存（用于tooltip性能优化）
+        self._base_facts_cache = None
+        self._entities_cache = {}
+        self._emotions_cache = None
 
         # 创建界面
         self.create_widgets()
@@ -184,8 +189,11 @@ class DatabaseManagerGUI:
                 return None
             
             fact_id = tags[0]
-            base_facts = self.db.get_all_base_facts()
-            fact = next((f for f in base_facts if f['id'] == fact_id), None)
+            # 使用缓存的数据，避免每次悬停都查询数据库
+            if self._base_facts_cache is None:
+                self._base_facts_cache = self.db.get_all_base_facts()
+            
+            fact = next((f for f in self._base_facts_cache if f['id'] == fact_id), None)
             
             if fact:
                 tooltip_text = f"实体名称: {fact['entity_name']}\n"
@@ -268,8 +276,13 @@ class DatabaseManagerGUI:
                 return None
             
             entity_uuid = tags[0]
-            entity = self.db.get_entity_by_uuid(entity_uuid)
-            definition = self.db.get_entity_definition(entity_uuid)
+            # 使用缓存避免重复查询
+            if entity_uuid not in self._entities_cache:
+                entity = self.db.get_entity_by_uuid(entity_uuid)
+                definition = self.db.get_entity_definition(entity_uuid)
+                self._entities_cache[entity_uuid] = (entity, definition)
+            else:
+                entity, definition = self._entities_cache[entity_uuid]
             
             if entity:
                 tooltip_text = f"实体名称: {entity['name']}\n"
@@ -406,8 +419,11 @@ class DatabaseManagerGUI:
                 return None
             
             emotion_uuid = tags[0]
-            emotions = self.db.get_emotion_history()
-            emotion = next((e for e in emotions if e['uuid'] == emotion_uuid), None)
+            # 使用缓存的情感历史数据
+            if self._emotions_cache is None:
+                self._emotions_cache = self.db.get_emotion_history()
+            
+            emotion = next((e for e in self._emotions_cache if e['uuid'] == emotion_uuid), None)
             
             if emotion:
                 tooltip_text = f"关系类型: {emotion.get('relationship_type', '未知')}\n"
@@ -452,6 +468,9 @@ class DatabaseManagerGUI:
 
     def refresh_base_knowledge(self):
         """刷新基础知识列表"""
+        # 清空缓存
+        self._base_facts_cache = None
+        
         # 保存当前选中项
         selected_items = self.base_tree.selection()
         selected_ids = []
@@ -464,8 +483,9 @@ class DatabaseManagerGUI:
         for item in self.base_tree.get_children():
             self.base_tree.delete(item)
 
-        # 获取所有基础知识
+        # 获取所有基础知识并更新缓存
         base_facts = self.db.get_all_base_facts()
+        self._base_facts_cache = base_facts
 
         # 应用搜索过滤
         search_text = self.base_search_var.get().lower()
@@ -488,6 +508,9 @@ class DatabaseManagerGUI:
 
     def refresh_entities(self):
         """刷新实体列表"""
+        # 清空缓存
+        self._entities_cache = {}
+        
         # 保存当前选中项
         selected_items = self.entity_tree.selection()
         selected_uuids = []
@@ -513,6 +536,9 @@ class DatabaseManagerGUI:
             # 获取定义和相关信息
             definition = self.db.get_entity_definition(entity['uuid'])
             related_info = self.db.get_entity_related_info(entity['uuid'])
+            
+            # 预填充缓存以提高tooltip性能
+            self._entities_cache[entity['uuid']] = (entity, definition)
 
             item_id = self.entity_tree.insert("", "end", values=(
                 entity['name'],
@@ -575,12 +601,16 @@ class DatabaseManagerGUI:
 
     def refresh_emotion(self):
         """刷新情感分析历史"""
+        # 清空缓存
+        self._emotions_cache = None
+        
         # 清空现有项
         for item in self.emotion_tree.get_children():
             self.emotion_tree.delete(item)
 
-        # 获取情感分析历史
+        # 获取情感分析历史并更新缓存
         emotions = self.db.get_emotion_history()
+        self._emotions_cache = emotions
         self.emotion_count_label.config(text=f"分析数: {len(emotions)}")
 
         for emotion in emotions:
