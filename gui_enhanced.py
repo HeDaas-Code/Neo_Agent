@@ -1775,7 +1775,7 @@ class EnhancedChatDebugGUI:
             return
 
         stats = self.agent.get_memory_stats()
-        base_kb_count = stats['knowledge_base'].get('base_knowledge_facts', 0)
+        base_kb_count = stats['knowledge_base'].get('total_base_knowledge', 0)
         
         # 优化状态文本，更紧凑
         status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识: {stats['knowledge_base']['total_knowledge']}条"
@@ -1787,11 +1787,11 @@ class EnhancedChatDebugGUI:
         # 添加完整信息工具提示
         full_info = f"短期记忆:\n"
         full_info += f"  - 对话轮数: {stats['short_term']['rounds']}\n"
-        full_info += f"  - 消息数量: {stats['short_term']['message_count']}\n\n"
+        full_info += f"  - 消息数量: {stats['short_term']['total_messages']}\n\n"
         full_info += f"长期记忆:\n"
         full_info += f"  - 主题概括: {stats['long_term']['total_summaries']} 个\n"
-        full_info += f"  - 总轮数: {stats['long_term']['total_rounds']}\n"
-        full_info += f"  - 总消息: {stats['long_term']['total_messages']}\n\n"
+        full_info += f"  - 总轮数: {stats['long_term']['total_archived_rounds']}\n"
+        full_info += f"  - 总消息: {stats['long_term']['total_archived_messages']}\n\n"
         full_info += f"知识库:\n"
         full_info += f"  - 普通知识: {stats['knowledge_base']['total_knowledge']} 条\n"
         full_info += f"  - 基础知识: {base_kb_count} 条\n"
