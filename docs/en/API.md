@@ -589,7 +589,7 @@ Add agent personalized expression.
 expr_uuid = manager.add_agent_expression(
     expression: str,    # Expression (e.g., 'wc', 'hhh')
     meaning: str,       # Meaning description
-    category: str = "通用"  # Category
+    category: str = "General"  # Category
 ) -> str
 ```
 
