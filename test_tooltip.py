@@ -5,10 +5,11 @@
 import tkinter as tk
 from tkinter import ttk
 import sys
+import os
 
-# 从gui_enhanced导入ToolTip
-sys.path.insert(0, '/home/runner/work/Neo_Agent/Neo_Agent')
-from gui_enhanced import ToolTip
+# 使用相对路径导入
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tooltip_utils import ToolTip
 
 def main():
     """测试Tooltip功能"""

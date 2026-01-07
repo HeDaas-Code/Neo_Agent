@@ -7,101 +7,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
 from typing import Dict, Any, List
 from database_manager import DatabaseManager
-
-
-class ToolTip:
-    """
-    工具提示类
-    在鼠标悬浮时显示完整文本
-    """
-    def __init__(self, widget, text='', delay=500, wraplength=400):
-        """
-        初始化工具提示
-        
-        Args:
-            widget: 要绑定的控件
-            text: 提示文本
-            delay: 延迟显示时间（毫秒）
-            wraplength: 文本换行长度
-        """
-        self.widget = widget
-        self.text = text
-        self.delay = delay
-        self.wraplength = wraplength
-        self.tooltip_window = None
-        self.show_timer = None
-        
-        # 绑定事件
-        self.widget.bind("<Enter>", self.on_enter)
-        self.widget.bind("<Leave>", self.on_leave)
-        self.widget.bind("<Motion>", self.on_motion)
-        
-    def on_enter(self, event=None):
-        """鼠标进入控件"""
-        self.schedule_show()
-        
-    def on_leave(self, event=None):
-        """鼠标离开控件"""
-        self.cancel_show()
-        self.hide()
-        
-    def on_motion(self, event=None):
-        """鼠标移动"""
-        if self.tooltip_window:
-            self.hide()
-        self.schedule_show()
-        
-    def schedule_show(self):
-        """调度显示提示"""
-        self.cancel_show()
-        if self.text:
-            self.show_timer = self.widget.after(self.delay, self.show)
-            
-    def cancel_show(self):
-        """取消显示"""
-        if self.show_timer:
-            self.widget.after_cancel(self.show_timer)
-            self.show_timer = None
-            
-    def show(self):
-        """显示工具提示"""
-        if not self.text or self.tooltip_window:
-            return
-            
-        # 创建顶层窗口
-        self.tooltip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        
-        # 计算位置
-        x = self.widget.winfo_pointerx() + 10
-        y = self.widget.winfo_pointery() + 10
-        tw.wm_geometry(f"+{x}+{y}")
-        
-        # 创建标签
-        label = tk.Label(
-            tw,
-            text=self.text,
-            justify=tk.LEFT,
-            background="#ffffe0",
-            foreground="#000000",
-            relief=tk.SOLID,
-            borderwidth=1,
-            wraplength=self.wraplength,
-            font=("微软雅黑", 9),
-            padx=5,
-            pady=3
-        )
-        label.pack()
-        
-    def hide(self):
-        """隐藏工具提示"""
-        if self.tooltip_window:
-            self.tooltip_window.destroy()
-            self.tooltip_window = None
-            
-    def update_text(self, text):
-        """更新提示文本"""
-        self.text = text
+from tooltip_utils import ToolTip, create_treeview_tooltip
 
 
 class DatabaseManagerGUI:
@@ -272,8 +178,25 @@ class DatabaseManagerGUI:
         self.base_tree.bind("<Double-1>", lambda e: self.edit_base_knowledge())
         
         # 添加鼠标悬停提示
-        self.base_tree_tooltip = None
-        self.base_tree.bind('<Motion>', self.show_base_tree_tooltip)
+        def get_base_tooltip(item_id, values, tags):
+            """获取基础知识的工具提示文本"""
+            if not tags:
+                return None
+            
+            fact_id = tags[0]
+            base_facts = self.db.get_all_base_facts()
+            fact = next((f for f in base_facts if f['id'] == fact_id), None)
+            
+            if fact:
+                tooltip_text = f"实体名称: {fact['entity_name']}\n"
+                tooltip_text += f"分类: {fact['category']}\n"
+                tooltip_text += f"置信度: {fact['confidence']:.2f}\n"
+                tooltip_text += f"创建时间: {fact['created_at'][:19] if fact.get('created_at') else 'N/A'}\n"
+                tooltip_text += f"\n完整内容:\n{fact['content']}"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.base_tree, get_base_tooltip)
 
     def create_entities_tab(self):
         """
@@ -339,8 +262,28 @@ class DatabaseManagerGUI:
         self.entity_tree.bind("<Double-1>", lambda e: self.view_entity_detail())
         
         # 添加鼠标悬停提示
-        self.entity_tree_tooltip = None
-        self.entity_tree.bind('<Motion>', self.show_entity_tree_tooltip)
+        def get_entity_tooltip(item_id, values, tags):
+            """获取实体的工具提示文本"""
+            if not tags:
+                return None
+            
+            entity_uuid = tags[0]
+            entity = self.db.get_entity_by_uuid(entity_uuid)
+            definition = self.db.get_entity_definition(entity_uuid)
+            
+            if entity:
+                tooltip_text = f"实体名称: {entity['name']}\n"
+                tooltip_text += f"UUID: {entity['uuid']}\n"
+                tooltip_text += f"创建时间: {entity['created_at'][:19]}\n"
+                tooltip_text += f"更新时间: {entity['updated_at'][:19]}\n"
+                
+                if definition:
+                    tooltip_text += f"\n定义:\n{definition['content'][:200]}{'...' if len(definition['content']) > 200 else ''}"
+                
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.entity_tree, get_entity_tooltip)
 
     def create_short_term_tab(self):
         """
@@ -457,8 +400,30 @@ class DatabaseManagerGUI:
         self.emotion_tree.bind("<Double-1>", lambda e: self.view_emotion_detail())
         
         # 添加鼠标悬停提示
-        self.emotion_tree_tooltip = None
-        self.emotion_tree.bind('<Motion>', self.show_emotion_tree_tooltip)
+        def get_emotion_tooltip(item_id, values, tags):
+            """获取情感分析的工具提示文本"""
+            if not tags:
+                return None
+            
+            emotion_uuid = tags[0]
+            emotions = self.db.get_emotion_history()
+            emotion = next((e for e in emotions if e['uuid'] == emotion_uuid), None)
+            
+            if emotion:
+                tooltip_text = f"关系类型: {emotion.get('relationship_type', '未知')}\n"
+                tooltip_text += f"情感基调: {emotion.get('emotional_tone', '未知')}\n"
+                tooltip_text += f"总评分: {emotion.get('overall_score', 0)}/100\n"
+                tooltip_text += f"分析时间: {emotion['created_at'][:19]}\n"
+                tooltip_text += f"\n五维度评分:\n"
+                tooltip_text += f"• 亲密度: {emotion.get('intimacy', 0)}/100\n"
+                tooltip_text += f"• 信任度: {emotion.get('trust', 0)}/100\n"
+                tooltip_text += f"• 愉悦度: {emotion.get('pleasure', 0)}/100\n"
+                tooltip_text += f"• 共鸣度: {emotion.get('resonance', 0)}/100\n"
+                tooltip_text += f"• 依赖度: {emotion.get('dependence', 0)}/100"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.emotion_tree, get_emotion_tooltip)
 
     # ==================== 刷新方法 ====================
 
@@ -891,131 +856,5 @@ class DatabaseManagerGUI:
                 # 这里需要实现清空所有数据的功能
                 messagebox.showinfo("提示", "清空所有数据功能需要在DatabaseManager中实现。")
     
-    def show_base_tree_tooltip(self, event):
-        """
-        显示基础知识树的工具提示
-        
-        Args:
-            event: 鼠标事件
-        """
-        # 移除旧的工具提示
-        if self.base_tree_tooltip:
-            self.base_tree_tooltip.hide()
-            self.base_tree_tooltip = None
-        
-        # 获取鼠标所在的行
-        item = self.base_tree.identify_row(event.y)
-        if not item:
-            return
-        
-        # 获取完整信息
-        tags = self.base_tree.item(item, 'tags')
-        if not tags:
-            return
-        
-        fact_id = tags[0]
-        base_facts = self.db.get_all_base_facts()
-        fact = next((f for f in base_facts if f['id'] == fact_id), None)
-        
-        if fact:
-            # 构建工具提示文本
-            tooltip_text = f"实体名称: {fact['entity_name']}\n"
-            tooltip_text += f"分类: {fact['category']}\n"
-            tooltip_text += f"置信度: {fact['confidence']:.2f}\n"
-            tooltip_text += f"创建时间: {fact['created_at'][:19] if fact.get('created_at') else 'N/A'}\n"
-            tooltip_text += f"\n完整内容:\n{fact['content']}"
-            
-            # 创建临时标签用于显示工具提示
-            temp_label = ttk.Label(self.base_tree)
-            self.base_tree_tooltip = ToolTip(temp_label, tooltip_text, delay=800, wraplength=500)
-            # 立即显示
-            self.base_tree_tooltip.show()
-    
-    def show_entity_tree_tooltip(self, event):
-        """
-        显示实体树的工具提示
-        
-        Args:
-            event: 鼠标事件
-        """
-        # 移除旧的工具提示
-        if self.entity_tree_tooltip:
-            self.entity_tree_tooltip.hide()
-            self.entity_tree_tooltip = None
-        
-        # 获取鼠标所在的行
-        item = self.entity_tree.identify_row(event.y)
-        if not item:
-            return
-        
-        # 获取实体信息
-        tags = self.entity_tree.item(item, 'tags')
-        if not tags:
-            return
-        
-        entity_uuid = tags[0]
-        entity = self.db.get_entity_by_uuid(entity_uuid)
-        definition = self.db.get_entity_definition(entity_uuid)
-        
-        if entity:
-            # 构建工具提示文本
-            tooltip_text = f"实体名称: {entity['name']}\n"
-            tooltip_text += f"UUID: {entity['uuid']}\n"
-            tooltip_text += f"创建时间: {entity['created_at'][:19]}\n"
-            tooltip_text += f"更新时间: {entity['updated_at'][:19]}\n"
-            
-            if definition:
-                tooltip_text += f"\n定义:\n{definition['content'][:200]}{'...' if len(definition['content']) > 200 else ''}"
-            
-            # 创建临时标签用于显示工具提示
-            temp_label = ttk.Label(self.entity_tree)
-            self.entity_tree_tooltip = ToolTip(temp_label, tooltip_text, delay=800, wraplength=500)
-            # 立即显示
-            self.entity_tree_tooltip.show()
-    
-    def show_emotion_tree_tooltip(self, event):
-        """
-        显示情感分析树的工具提示
-        
-        Args:
-            event: 鼠标事件
-        """
-        # 移除旧的工具提示
-        if self.emotion_tree_tooltip:
-            self.emotion_tree_tooltip.hide()
-            self.emotion_tree_tooltip = None
-        
-        # 获取鼠标所在的行
-        item = self.emotion_tree.identify_row(event.y)
-        if not item:
-            return
-        
-        # 获取情感分析信息
-        tags = self.emotion_tree.item(item, 'tags')
-        if not tags:
-            return
-        
-        emotion_uuid = tags[0]
-        emotions = self.db.get_emotion_history()
-        emotion = next((e for e in emotions if e['uuid'] == emotion_uuid), None)
-        
-        if emotion:
-            # 构建工具提示文本
-            tooltip_text = f"关系类型: {emotion.get('relationship_type', '未知')}\n"
-            tooltip_text += f"情感基调: {emotion.get('emotional_tone', '未知')}\n"
-            tooltip_text += f"总评分: {emotion.get('overall_score', 0)}/100\n"
-            tooltip_text += f"分析时间: {emotion['created_at'][:19]}\n"
-            tooltip_text += f"\n五维度评分:\n"
-            tooltip_text += f"• 亲密度: {emotion.get('intimacy', 0)}/100\n"
-            tooltip_text += f"• 信任度: {emotion.get('trust', 0)}/100\n"
-            tooltip_text += f"• 愉悦度: {emotion.get('pleasure', 0)}/100\n"
-            tooltip_text += f"• 共鸣度: {emotion.get('resonance', 0)}/100\n"
-            tooltip_text += f"• 依赖度: {emotion.get('dependence', 0)}/100"
-            
-            # 创建临时标签用于显示工具提示
-            temp_label = ttk.Label(self.emotion_tree)
-            self.emotion_tree_tooltip = ToolTip(temp_label, tooltip_text, delay=800, wraplength=400)
-            # 立即显示
-            self.emotion_tree_tooltip.show()
 
 

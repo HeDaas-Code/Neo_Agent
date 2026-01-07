@@ -14,101 +14,7 @@ from chat_agent import ChatAgent
 from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
-
-
-class ToolTip:
-    """
-    工具提示类
-    在鼠标悬浮时显示完整文本
-    """
-    def __init__(self, widget, text='', delay=500, wraplength=400):
-        """
-        初始化工具提示
-        
-        Args:
-            widget: 要绑定的控件
-            text: 提示文本
-            delay: 延迟显示时间（毫秒）
-            wraplength: 文本换行长度
-        """
-        self.widget = widget
-        self.text = text
-        self.delay = delay
-        self.wraplength = wraplength
-        self.tooltip_window = None
-        self.show_timer = None
-        
-        # 绑定事件
-        self.widget.bind("<Enter>", self.on_enter)
-        self.widget.bind("<Leave>", self.on_leave)
-        self.widget.bind("<Motion>", self.on_motion)
-        
-    def on_enter(self, event=None):
-        """鼠标进入控件"""
-        self.schedule_show()
-        
-    def on_leave(self, event=None):
-        """鼠标离开控件"""
-        self.cancel_show()
-        self.hide()
-        
-    def on_motion(self, event=None):
-        """鼠标移动"""
-        if self.tooltip_window:
-            self.hide()
-        self.schedule_show()
-        
-    def schedule_show(self):
-        """调度显示提示"""
-        self.cancel_show()
-        if self.text:
-            self.show_timer = self.widget.after(self.delay, self.show)
-            
-    def cancel_show(self):
-        """取消显示"""
-        if self.show_timer:
-            self.widget.after_cancel(self.show_timer)
-            self.show_timer = None
-            
-    def show(self):
-        """显示工具提示"""
-        if not self.text or self.tooltip_window:
-            return
-            
-        # 创建顶层窗口
-        self.tooltip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        
-        # 计算位置
-        x = self.widget.winfo_pointerx() + 10
-        y = self.widget.winfo_pointery() + 10
-        tw.wm_geometry(f"+{x}+{y}")
-        
-        # 创建标签
-        label = tk.Label(
-            tw,
-            text=self.text,
-            justify=tk.LEFT,
-            background="#ffffe0",
-            foreground="#000000",
-            relief=tk.SOLID,
-            borderwidth=1,
-            wraplength=self.wraplength,
-            font=("微软雅黑", 9),
-            padx=5,
-            pady=3
-        )
-        label.pack()
-        
-    def hide(self):
-        """隐藏工具提示"""
-        if self.tooltip_window:
-            self.tooltip_window.destroy()
-            self.tooltip_window = None
-            
-    def update_text(self, text):
-        """更新提示文本"""
-        self.text = text
+from tooltip_utils import ToolTip, create_treeview_tooltip
 
 
 class EmotionImpressionDisplay(Canvas):
@@ -1262,8 +1168,19 @@ class EnhancedChatDebugGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # 为事件树添加鼠标悬停提示
-        self.event_tree_tooltip = None
-        self.event_tree.bind('<Motion>', self.show_event_tree_tooltip)
+        def get_event_tooltip(item_id, values, tags):
+            """获取事件的工具提示文本"""
+            if values and tags:
+                tooltip_text = f"标题: {values[0]}\n"
+                tooltip_text += f"类型: {values[1]}\n"
+                tooltip_text += f"优先级: {values[2]}\n"
+                tooltip_text += f"状态: {values[3]}\n"
+                tooltip_text += f"创建时间: {values[4]}\n"
+                tooltip_text += f"完整ID: {tags[0] if tags else 'N/A'}"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.event_tree, get_event_tooltip)
 
         
     def refresh_event_list(self):
@@ -1329,42 +1246,6 @@ class EnhancedChatDebugGUI:
             import traceback
             traceback.print_exc()
     
-    def show_event_tree_tooltip(self, event):
-        """
-        显示事件树的工具提示
-        
-        Args:
-            event: 鼠标事件
-        """
-        # 移除旧的工具提示
-        if self.event_tree_tooltip:
-            self.event_tree_tooltip.hide()
-            self.event_tree_tooltip = None
-        
-        # 获取鼠标所在的行
-        item = self.event_tree.identify_row(event.y)
-        if not item:
-            return
-        
-        # 获取事件信息
-        values = self.event_tree.item(item, 'values')
-        tags = self.event_tree.item(item, 'tags')
-        
-        if values and tags:
-            # 构建工具提示文本
-            tooltip_text = f"标题: {values[0]}\n"
-            tooltip_text += f"类型: {values[1]}\n"
-            tooltip_text += f"优先级: {values[2]}\n"
-            tooltip_text += f"状态: {values[3]}\n"
-            tooltip_text += f"创建时间: {values[4]}\n"
-            tooltip_text += f"完整ID: {tags[0] if tags else 'N/A'}"
-            
-            # 创建临时标签用于显示工具提示
-            temp_label = ttk.Label(self.event_tree)
-            self.event_tree_tooltip = ToolTip(temp_label, tooltip_text, delay=800, wraplength=400)
-            # 立即显示
-            self.event_tree_tooltip.show()
-
     def create_new_event(self):
         """创建新事件对话框"""
         from event_manager import EventType, EventPriority
