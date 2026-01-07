@@ -41,6 +41,7 @@ class AgentVisionTool:
         self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
         
         # 环境相关关键词（用于快速判断）
+        # 包含常见的位置查询关键词，如"在哪"用于检测"你在哪？"等查询
         self.environment_keywords = [
             '周围', '周边', '环境', '这里', '附近', '哪里', '什么地方', '在哪',
             '看到', '看见', '观察', '眼前', '面前', '旁边', '身边',
@@ -251,7 +252,7 @@ class AgentVisionTool:
         
         debug_logger.log_info('AgentVisionTool', '找到激活的环境', {
             'env_name': environment['name'],
-            'env_uuid': environment['uuid'][:8] + '...'
+            'env_uuid': (environment['uuid'][:8] + '...') if len(environment['uuid']) > 8 else environment['uuid']
         })
         
         # 获取环境中的物体
@@ -506,7 +507,7 @@ class AgentVisionTool:
             )
         
         debug_logger.log_info('AgentVisionTool', '默认环境创建完成', {
-            'env_uuid': env_uuid[:8] + '...',
+            'env_uuid': (env_uuid[:8] + '...') if len(env_uuid) > 8 else env_uuid,
             'objects_count': len(default_objects)
         })
         
@@ -586,7 +587,7 @@ class AgentVisionTool:
             是否切换成功
         """
         debug_logger.log_module('AgentVisionTool', '执行环境切换', {
-            'to_env_uuid': to_env_uuid[:8] + '...'
+            'to_env_uuid': (to_env_uuid[:8] + '...') if len(to_env_uuid) > 8 else to_env_uuid
         })
 
         current_env = self.db.get_active_environment()
@@ -785,8 +786,10 @@ class AgentVisionTool:
         Returns:
             是否切换成功
         """
+        # 安全截取UUID用于日志显示
+        uuid_display = domain_uuid[:8] + '...' if len(domain_uuid) > 8 else domain_uuid
         debug_logger.log_module('AgentVisionTool', '切换到域', {
-            'domain_uuid': domain_uuid[:8] + '...'
+            'domain_uuid': uuid_display
         })
 
         domain = self.db.get_domain(domain_uuid)

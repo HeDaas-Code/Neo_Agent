@@ -44,6 +44,22 @@ class DatabaseManager:
 
         self.init_database()
 
+    @staticmethod
+    def _truncate_uuid(uuid_str: str, length: int = 8) -> str:
+        """
+        安全截取UUID用于显示
+        
+        Args:
+            uuid_str: UUID字符串
+            length: 截取长度
+            
+        Returns:
+            截取后的UUID字符串
+        """
+        if not uuid_str:
+            return ""
+        return (uuid_str[:length] + '...') if len(uuid_str) > length else uuid_str
+
     @contextmanager
     def get_connection(self):
         """
@@ -2066,7 +2082,7 @@ class DatabaseManager:
             ''', (domain_uuid, name, description, default_environment_uuid, now, now))
 
         if self.debug:
-            print(f"🐛 [DEBUG] ✓ 环境域创建成功: {name} | UUID: {domain_uuid[:8]}...")
+            print(f"🐛 [DEBUG] ✓ 环境域创建成功: {name} | UUID: {self._truncate_uuid(domain_uuid)}")
 
         return domain_uuid
 

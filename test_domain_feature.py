@@ -270,9 +270,7 @@ def test_domain_functionality():
     print("✓ 所有测试完成")
     print("=" * 60)
     
-    # 清理测试数据库
-    print(f"\n是否删除测试数据库? (y/n)")
-    # 自动删除以便于CI测试
+    # 清理测试数据库（自动删除以便于CI测试）
     if os.path.exists(test_db_path):
         os.remove(test_db_path)
         print(f"✓ 已删除测试数据库: {test_db_path}")
