@@ -523,17 +523,38 @@ Since LLMs don't have native vision capability, simulate through environment des
 
 ```python
 class AgentVisionTool:
-    def set_environment(self, description: str):
-        """Set current environment description"""
-        self.db.set_environment_description(description)
+    def should_use_vision_llm(self, user_query: str) -> bool:
+        """Use LLM to intelligently determine if environment observation is needed"""
+        # Call LLM to determine if user's question requires environmental information
+        # Example: "Where are you?" -> Needs environmental information
+        # "What's the weather today?" -> Doesn't need environmental information
+        
+    def should_use_vision_keyword(self, user_query: str) -> bool:
+        """Keyword-based detection (fallback method)"""
+        # When LLM is unavailable, use keyword matching as fallback
+        
+    def should_use_vision(self, user_query: str, use_llm: bool = True) -> bool:
+        """Intelligently determine if vision tool is needed"""
+        # By default uses LLM for intelligent detection, can optionally downgrade to keyword matching
     
-    def get_visual_context(self) -> str:
+    def get_vision_context(self, user_query: str) -> Dict:
         """Get visual context for prompt"""
-        env = self.db.get_current_environment()
-        if env:
-            return f"Current Environment: {env['description']}"
-        return ""
+        # First determine if vision is needed
+        # Then fetch environment description and object information from database
+        # Return formatted visual context
 ```
+
+#### Intelligent Detection Mechanism
+
+The vision tool now employs a two-tier detection mechanism:
+
+1. **LLM Intelligent Detection (Primary Method)**: Uses LLM to understand the semantics of user questions and determine if environmental information is needed
+   - Can recognize questions like "Where are you?" that implicitly require environmental information
+   - More accurate and flexible detection
+   
+2. **Keyword Matching (Fallback Method)**: Used when LLM is unavailable
+   - Fast and reliable fallback option
+   - Based on predefined list of environment-related keywords
 
 ## 🔄 Data Flow Design
 

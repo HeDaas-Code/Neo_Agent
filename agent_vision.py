@@ -52,9 +52,131 @@ class AgentVisionTool:
             'keywords_count': len(self.environment_keywords)
         })
 
-    def should_use_vision(self, user_query: str) -> bool:
+    def should_use_vision_llm(self, user_query: str) -> bool:
+        """
+        使用LLM智能判断是否需要使用视觉工具
+        
+        注意：
+        - 输入清理可防止基本的注入攻击，但不是完全安全
+        - 响应解析目前仅支持中文，需要国际化时需修改
+        - 同步HTTP请求可能造成阻塞，高频调用时建议使用异步方式
+        
+        Args:
+            user_query: 用户查询
+            
+        Returns:
+            是否需要使用视觉
+        """
+        debug_logger.log_module('AgentVisionTool', '使用LLM判断是否需要视觉', {
+            'query': user_query
+        })
+        
+        try:
+            # 对用户输入进行简单清理，防止基本注入攻击
+            # 注意：这不能防止所有类型的prompt注入，仅作为基本防护
+            cleaned_query = user_query.replace('"', '\\"').replace('\n', ' ').strip()
+            if len(cleaned_query) > 500:  # 限制查询长度
+                cleaned_query = cleaned_query[:500]
+            
+            # 构建判断提示词
+            judge_prompt = f"""请判断以下用户问题是否需要智能体观察周围环境才能回答。
+
+用户问题："{cleaned_query}"
+
+需要观察环境的情况包括但不限于：
+1. 询问智能体的位置或所在地（如：你在哪？你在哪里？）
+2. 询问周围有什么、看到什么
+3. 询问环境、房间、场景相关的问题
+4. 询问附近、旁边、面前的事物
+5. 需要了解当前环境状态才能回答的问题
+
+请只回答"是"或"否"，不要有其他内容。"""
+
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            # 从环境变量读取配置或使用默认值
+            try:
+                llm_temperature = float(os.getenv('VISION_LLM_TEMPERATURE', '0.3'))
+            except ValueError:
+                llm_temperature = 0.3
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_TEMPERATURE，使用默认值0.3')
+            
+            try:
+                llm_max_tokens = int(os.getenv('VISION_LLM_MAX_TOKENS', '10'))
+            except ValueError:
+                llm_max_tokens = 10
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_MAX_TOKENS，使用默认值10')
+            
+            try:
+                llm_timeout = int(os.getenv('VISION_LLM_TIMEOUT', '10'))
+            except ValueError:
+                llm_timeout = 10
+                debug_logger.log_info('AgentVisionTool', '无效的VISION_LLM_TIMEOUT，使用默认值10')
+            
+            payload = {
+                'model': self.model_name,
+                'messages': [
+                    {'role': 'system', 'content': '你是一个智能判断助手，负责判断用户问题是否需要观察环境。'},
+                    {'role': 'user', 'content': judge_prompt}
+                ],
+                'temperature': llm_temperature,
+                'max_tokens': llm_max_tokens
+            }
+            
+            debug_logger.log_info('AgentVisionTool', '发送LLM判断请求')
+            
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=llm_timeout
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if 'choices' in result and len(result['choices']) > 0:
+                answer = result['choices'][0]['message']['content'].strip()
+                # 更精确的判断：完全匹配"是"或以"是"开头
+                # 注意：此判断逻辑仅适用于中文，国际化时需要修改
+                needs_vision = (answer == '是' or answer.startswith('是，') or answer.startswith('是。'))
+                
+                debug_logger.log_info('AgentVisionTool', 'LLM判断完成', {
+                    'query': user_query,
+                    'answer': answer,
+                    'needs_vision': needs_vision
+                })
+                
+                return needs_vision
+            else:
+                debug_logger.log_info('AgentVisionTool', 'LLM响应无效，回退到关键词匹配')
+                return self._fallback_to_keyword(user_query)
+                
+        except Exception as e:
+            debug_logger.log_error('AgentVisionTool', f'LLM判断失败: {str(e)}', e)
+            # 如果LLM调用失败，回退到关键词匹配
+            return self._fallback_to_keyword(user_query)
+
+    def _fallback_to_keyword(self, user_query: str) -> bool:
+        """
+        回退到关键词匹配（内部方法）
+        
+        Args:
+            user_query: 用户查询
+            
+        Returns:
+            是否需要使用视觉
+        """
+        debug_logger.log_info('AgentVisionTool', '使用关键词匹配作为后备方案')
+        return self.should_use_vision_keyword(user_query)
+
+    def should_use_vision_keyword(self, user_query: str) -> bool:
         """
         判断是否需要使用视觉工具（基于关键词快速判断）
+        这是备用方法，当LLM不可用时使用
 
         Args:
             user_query: 用户查询
@@ -62,7 +184,7 @@ class AgentVisionTool:
         Returns:
             是否需要使用视觉
         """
-        debug_logger.log_module('AgentVisionTool', '检查是否需要使用视觉工具', {
+        debug_logger.log_module('AgentVisionTool', '使用关键词判断是否需要视觉', {
             'query_length': len(user_query)
         })
         
@@ -80,6 +202,23 @@ class AgentVisionTool:
             'query': user_query
         })
         return False
+
+    def should_use_vision(self, user_query: str, use_llm: bool = True) -> bool:
+        """
+        判断是否需要使用视觉工具（智能判断）
+        优先使用LLM进行智能判断，如果LLM不可用或禁用则使用关键词匹配
+
+        Args:
+            user_query: 用户查询
+            use_llm: 是否使用LLM进行智能判断，默认为True
+
+        Returns:
+            是否需要使用视觉
+        """
+        if use_llm:
+            return self.should_use_vision_llm(user_query)
+        else:
+            return self.should_use_vision_keyword(user_query)
 
     def get_vision_context(self, user_query: str) -> Optional[Dict[str, Any]]:
         """
@@ -473,6 +612,8 @@ if __name__ == '__main__':
         "周围有什么？",
         "我能看到什么？",
         "房间里有哪些东西？",
+        "你在哪？",  # 应该触发视觉（需要环境信息）
+        "你在哪里？",  # 应该触发视觉（需要环境信息）
         "今天天气怎么样？",  # 不应该触发视觉
         "帮我讲个历史故事",  # 不应该触发视觉
     ]

@@ -18,6 +18,13 @@ class DatabaseManager:
     数据库管理器
     管理所有数据表的创建、查询、更新和删除操作
     """
+    
+    # 知识状态常量
+    STATUS_SUSPECTED = "疑似"  # 疑似状态：首次提及，需要进一步确认
+    STATUS_CONFIRMED = "确认"  # 确认状态：多次提及，高可信度
+    
+    # 知识状态升级阈值：当提及次数达到此值时，状态从"疑似"升级为"确认"
+    KNOWLEDGE_CONFIRMATION_THRESHOLD = 3
 
     def __init__(self, db_path: str = "chat_agent.db", debug: bool = False):
         """
@@ -130,6 +137,9 @@ class DatabaseManager:
                     type TEXT DEFAULT '其他',
                     source TEXT,
                     confidence REAL DEFAULT 0.7,
+                    status TEXT DEFAULT '疑似',
+                    mention_count INTEGER DEFAULT 1,
+                    last_mentioned_at TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (entity_uuid) REFERENCES entities(uuid) ON DELETE CASCADE
                 )
@@ -293,6 +303,40 @@ class DatabaseManager:
         if INIT_Database_PreParation_Complete == False:
             print("✓ 数据库初始化完成")
             INIT_Database_PreParation_Complete = True
+        
+        # 执行数据库迁移
+        self._migrate_database()
+
+    def _migrate_database(self):
+        """
+        执行数据库迁移，添加新字段到已存在的表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # 检查 entity_related_info 表是否有新字段
+            cursor.execute("PRAGMA table_info(entity_related_info)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            migrations_needed = []
+            if 'status' not in columns:
+                migrations_needed.append(('status', f"ALTER TABLE entity_related_info ADD COLUMN status TEXT DEFAULT '{self.STATUS_SUSPECTED}'"))
+            if 'mention_count' not in columns:
+                migrations_needed.append(('mention_count', "ALTER TABLE entity_related_info ADD COLUMN mention_count INTEGER DEFAULT 1"))
+            if 'last_mentioned_at' not in columns:
+                migrations_needed.append(('last_mentioned_at', "ALTER TABLE entity_related_info ADD COLUMN last_mentioned_at TEXT"))
+            
+            if migrations_needed:
+                print(f"○ 检测到数据库需要迁移，正在添加新字段...")
+                for field_name, sql in migrations_needed:
+                    try:
+                        cursor.execute(sql)
+                        print(f"  ✓ 已添加字段: {field_name}")
+                    except Exception as e:
+                        if self.debug:
+                            print(f"  ⚠ 字段 {field_name} 可能已存在: {e}")
+                conn.commit()
+                print("✓ 数据库迁移完成")
 
 
     # ==================== 基础知识相关方法 ====================
@@ -599,9 +643,10 @@ class DatabaseManager:
     # ==================== 实体相关信息方法 ====================
 
     def add_entity_related_info(self, entity_uuid: str, content: str, type_: str = "其他",
-                                source: str = "", confidence: float = 0.7) -> str:
+                                source: str = "", confidence: float = 0.7, 
+                                status: str = "疑似", mention_count: int = 1) -> str:
         """
-        添加实体相关信息
+        添加实体相关信息，如果相似信息已存在，则增加mention_count并可能升级状态
 
         Args:
             entity_uuid: 实体UUID
@@ -609,6 +654,8 @@ class DatabaseManager:
             type_: 类型
             source: 来源
             confidence: 置信度
+            status: 状态（疑似/确认）
+            mention_count: 提及次数
 
         Returns:
             信息UUID
@@ -616,23 +663,54 @@ class DatabaseManager:
         if self.debug:
             print(f"🐛 [DEBUG] 添加实体相关信息: {entity_uuid[:8]}... | 类型: {type_}")
 
-        info_uuid = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # 检查是否已存在相似的信息
             cursor.execute('''
-                INSERT INTO entity_related_info 
-                (uuid, entity_uuid, content, type, source, confidence, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (info_uuid, entity_uuid, content, type_, source, confidence, now))
-            # 更新实体的updated_at
-            cursor.execute('UPDATE entities SET updated_at = ? WHERE uuid = ?', (now, entity_uuid))
+                SELECT uuid, mention_count, status FROM entity_related_info 
+                WHERE entity_uuid = ? AND content = ? AND type = ?
+            ''', (entity_uuid, content, type_))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # 如果已存在相同信息，增加mention_count
+                existing_uuid, existing_mention_count, existing_status = existing[0], existing[1], existing[2]
+                new_mention_count = existing_mention_count + 1
+                # 如果提及次数达到阈值，状态升级为"确认"
+                new_status = self.STATUS_CONFIRMED if new_mention_count >= self.KNOWLEDGE_CONFIRMATION_THRESHOLD else existing_status
+                
+                cursor.execute('''
+                    UPDATE entity_related_info 
+                    SET mention_count = ?, status = ?, last_mentioned_at = ?
+                    WHERE uuid = ?
+                ''', (new_mention_count, new_status, now, existing_uuid))
+                
+                # 更新实体的updated_at
+                cursor.execute('UPDATE entities SET updated_at = ? WHERE uuid = ?', (now, entity_uuid))
+                
+                if self.debug:
+                    print(f"🐛 [DEBUG] ✓ 信息已存在，更新mention_count: {new_mention_count}, 状态: {new_status}")
+                
+                return existing_uuid
+            else:
+                # 添加新信息
+                info_uuid = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO entity_related_info 
+                    (uuid, entity_uuid, content, type, source, confidence, status, mention_count, last_mentioned_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (info_uuid, entity_uuid, content, type_, source, confidence, status, mention_count, now, now))
+                
+                # 更新实体的updated_at
+                cursor.execute('UPDATE entities SET updated_at = ? WHERE uuid = ?', (now, entity_uuid))
 
-        if self.debug:
-            print(f"🐛 [DEBUG] ✓ 相关信息添加成功: {info_uuid[:8]}...")
+                if self.debug:
+                    print(f"🐛 [DEBUG] ✓ 新相关信息添加成功: {info_uuid[:8]}..., 状态: {status}")
 
-        return info_uuid
+                return info_uuid
 
     def get_entity_related_info(self, entity_uuid: str) -> List[Dict[str, Any]]:
         """

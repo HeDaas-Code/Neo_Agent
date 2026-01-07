@@ -38,7 +38,9 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Query Optimization**: Efficient data retrieval
 
 ### 🔧 Extended Features
-- **Pseudo-vision**: Simulates visual perception through environment descriptions
+- **Intelligent Vision**: Uses LLM to intelligently determine if environmental information is needed, simulating visual perception through environment descriptions
+  - LLM Intelligent Detection: Understands semantics, recognizes questions like "Where are you?" that implicitly require environmental information
+  - Keyword Matching Fallback: Automatically downgrades to keyword matching when LLM is unavailable
 - **Debug Logging**: Detailed system operation logs
 - **Flexible Configuration**: Easy setup through environment variables
 
