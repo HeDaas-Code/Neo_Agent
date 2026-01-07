@@ -60,6 +60,12 @@ Neo_Agent/
 │       ├── Data editing
 │       └── Import/export
 │
+├── expression_style.py      # Expression style management (~500 lines)
+│   └── ExpressionStyleManager # Expression style manager
+│       ├── Agent expression management
+│       ├── User habit learning
+│       └── Prompt formatting
+│
 └── base_knowledge.py        # Base knowledge management (263 lines)
     └── BaseKnowledgeManager  # Base knowledge manager
         ├── Load base knowledge
@@ -268,6 +274,73 @@ def extract_knowledge_from_conversation(self, messages):
     - 61-80: Somewhat positive (friendly, interesting, active, etc.)
     - 81-100: Very positive (enthusiastic, trusting, deep communication, etc.)
 - Relationship Classification: Summarize relationship types and emotional tones based on impressions
+
+### ExpressionStyleManager (Expression Style Manager)
+
+**Responsibility**: Manage agent's personalized expressions and learn user expression habits
+
+**Core Features**:
+- Agent Expression Management: Define and manage agent's personalized expressions (e.g., 'wc', 'hhh')
+- User Habit Learning: Automatically identify and summarize user expression habits
+- Prompt Integration: Format expression styles and inject them into conversation prompts
+
+**Usage Example**:
+
+```python
+from expression_style import ExpressionStyleManager
+
+manager = ExpressionStyleManager(db_manager=db)
+
+# Add agent expression
+manager.add_agent_expression(
+    expression="wc",
+    meaning="Expresses surprise at unexpected events",
+    category="Exclamation"
+)
+
+# Learn user habits from conversation
+messages = db.get_short_term_messages()
+result = manager.learn_from_conversation(messages)
+
+# Get formatted expressions for prompt
+expressions = manager.get_agent_expressions()
+prompt_text = manager.format_expressions_for_prompt(expressions)
+```
+
+**Database Tables**:
+- `agent_expressions` - Store agent's personalized expressions
+- `user_expression_habits` - Store learned user expression habits
+
+### BaseKnowledge (Base Knowledge Manager)
+
+**Responsibility**: Manage agent's core base knowledge with highest priority that cannot be overridden
+
+**Core Features**:
+- Absolute Authority: Base knowledge has the highest priority
+- Immutable: Takes precedence even if contradicts reality
+- Direct Injection: Embedded directly into prompts, not as context
+
+**Usage Example**:
+
+```python
+from base_knowledge import BaseKnowledge
+
+bk = BaseKnowledge(db_manager=db)
+
+# Add base fact
+bk.add_base_fact(
+    entity_name="HeDaas",
+    fact_content="HeDaas is a university",
+    category="Institution Type",
+    immutable=True
+)
+
+# Get all base knowledge for prompt
+base_facts_text = bk.get_all_for_prompt()
+```
+
+**Database Table**:
+- `base_knowledge` - Store core base knowledge facts
 
 ## 🎨 GUI Development
 
