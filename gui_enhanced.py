@@ -1895,10 +1895,32 @@ class EnhancedChatDebugGUI:
 
         stats = self.agent.get_memory_stats()
         base_kb_count = stats['knowledge_base'].get('base_knowledge_facts', 0)
-        status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识库: {stats['knowledge_base']['total_knowledge']}条"
+        
+        # 优化状态文本，更紧凑
+        status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识: {stats['knowledge_base']['total_knowledge']}条"
         if base_kb_count > 0:
             status_text += f" | 基础: {base_kb_count}条"
+        
         self.memory_status_label.config(text=status_text)
+        
+        # 添加完整信息工具提示
+        full_info = f"短期记忆:\n"
+        full_info += f"  - 对话轮数: {stats['short_term']['rounds']}\n"
+        full_info += f"  - 消息数量: {stats['short_term']['message_count']}\n\n"
+        full_info += f"长期记忆:\n"
+        full_info += f"  - 主题概括: {stats['long_term']['total_summaries']} 个\n"
+        full_info += f"  - 总轮数: {stats['long_term']['total_rounds']}\n"
+        full_info += f"  - 总消息: {stats['long_term']['total_messages']}\n\n"
+        full_info += f"知识库:\n"
+        full_info += f"  - 普通知识: {stats['knowledge_base']['total_knowledge']} 条\n"
+        full_info += f"  - 基础知识: {base_kb_count} 条\n"
+        full_info += f"  - 主体数量: {stats['knowledge_base'].get('total_entities', 0)}"
+        
+        # 更新或创建工具提示
+        if not hasattr(self, 'memory_status_tooltip'):
+            self.memory_status_tooltip = ToolTip(self.memory_status_label, full_info, delay=500, wraplength=300)
+        else:
+            self.memory_status_tooltip.update_text(full_info)
 
     def update_short_term_display(self):
         """
