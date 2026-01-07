@@ -286,6 +286,32 @@ class DatabaseManager:
                 )
             ''')
 
+            # 15. 环境域表（环境集合的概念）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS environment_domains (
+                    uuid TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    default_environment_uuid TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (default_environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE SET NULL
+                )
+            ''')
+
+            # 16. 域环境关联表（域包含的环境）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS domain_environments (
+                    uuid TEXT PRIMARY KEY,
+                    domain_uuid TEXT NOT NULL,
+                    environment_uuid TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (domain_uuid) REFERENCES environment_domains(uuid) ON DELETE CASCADE,
+                    FOREIGN KEY (environment_uuid) REFERENCES environment_descriptions(uuid) ON DELETE CASCADE,
+                    UNIQUE(domain_uuid, environment_uuid)
+                )
+            ''')
+
             # 创建索引以提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_base_knowledge_normalized ON base_knowledge(normalized_name)')
@@ -298,6 +324,8 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_connections_to ON environment_connections(to_environment_uuid)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_agent_expressions_active ON agent_expressions(is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_expressions_confidence ON user_expression_habits(confidence)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain_environments_domain ON domain_environments(domain_uuid)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain_environments_env ON domain_environments(environment_uuid)')
 
             conn.commit()
         if INIT_Database_PreParation_Complete == False:
@@ -2007,6 +2035,266 @@ class DatabaseManager:
         except Exception as e:
             print(f"✗ 清空用户表达习惯时出错: {e}")
             return False
+
+    # ==================== 环境域相关方法 ====================
+
+    def create_domain(self, name: str, description: str = "", 
+                      default_environment_uuid: str = None) -> str:
+        """
+        创建环境域（环境集合）
+
+        Args:
+            name: 域名称（如"小可家"）
+            description: 域描述
+            default_environment_uuid: 默认环境UUID（域间切换时的默认到达位置）
+
+        Returns:
+            域UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 创建环境域: {name}")
+
+        domain_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO environment_domains 
+                (uuid, name, description, default_environment_uuid, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (domain_uuid, name, description, default_environment_uuid, now, now))
+
+        if self.debug:
+            print(f"🐛 [DEBUG] ✓ 环境域创建成功: {name} | UUID: {domain_uuid[:8]}...")
+
+        return domain_uuid
+
+    def get_domain(self, domain_uuid: str) -> Optional[Dict[str, Any]]:
+        """
+        获取域信息
+
+        Args:
+            domain_uuid: 域UUID
+
+        Returns:
+            域信息字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_domains WHERE uuid = ?', (domain_uuid,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_domain_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        根据名称获取域
+
+        Args:
+            name: 域名称
+
+        Returns:
+            域信息字典或None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_domains WHERE name = ?', (name,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_all_domains(self) -> List[Dict[str, Any]]:
+        """
+        获取所有域
+
+        Returns:
+            域列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM environment_domains ORDER BY created_at DESC')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_domain(self, domain_uuid: str, **kwargs) -> bool:
+        """
+        更新域信息
+
+        Args:
+            domain_uuid: 域UUID
+            **kwargs: 要更新的字段
+
+        Returns:
+            是否更新成功
+        """
+        # 白名单验证允许更新的列名
+        allowed_columns = {'name', 'description', 'default_environment_uuid'}
+        
+        try:
+            if not kwargs:
+                return False
+
+            # 过滤只允许白名单中的列名
+            safe_kwargs = {k: v for k, v in kwargs.items() if k in allowed_columns}
+            if not safe_kwargs:
+                print(f"⚠ 没有有效的字段可更新")
+                return False
+
+            set_clause = ", ".join([f"{k} = ?" for k in safe_kwargs.keys()])
+            set_clause += ", updated_at = ?"
+            values = list(safe_kwargs.values()) + [datetime.now().isoformat(), domain_uuid]
+
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f'''
+                    UPDATE environment_domains 
+                    SET {set_clause}
+                    WHERE uuid = ?
+                ''', values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 更新域时出错: {e}")
+            return False
+
+    def delete_domain(self, domain_uuid: str) -> bool:
+        """
+        删除域（会级联删除域环境关联）
+
+        Args:
+            domain_uuid: 域UUID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM environment_domains WHERE uuid = ?', (domain_uuid,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 删除域时出错: {e}")
+            return False
+
+    def add_environment_to_domain(self, domain_uuid: str, environment_uuid: str) -> str:
+        """
+        将环境添加到域
+
+        Args:
+            domain_uuid: 域UUID
+            environment_uuid: 环境UUID
+
+        Returns:
+            关联UUID
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 添加环境到域")
+
+        relation_uuid = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO domain_environments 
+                    (uuid, domain_uuid, environment_uuid, created_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (relation_uuid, domain_uuid, environment_uuid, now))
+
+            if self.debug:
+                print(f"🐛 [DEBUG] ✓ 环境添加到域成功")
+
+            return relation_uuid
+        except sqlite3.IntegrityError:
+            # 如果已存在关联，返回空字符串
+            if self.debug:
+                print(f"🐛 [DEBUG] 环境已在域中")
+            return ""
+
+    def remove_environment_from_domain(self, domain_uuid: str, environment_uuid: str) -> bool:
+        """
+        从域中移除环境
+
+        Args:
+            domain_uuid: 域UUID
+            environment_uuid: 环境UUID
+
+        Returns:
+            是否移除成功
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    DELETE FROM domain_environments 
+                    WHERE domain_uuid = ? AND environment_uuid = ?
+                ''', (domain_uuid, environment_uuid))
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"✗ 从域中移除环境时出错: {e}")
+            return False
+
+    def get_domain_environments(self, domain_uuid: str) -> List[Dict[str, Any]]:
+        """
+        获取域中的所有环境
+
+        Args:
+            domain_uuid: 域UUID
+
+        Returns:
+            环境列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT e.* FROM environment_descriptions e
+                INNER JOIN domain_environments de ON e.uuid = de.environment_uuid
+                WHERE de.domain_uuid = ?
+                ORDER BY e.name
+            ''', (domain_uuid,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_environment_domains(self, environment_uuid: str) -> List[Dict[str, Any]]:
+        """
+        获取环境所属的所有域
+
+        Args:
+            environment_uuid: 环境UUID
+
+        Returns:
+            域列表
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT d.* FROM environment_domains d
+                INNER JOIN domain_environments de ON d.uuid = de.domain_uuid
+                WHERE de.environment_uuid = ?
+                ORDER BY d.name
+            ''', (environment_uuid,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def is_environment_in_domain(self, environment_uuid: str, domain_uuid: str) -> bool:
+        """
+        检查环境是否在域中
+
+        Args:
+            environment_uuid: 环境UUID
+            domain_uuid: 域UUID
+
+        Returns:
+            是否在域中
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(*) as count FROM domain_environments
+                WHERE domain_uuid = ? AND environment_uuid = ?
+            ''', (domain_uuid, environment_uuid))
+            result = cursor.fetchone()
+            return result['count'] > 0
 
     # ==================== Debug辅助方法 ====================
 

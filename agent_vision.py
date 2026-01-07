@@ -303,8 +303,34 @@ class AgentVisionTool:
         if not vision_context:
             return ""
         
-        environment = vision_context['environment']
-        objects = vision_context['objects']
+        # 检查是否为域级别的上下文
+        if vision_context.get('type') == 'domain':
+            domain = vision_context['domain']
+            current_env = vision_context.get('current_environment')
+            
+            context_parts = ["【智能体视觉感知 - 域级别】"]
+            context_parts.append(f"\n所在域: {domain['name']}")
+            if domain.get('description'):
+                context_parts.append(f"\n域描述: {domain['description']}")
+            if current_env:
+                context_parts.append(f"\n当前具体位置: {current_env['name']}")
+            
+            # 获取域中的环境列表
+            environments = self.db.get_domain_environments(domain['uuid'])
+            if environments:
+                env_names = [env['name'] for env in environments]
+                context_parts.append(f"\n域包含的区域: {', '.join(env_names)}")
+            
+            context_parts.append("\n\n💡 请基于域级别的位置信息回答用户的问题。如需更详细信息，可询问用户具体位置。")
+            
+            return '\n'.join(context_parts)
+        
+        # 原有的环境级别上下文格式化
+        environment = vision_context.get('environment')
+        objects = vision_context.get('objects', [])
+        
+        if not environment:
+            return ""
         
         context_parts = ["【智能体视觉感知】"]
         context_parts.append(f"\n环境名称: {environment['name']}")
@@ -365,8 +391,21 @@ class AgentVisionTool:
         if not vision_context:
             return "未获取到视觉信息"
         
-        env = vision_context['environment']
-        obj_count = vision_context['object_count']
+        # 检查是否为域级别的上下文
+        if vision_context.get('type') == 'domain':
+            domain = vision_context['domain']
+            current_env = vision_context.get('current_environment')
+            summary = f"👁️ [视觉感知-域] 域: {domain['name']}"
+            if current_env:
+                summary += f" | 位置: {current_env['name']}"
+            return summary
+        
+        # 原有的环境级别摘要
+        env = vision_context.get('environment')
+        obj_count = vision_context.get('object_count', 0)
+        
+        if not env:
+            return "未获取到视觉信息"
         
         summary = f"👁️ [视觉感知] 环境: {env['name']}"
         if obj_count > 0:
@@ -588,6 +627,260 @@ class AgentVisionTool:
             return []
 
         return self.db.get_connected_environments(current_env['uuid'])
+
+    # ==================== 环境域相关方法 ====================
+
+    def get_current_domain(self) -> Optional[Dict[str, Any]]:
+        """
+        获取当前环境所属的域
+        如果当前环境属于多个域，返回第一个域
+
+        Returns:
+            域信息字典或None
+        """
+        current_env = self.db.get_active_environment()
+        if not current_env:
+            debug_logger.log_info('AgentVisionTool', '没有当前激活的环境')
+            return None
+
+        domains = self.db.get_environment_domains(current_env['uuid'])
+        if domains:
+            debug_logger.log_info('AgentVisionTool', '找到当前环境所属的域', {
+                'domain_name': domains[0]['name'],
+                'domain_count': len(domains)
+            })
+            return domains[0]
+
+        debug_logger.log_info('AgentVisionTool', '当前环境不属于任何域')
+        return None
+
+    def get_domain_description(self, domain_uuid: str, use_default_env: bool = False) -> str:
+        """
+        获取域的描述信息
+        
+        Args:
+            domain_uuid: 域UUID
+            use_default_env: 是否使用默认环境的详细描述
+
+        Returns:
+            域的描述文本
+        """
+        domain = self.db.get_domain(domain_uuid)
+        if not domain:
+            return ""
+
+        # 获取域中的环境列表
+        environments = self.db.get_domain_environments(domain_uuid)
+        
+        if use_default_env and domain['default_environment_uuid']:
+            # 使用默认环境的详细描述
+            default_env = self.db.get_environment(domain['default_environment_uuid'])
+            if default_env:
+                desc = f"【{domain['name']}】\n"
+                desc += f"{domain['description']}\n" if domain['description'] else ""
+                desc += f"当前位置: {default_env['name']}\n"
+                desc += f"{default_env['overall_description']}"
+                return desc
+        
+        # 使用域级别的概括描述
+        desc = f"【{domain['name']}】\n"
+        desc += f"{domain['description']}\n" if domain['description'] else ""
+        
+        if environments:
+            env_names = [env['name'] for env in environments]
+            desc += f"包含环境: {', '.join(env_names)}"
+        
+        return desc
+
+    def get_vision_context_with_precision(self, user_query: str, 
+                                          high_precision: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        根据精度要求获取视觉上下文
+        
+        Args:
+            user_query: 用户查询
+            high_precision: 是否需要高精度（具体环境）描述
+                          False: 返回域级别的描述
+                          True: 返回具体环境的详细描述
+
+        Returns:
+            视觉上下文字典，包含环境或域的描述信息
+        """
+        debug_logger.log_module('AgentVisionTool', '根据精度获取视觉上下文', {
+            'query': user_query,
+            'high_precision': high_precision
+        })
+        
+        # 检查是否需要使用视觉
+        if not self.should_use_vision(user_query):
+            debug_logger.log_info('AgentVisionTool', '不需要使用视觉工具')
+            return None
+        
+        # 获取当前激活的环境
+        current_env = self.db.get_active_environment()
+        if not current_env:
+            debug_logger.log_info('AgentVisionTool', '没有激活的环境')
+            return None
+        
+        # 检查当前环境是否属于某个域
+        domains = self.db.get_environment_domains(current_env['uuid'])
+        
+        if not high_precision and domains:
+            # 低精度模式：返回域级别的描述
+            domain = domains[0]  # 使用第一个域
+            domain_desc = self.get_domain_description(domain['uuid'], use_default_env=False)
+            
+            vision_context = {
+                'type': 'domain',
+                'domain': domain,
+                'current_environment': current_env,
+                'description': domain_desc,
+                'query': user_query,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            debug_logger.log_info('AgentVisionTool', '返回域级别视觉上下文', {
+                'domain_name': domain['name']
+            })
+            
+            return vision_context
+        else:
+            # 高精度模式或不属于域：返回具体环境的详细描述
+            return self.get_vision_context(user_query)
+
+    def detect_precision_requirement(self, user_query: str) -> bool:
+        """
+        检测用户查询是否需要高精度的环境信息
+        
+        Args:
+            user_query: 用户查询
+
+        Returns:
+            是否需要高精度（True=需要具体环境，False=域级别即可）
+        """
+        # 高精度关键词（需要具体环境描述）
+        high_precision_keywords = [
+            '具体', '详细', '什么东西', '有什么', '有哪些', '看到',
+            '周围', '附近', '房间', '屋子', '物体', '物品'
+        ]
+        
+        query_lower = user_query.lower()
+        for keyword in high_precision_keywords:
+            if keyword in query_lower:
+                debug_logger.log_info('AgentVisionTool', '检测到高精度需求', {
+                    'keyword': keyword
+                })
+                return True
+        
+        debug_logger.log_info('AgentVisionTool', '低精度需求（域级别）')
+        return False
+
+    def switch_to_domain(self, domain_uuid: str) -> bool:
+        """
+        切换到指定域（会切换到该域的默认环境）
+
+        Args:
+            domain_uuid: 目标域UUID
+
+        Returns:
+            是否切换成功
+        """
+        debug_logger.log_module('AgentVisionTool', '切换到域', {
+            'domain_uuid': domain_uuid[:8] + '...'
+        })
+
+        domain = self.db.get_domain(domain_uuid)
+        if not domain:
+            debug_logger.log_info('AgentVisionTool', '域不存在')
+            return False
+
+        # 如果域有默认环境，切换到默认环境
+        if domain['default_environment_uuid']:
+            default_env = self.db.get_environment(domain['default_environment_uuid'])
+            if default_env:
+                success = self.db.set_active_environment(domain['default_environment_uuid'])
+                if success:
+                    debug_logger.log_info('AgentVisionTool', '已切换到域的默认环境', {
+                        'domain': domain['name'],
+                        'default_env': default_env['name']
+                    })
+                    print(f"✓ 已切换到域: {domain['name']} (默认位置: {default_env['name']})")
+                return success
+            else:
+                debug_logger.log_info('AgentVisionTool', '域的默认环境不存在')
+                return False
+        else:
+            # 如果没有设置默认环境，切换到域中的第一个环境
+            environments = self.db.get_domain_environments(domain_uuid)
+            if environments:
+                first_env = environments[0]
+                success = self.db.set_active_environment(first_env['uuid'])
+                if success:
+                    debug_logger.log_info('AgentVisionTool', '已切换到域的第一个环境', {
+                        'domain': domain['name'],
+                        'env': first_env['name']
+                    })
+                    print(f"✓ 已切换到域: {domain['name']} (位置: {first_env['name']})")
+                return success
+            else:
+                debug_logger.log_info('AgentVisionTool', '域中没有环境')
+                return False
+
+    def detect_domain_switch_intent(self, user_query: str) -> Optional[Dict[str, Any]]:
+        """
+        检测用户是否有切换到域的意图
+
+        Args:
+            user_query: 用户查询
+
+        Returns:
+            如果检测到切换意图，返回包含目标域等信息的字典，否则返回None
+        """
+        debug_logger.log_module('AgentVisionTool', '检测域切换意图', {
+            'query': user_query
+        })
+
+        # 域切换关键词
+        switch_keywords = [
+            '去', '走', '移动', '前往', '过去', '进入', '离开', '出去',
+            '回到', '返回', '切换', '换到', '转移'
+        ]
+
+        query_lower = user_query.lower()
+        has_switch_keyword = any(keyword in query_lower for keyword in switch_keywords)
+
+        if not has_switch_keyword:
+            debug_logger.log_info('AgentVisionTool', '未检测到切换关键词')
+            return None
+
+        # 获取所有域
+        all_domains = self.db.get_all_domains()
+        if not all_domains:
+            debug_logger.log_info('AgentVisionTool', '没有已定义的域')
+            return None
+
+        # 尝试匹配域名称
+        matched_domain = None
+        for domain in all_domains:
+            if domain['name'] in user_query:
+                matched_domain = domain
+                break
+
+        if matched_domain:
+            current_env = self.db.get_active_environment()
+            debug_logger.log_info('AgentVisionTool', '检测到域切换意图', {
+                'from_env': current_env['name'] if current_env else 'None',
+                'to_domain': matched_domain['name']
+            })
+            return {
+                'intent': 'switch_domain',
+                'from_env': current_env,
+                'to_domain': matched_domain,
+                'can_switch': True
+            }
+
+        debug_logger.log_info('AgentVisionTool', '未匹配到目标域')
+        return None
 
 
 # 测试代码
