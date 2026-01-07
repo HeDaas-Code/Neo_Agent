@@ -1775,7 +1775,7 @@ class EnhancedChatDebugGUI:
             return
 
         stats = self.agent.get_memory_stats()
-        base_kb_count = stats['knowledge_base'].get('base_knowledge_facts', 0)
+        base_kb_count = stats['knowledge_base'].get('total_base_knowledge', 0)
         
         # 优化状态文本，更紧凑
         status_text = f"短期: {stats['short_term']['rounds']}轮 | 长期: {stats['long_term']['total_summaries']}主题 | 知识: {stats['knowledge_base']['total_knowledge']}条"
