@@ -12,6 +12,21 @@ tests/
 └── test_event_manager.py    # EventManager 模块的单元测试
 ```
 
+## 测试覆盖的模块
+
+### 已有测试
+- **DebugLogger** - 调试日志记录器
+- **EventManager** - 事件管理器
+
+### 需要添加测试的模块
+- **ExpressionStyleManager** - 表达风格管理器
+- **BaseKnowledge** - 基础知识管理器
+- **DatabaseManager** - 数据库管理器（核心功能）
+- **ChatAgent** - 对话代理（集成测试）
+- **KnowledgeBase** - 知识库管理
+- **EmotionAnalyzer** - 情感分析
+- **MultiAgentCoordinator** - 多智能体协调器
+
 ## 运行测试
 
 ### 使用 unittest 运行所有测试
@@ -98,6 +113,94 @@ if __name__ == '__main__':
 3. **清理**：在 `tearDown` 中清理测试创建的文件或数据
 4. **断言**：使用合适的断言方法，如 `assertEqual`、`assertTrue`、`assertRaises` 等
 5. **覆盖率**：尽量覆盖各种情况，包括正常情况和异常情况
+6. **Mock外部依赖**：使用mock对象模拟API调用、数据库操作等外部依赖
+7. **测试数据隔离**：使用临时数据库或内存数据库，避免影响生产数据
+8. **测试文档**：为复杂测试添加注释说明测试目的和预期结果
+
+## 编写新模块测试指南
+
+### ExpressionStyleManager 测试要点
+
+```python
+def test_add_agent_expression(self):
+    """测试添加智能体表达"""
+    manager = ExpressionStyleManager()
+    expr_uuid = manager.add_agent_expression(
+        expression="wc",
+        meaning="表示对突发事情的感叹",
+        category="感叹词"
+    )
+    self.assertIsNotNone(expr_uuid)
+    
+    # 验证表达已添加
+    expressions = manager.get_agent_expressions()
+    self.assertTrue(any(e['expression'] == 'wc' for e in expressions))
+
+def test_learn_from_conversation(self):
+    """测试从对话中学习用户习惯"""
+    manager = ExpressionStyleManager()
+    messages = [
+        {'role': 'user', 'content': '哈哈哈，太好笑了'},
+        {'role': 'assistant', 'content': '是的呢'},
+        # 添加更多测试消息...
+    ]
+    result = manager.learn_from_conversation(messages)
+    self.assertIn('learned', result)
+```
+
+### BaseKnowledge 测试要点
+
+```python
+def test_add_base_fact(self):
+    """测试添加基础事实"""
+    bk = BaseKnowledge()
+    success = bk.add_base_fact(
+        entity_name="TestEntity",
+        fact_content="Test content",
+        category="Test"
+    )
+    self.assertTrue(success)
+    
+    # 验证事实已添加
+    fact = bk.get_base_fact("TestEntity")
+    self.assertEqual(fact['content'], "Test content")
+
+def test_immutable_fact(self):
+    """测试不可变事实不能被覆盖"""
+    bk = BaseKnowledge()
+    bk.add_base_fact(
+        entity_name="ImmutableEntity",
+        fact_content="Original content",
+        immutable=True
+    )
+    
+    # 尝试覆盖应该失败
+    success = bk.add_base_fact(
+        entity_name="ImmutableEntity",
+        fact_content="New content",
+        immutable=True
+    )
+    self.assertFalse(success)
+    
+    # 验证内容未改变
+    fact = bk.get_base_fact("ImmutableEntity")
+    self.assertEqual(fact['content'], "Original content")
+```
+
+### 数据库相关测试
+
+```python
+def setUp(self):
+    """为每个测试创建临时数据库"""
+    self.test_db = "test_temp.db"
+    self.db_manager = DatabaseManager(db_path=self.test_db)
+
+def tearDown(self):
+    """清理测试数据库"""
+    import os
+    if os.path.exists(self.test_db):
+        os.remove(self.test_db)
+```
 
 ## 注意事项
 

@@ -34,6 +34,8 @@ Welcome to Neo Agent project documentation!
    - EventManager API
    - MultiAgentCoordinator API
    - InterruptQuestionTool API
+   - ExpressionStyleManager API
+   - BaseKnowledge API
    - DebugLogger API
 
 #### 开发者指南 / Developer Guide
@@ -93,6 +95,8 @@ Welcome to Neo Agent project documentation!
    - Complete API Reference
    - Usage Examples
    - Data Models
+   - ExpressionStyleManager API
+   - BaseKnowledge API
 
 #### Developer Guide
 3. **[Development Guide](en/DEVELOPMENT.md)** 🔧
@@ -108,6 +112,31 @@ Welcome to Neo Agent project documentation!
    - Module Architecture
    - Data Flow Design
    - Performance Optimization
+
+#### Advanced Features
+5. **[Event System Documentation](en/EVENT_SYSTEM.md)** 🎯
+   - System Overview
+   - Event Types (Notification, Task)
+   - Event Processing Flow
+   - Interrupt Question Tool
+   - GUI Usage Guide
+   - API Reference
+   - Best Practices
+
+6. **[Event System Architecture](en/ARCHITECTURE_EVENT_SYSTEM.md)** 📊
+   - System Architecture Diagrams
+   - Notification Event Flow
+   - Task Event Flow
+   - Data Flow Diagrams
+   - Class Relationship Diagrams
+   - State Machine Diagrams
+   - Design Patterns
+
+7. **[Implementation Summary](en/IMPLEMENTATION_SUMMARY.md)** 📝
+   - Feature Completion Status
+   - Technical Highlights
+   - Code Statistics
+   - Testing Status
 
 ## 📖 按主题浏览 / Browse by Topic
 
@@ -181,4 +210,4 @@ Contributions welcome! See [Contributing Guide](en/DEVELOPMENT.md)
 - 支持中英文双语切换
 - 所有代码示例均可直接运行
 
-最后更新 / Last Updated: 2025-01-19
+最后更新 / Last Updated: 2025-01-07

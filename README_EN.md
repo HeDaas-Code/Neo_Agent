@@ -41,6 +41,10 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Intelligent Vision**: Uses LLM to intelligently determine if environmental information is needed, simulating visual perception through environment descriptions
   - LLM Intelligent Detection: Understands semantics, recognizes questions like "Where are you?" that implicitly require environmental information
   - Keyword Matching Fallback: Automatically downgrades to keyword matching when LLM is unavailable
+- **Personalized Expression Style**: Manage agent's unique expressions and learn user habits
+  - Agent Expression Management: Define personalized expressions like 'wc', 'hhh' with their meanings
+  - User Habit Learning: Automatically identify and summarize user expression habits
+  - Dynamic Prompt Injection: Integrate expression style into conversation generation
 - **Debug Logging**: Detailed system operation logs
 - **Flexible Configuration**: Easy setup through environment variables
 
@@ -124,6 +128,10 @@ Neo_Agent/
 ├── knowledge_base.py        # Knowledge base management
 ├── emotion_analyzer.py      # Emotional analysis
 ├── agent_vision.py          # Vision tools
+├── event_manager.py         # Event management
+├── multi_agent_coordinator.py  # Multi-agent collaboration
+├── interrupt_question_tool.py  # Interrupt question tool
+├── expression_style.py      # Expression style management
 ├── debug_logger.py          # Debug logging
 ├── database_gui.py          # Database GUI management
 ├── base_knowledge.py        # Base knowledge management

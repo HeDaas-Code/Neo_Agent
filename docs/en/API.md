@@ -12,6 +12,8 @@ This document provides detailed API interfaces and usage methods for all Neo Age
 - [KnowledgeBase](#knowledgebase) - Knowledge Base Management
 - [EmotionRelationshipAnalyzer](#emotionrelationshipanalyzer) - Emotion Analysis
 - [AgentVisionTool](#agentvisiontool) - Vision Tools
+- [ExpressionStyleManager](#expressionstylemanager) - Expression Style Management
+- [BaseKnowledge](#baseknowledge) - Base Knowledge Management
 - [DebugLogger](#debuglogger) - Debug Logging
 
 ---
@@ -558,6 +560,242 @@ logs = logger.get_logs(
     level: str = None,          # Log level filter
     module: str = None          # Module filter
 ) -> List[Dict[str, Any]]
+```
+
+---
+
+## ExpressionStyleManager
+
+Expression style manager for managing agent's personalized expressions and learning user expression habits.
+
+### Initialization
+
+```python
+from expression_style import ExpressionStyleManager
+
+manager = ExpressionStyleManager(
+    db_manager=db,                      # Database manager (optional)
+    api_key="your-api-key",            # API key (optional)
+    api_url="https://api.url",         # API URL (optional)
+    model_name="model-name"            # Model name (optional)
+)
+```
+
+### add_agent_expression
+
+Add agent personalized expression.
+
+```python
+expr_uuid = manager.add_agent_expression(
+    expression: str,    # Expression (e.g., 'wc', 'hhh')
+    meaning: str,       # Meaning description
+    category: str = "General"  # Category
+) -> str
+```
+
+**Example**:
+```python
+expr_uuid = manager.add_agent_expression(
+    expression="wc",
+    meaning="Expresses surprise at unexpected events",
+    category="Exclamation"
+)
+```
+
+### get_agent_expressions
+
+Get all agent personalized expressions.
+
+```python
+expressions = manager.get_agent_expressions(
+    active_only: bool = True  # Whether to get only active expressions
+) -> List[Dict[str, Any]]
+```
+
+### update_agent_expression
+
+Update agent expression.
+
+```python
+success = manager.update_agent_expression(
+    expr_uuid: str,  # Expression UUID
+    **kwargs         # Fields to update (expression, meaning, category, is_active, etc.)
+) -> bool
+```
+
+### delete_agent_expression
+
+Delete agent expression.
+
+```python
+success = manager.delete_agent_expression(
+    expr_uuid: str  # Expression UUID
+) -> bool
+```
+
+### add_user_habit
+
+Add user expression habit.
+
+```python
+habit_uuid = manager.add_user_habit(
+    expression: str,      # User expression
+    meaning: str,         # Meaning
+    context: str = "",    # Usage context
+    confidence: float = 0.5  # Confidence (0-1)
+) -> str
+```
+
+### get_user_habits
+
+Get user expression habits.
+
+```python
+habits = manager.get_user_habits(
+    active_only: bool = True,
+    min_confidence: float = 0.0
+) -> List[Dict[str, Any]]
+```
+
+### learn_from_conversation
+
+Learn user expression habits from conversation.
+
+```python
+result = manager.learn_from_conversation(
+    messages: List[Dict[str, Any]]  # Conversation message list
+) -> Dict[str, Any]
+```
+
+**Returns**:
+```python
+{
+    'learned': True/False,
+    'habits_found': [...],  # List of discovered habits
+    'message': '...'
+}
+```
+
+### format_expressions_for_prompt
+
+Format expression list for prompt.
+
+```python
+prompt_text = manager.format_expressions_for_prompt(
+    expressions: List[Dict[str, Any]]
+) -> str
+```
+
+---
+
+## BaseKnowledge
+
+Base knowledge manager for managing agent's core base knowledge, which has highest priority and cannot be overridden.
+
+### Initialization
+
+```python
+from base_knowledge import BaseKnowledge
+
+bk = BaseKnowledge(
+    db_manager=db  # Database manager (optional)
+)
+```
+
+### add_base_fact
+
+Add base fact.
+
+```python
+success = bk.add_base_fact(
+    entity_name: str,       # Entity name (e.g., "HeDaas")
+    fact_content: str,      # Fact content (e.g., "HeDaas is a university")
+    category: str = "General", # Category
+    description: str = "",  # Description
+    immutable: bool = True  # Whether immutable
+) -> bool
+```
+
+**Example**:
+```python
+success = bk.add_base_fact(
+    entity_name="HeDaas",
+    fact_content="HeDaas is a university",
+    category="Institution Type",
+    description="Basic definition of HeDaas",
+    immutable=True
+)
+```
+
+### get_base_fact
+
+Get base fact for specified entity.
+
+```python
+fact = bk.get_base_fact(
+    entity_name: str  # Entity name
+) -> Dict[str, Any]
+```
+
+**Returns**:
+```python
+{
+    'entity_name': 'HeDaas',
+    'content': 'HeDaas is a university',
+    'category': 'Institution Type',
+    'description': '...',
+    'immutable': True,
+    'created_at': '...',
+    'updated_at': '...'
+}
+```
+
+### get_all_base_facts
+
+Get all base facts.
+
+```python
+facts = bk.get_all_base_facts() -> List[Dict[str, Any]]
+```
+
+### update_base_fact
+
+Update base fact (only non-immutable items).
+
+```python
+success = bk.update_base_fact(
+    entity_name: str,
+    **kwargs  # Fields to update
+) -> bool
+```
+
+### delete_base_fact
+
+Delete base fact.
+
+```python
+success = bk.delete_base_fact(
+    entity_name: str  # Entity name
+) -> bool
+```
+
+### get_all_for_prompt
+
+Get formatted base knowledge text for prompt.
+
+```python
+prompt_text = bk.get_all_for_prompt() -> str
+```
+
+**Returns example**:
+```
+=== Base Knowledge (Absolute Authority) ===
+
+1. HeDaas (Institution Type)
+   HeDaas is a university
+   Description: Basic definition of HeDaas
+
+========================
 ```
 
 ---
