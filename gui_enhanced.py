@@ -16,6 +16,101 @@ from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 
 
+class ToolTip:
+    """
+    工具提示类
+    在鼠标悬浮时显示完整文本
+    """
+    def __init__(self, widget, text='', delay=500, wraplength=400):
+        """
+        初始化工具提示
+        
+        Args:
+            widget: 要绑定的控件
+            text: 提示文本
+            delay: 延迟显示时间（毫秒）
+            wraplength: 文本换行长度
+        """
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.wraplength = wraplength
+        self.tooltip_window = None
+        self.show_timer = None
+        
+        # 绑定事件
+        self.widget.bind("<Enter>", self.on_enter)
+        self.widget.bind("<Leave>", self.on_leave)
+        self.widget.bind("<Motion>", self.on_motion)
+        
+    def on_enter(self, event=None):
+        """鼠标进入控件"""
+        self.schedule_show()
+        
+    def on_leave(self, event=None):
+        """鼠标离开控件"""
+        self.cancel_show()
+        self.hide()
+        
+    def on_motion(self, event=None):
+        """鼠标移动"""
+        if self.tooltip_window:
+            self.hide()
+        self.schedule_show()
+        
+    def schedule_show(self):
+        """调度显示提示"""
+        self.cancel_show()
+        if self.text:
+            self.show_timer = self.widget.after(self.delay, self.show)
+            
+    def cancel_show(self):
+        """取消显示"""
+        if self.show_timer:
+            self.widget.after_cancel(self.show_timer)
+            self.show_timer = None
+            
+    def show(self):
+        """显示工具提示"""
+        if not self.text or self.tooltip_window:
+            return
+            
+        # 创建顶层窗口
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        
+        # 计算位置
+        x = self.widget.winfo_pointerx() + 10
+        y = self.widget.winfo_pointery() + 10
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        # 创建标签
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#ffffe0",
+            foreground="#000000",
+            relief=tk.SOLID,
+            borderwidth=1,
+            wraplength=self.wraplength,
+            font=("微软雅黑", 9),
+            padx=5,
+            pady=3
+        )
+        label.pack()
+        
+    def hide(self):
+        """隐藏工具提示"""
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+            
+    def update_text(self, text):
+        """更新提示文本"""
+        self.text = text
+
+
 class EmotionImpressionDisplay(Canvas):
     """
     情感印象展示画布
@@ -545,17 +640,21 @@ class EnhancedChatDebugGUI:
         )
         self.status_label.pack(side=tk.RIGHT, padx=10)
 
-        # 角色信息栏（固定高度）
-        self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5, height=50)
+        # 角色信息栏（固定高度，添加滚动条）
+        self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5, height=60)
         self.character_frame.pack(fill=tk.X, padx=5, pady=3, side=tk.TOP)
         self.character_frame.pack_propagate(False)
 
         self.character_label = ttk.Label(
             self.character_frame,
             text="加载中...",
-            font=("微软雅黑", 9)
+            font=("微软雅黑", 9),
+            wraplength=1300  # 设置换行宽度
         )
-        self.character_label.pack()
+        self.character_label.pack(fill=tk.BOTH, expand=True)
+        
+        # 添加工具提示支持
+        self.character_tooltip = None
 
         # 记忆状态栏（固定高度）
         memory_status_frame = ttk.Frame(parent, height=30)
@@ -1147,13 +1246,13 @@ class EnhancedChatDebugGUI:
         for col in columns:
             self.event_tree.heading(col, text=col)
 
-        # 设置列宽
-        self.event_tree.column('#0', width=80, minwidth=80)
-        self.event_tree.column('标题', width=200, minwidth=150)
-        self.event_tree.column('类型', width=80, minwidth=80)
-        self.event_tree.column('优先级', width=80, minwidth=80)
-        self.event_tree.column('状态', width=80, minwidth=80)
-        self.event_tree.column('创建时间', width=150, minwidth=120)
+        # 设置列宽 - 优化以更好显示内容
+        self.event_tree.column('#0', width=100, minwidth=80, stretch=False)
+        self.event_tree.column('标题', width=300, minwidth=200, stretch=True)
+        self.event_tree.column('类型', width=80, minwidth=60, stretch=False)
+        self.event_tree.column('优先级', width=80, minwidth=60, stretch=False)
+        self.event_tree.column('状态', width=80, minwidth=60, stretch=False)
+        self.event_tree.column('创建时间', width=160, minwidth=140, stretch=False)
 
         # 滚动条
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.event_tree.yview)
@@ -1161,6 +1260,10 @@ class EnhancedChatDebugGUI:
 
         self.event_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 为事件树添加鼠标悬停提示
+        self.event_tree_tooltip = None
+        self.event_tree.bind('<Motion>', self.show_event_tree_tooltip)
 
         
     def refresh_event_list(self):
@@ -1225,6 +1328,42 @@ class EnhancedChatDebugGUI:
             print(f"刷新事件列表时出错: {e}")
             import traceback
             traceback.print_exc()
+    
+    def show_event_tree_tooltip(self, event):
+        """
+        显示事件树的工具提示
+        
+        Args:
+            event: 鼠标事件
+        """
+        # 移除旧的工具提示
+        if self.event_tree_tooltip:
+            self.event_tree_tooltip.hide()
+            self.event_tree_tooltip = None
+        
+        # 获取鼠标所在的行
+        item = self.event_tree.identify_row(event.y)
+        if not item:
+            return
+        
+        # 获取事件信息
+        values = self.event_tree.item(item, 'values')
+        tags = self.event_tree.item(item, 'tags')
+        
+        if values and tags:
+            # 构建工具提示文本
+            tooltip_text = f"标题: {values[0]}\n"
+            tooltip_text += f"类型: {values[1]}\n"
+            tooltip_text += f"优先级: {values[2]}\n"
+            tooltip_text += f"状态: {values[3]}\n"
+            tooltip_text += f"创建时间: {values[4]}\n"
+            tooltip_text += f"完整ID: {tags[0] if tags else 'N/A'}"
+            
+            # 创建临时标签用于显示工具提示
+            temp_label = ttk.Label(self.event_tree)
+            self.event_tree_tooltip = ToolTip(temp_label, tooltip_text, delay=800, wraplength=400)
+            # 立即显示
+            self.event_tree_tooltip.show()
 
     def create_new_event(self):
         """创建新事件对话框"""
@@ -1610,11 +1749,28 @@ class EnhancedChatDebugGUI:
         """
         if self.agent:
             char_info = self.agent.get_character_info()
-            info_text = f"姓名: {char_info['name']} | 性别: {char_info['gender']} | 身份: {char_info['role']} | "
-            info_text += f"年龄: {char_info['age']}岁 | 身高: {char_info['height']} | 体重: {char_info['weight']}\n"
-            info_text += f"性格: {char_info['personality']}"
+            # 简化显示文本，主要信息在第一行
+            info_text = f"姓名: {char_info['name']} | 性别: {char_info['gender']} | 身份: {char_info['role']} | 年龄: {char_info['age']}岁\n"
+            info_text += f"性格: {char_info['personality'][:50]}{'...' if len(char_info['personality']) > 50 else ''}"
+            
+            # 完整信息用于工具提示
+            full_info = f"姓名: {char_info['name']}\n"
+            full_info += f"性别: {char_info['gender']}\n"
+            full_info += f"身份: {char_info['role']}\n"
+            full_info += f"年龄: {char_info['age']}岁\n"
+            full_info += f"身高: {char_info['height']}\n"
+            full_info += f"体重: {char_info['weight']}\n"
+            full_info += f"性格: {char_info['personality']}\n"
+            full_info += f"背景: {char_info.get('background', '未设置')}\n"
+            full_info += f"爱好: {char_info.get('hobbies', '未设置')}"
 
             self.character_label.config(text=info_text)
+            
+            # 更新工具提示
+            if self.character_tooltip:
+                self.character_tooltip.update_text(full_info)
+            else:
+                self.character_tooltip = ToolTip(self.character_label, full_info, delay=500, wraplength=500)
 
     def update_system_info(self):
         """
