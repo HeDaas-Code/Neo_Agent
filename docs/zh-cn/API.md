@@ -15,6 +15,8 @@
 - [EventManager](#eventmanager) - 事件管理
 - [MultiAgentCoordinator](#multiagentcoordinator) - 多智能体协调器
 - [InterruptQuestionTool](#interruptquestiontool) - 中断性提问工具
+- [ExpressionStyleManager](#expressionstylemanager) - 表达风格管理
+- [BaseKnowledge](#baseknowledge) - 基础知识管理
 - [DebugLogger](#debuglogger) - 调试日志
 
 ---
@@ -825,6 +827,242 @@ logs = logger.get_logs(
     level: str = None,          # 日志级别过滤
     module: str = None          # 模块过滤
 ) -> List[Dict[str, Any]]
+```
+
+---
+
+## ExpressionStyleManager
+
+个性化表达风格管理器，管理智能体的个性化表达和学习用户的表达习惯。
+
+### 初始化
+
+```python
+from expression_style import ExpressionStyleManager
+
+manager = ExpressionStyleManager(
+    db_manager=db,                      # 数据库管理器（可选）
+    api_key="your-api-key",            # API密钥（可选）
+    api_url="https://api.url",         # API地址（可选）
+    model_name="model-name"            # 模型名称（可选）
+)
+```
+
+### add_agent_expression
+
+添加智能体个性化表达。
+
+```python
+expr_uuid = manager.add_agent_expression(
+    expression: str,    # 表达方式（如 'wc'、'hhh'）
+    meaning: str,       # 含义说明
+    category: str = "通用"  # 分类
+) -> str
+```
+
+**示例**：
+```python
+expr_uuid = manager.add_agent_expression(
+    expression="wc",
+    meaning="表示对突发事情的感叹",
+    category="感叹词"
+)
+```
+
+### get_agent_expressions
+
+获取所有智能体个性化表达。
+
+```python
+expressions = manager.get_agent_expressions(
+    active_only: bool = True  # 是否只获取激活的表达
+) -> List[Dict[str, Any]]
+```
+
+### update_agent_expression
+
+更新智能体表达。
+
+```python
+success = manager.update_agent_expression(
+    expr_uuid: str,  # 表达UUID
+    **kwargs         # 要更新的字段（expression, meaning, category, is_active等）
+) -> bool
+```
+
+### delete_agent_expression
+
+删除智能体表达。
+
+```python
+success = manager.delete_agent_expression(
+    expr_uuid: str  # 表达UUID
+) -> bool
+```
+
+### add_user_habit
+
+添加用户表达习惯。
+
+```python
+habit_uuid = manager.add_user_habit(
+    expression: str,      # 用户表达方式
+    meaning: str,         # 含义
+    context: str = "",    # 使用场景
+    confidence: float = 0.5  # 置信度（0-1）
+) -> str
+```
+
+### get_user_habits
+
+获取用户表达习惯。
+
+```python
+habits = manager.get_user_habits(
+    active_only: bool = True,
+    min_confidence: float = 0.0
+) -> List[Dict[str, Any]]
+```
+
+### learn_from_conversation
+
+从对话中学习用户表达习惯。
+
+```python
+result = manager.learn_from_conversation(
+    messages: List[Dict[str, Any]]  # 对话消息列表
+) -> Dict[str, Any]
+```
+
+**返回**：
+```python
+{
+    'learned': True/False,
+    'habits_found': [...],  # 发现的习惯列表
+    'message': '...'
+}
+```
+
+### format_expressions_for_prompt
+
+格式化表达列表为提示词。
+
+```python
+prompt_text = manager.format_expressions_for_prompt(
+    expressions: List[Dict[str, Any]]
+) -> str
+```
+
+---
+
+## BaseKnowledge
+
+基础知识管理器，管理智能体的核心基础知识，这些知识具有最高优先级且不可被覆盖。
+
+### 初始化
+
+```python
+from base_knowledge import BaseKnowledge
+
+bk = BaseKnowledge(
+    db_manager=db  # 数据库管理器（可选）
+)
+```
+
+### add_base_fact
+
+添加基础事实。
+
+```python
+success = bk.add_base_fact(
+    entity_name: str,       # 实体名称（如 "HeDaas"）
+    fact_content: str,      # 事实内容（如 "HeDaas是一个高校"）
+    category: str = "通用", # 分类
+    description: str = "",  # 描述说明
+    immutable: bool = True  # 是否不可变
+) -> bool
+```
+
+**示例**：
+```python
+success = bk.add_base_fact(
+    entity_name="HeDaas",
+    fact_content="HeDaas是一个高校",
+    category="机构类型",
+    description="HeDaas的基本定义",
+    immutable=True
+)
+```
+
+### get_base_fact
+
+获取指定实体的基础事实。
+
+```python
+fact = bk.get_base_fact(
+    entity_name: str  # 实体名称
+) -> Dict[str, Any]
+```
+
+**返回**：
+```python
+{
+    'entity_name': 'HeDaas',
+    'content': 'HeDaas是一个高校',
+    'category': '机构类型',
+    'description': '...',
+    'immutable': True,
+    'created_at': '...',
+    'updated_at': '...'
+}
+```
+
+### get_all_base_facts
+
+获取所有基础事实。
+
+```python
+facts = bk.get_all_base_facts() -> List[Dict[str, Any]]
+```
+
+### update_base_fact
+
+更新基础事实（仅非不可变项）。
+
+```python
+success = bk.update_base_fact(
+    entity_name: str,
+    **kwargs  # 要更新的字段
+) -> bool
+```
+
+### delete_base_fact
+
+删除基础事实。
+
+```python
+success = bk.delete_base_fact(
+    entity_name: str  # 实体名称
+) -> bool
+```
+
+### get_all_for_prompt
+
+获取格式化的基础知识文本用于提示词。
+
+```python
+prompt_text = bk.get_all_for_prompt() -> str
+```
+
+**返回示例**：
+```
+=== 基础知识（绝对权威） ===
+
+1. HeDaas（机构类型）
+   HeDaas是一个高校
+   说明：HeDaas的基本定义
+
+========================
 ```
 
 ---
