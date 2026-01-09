@@ -419,6 +419,9 @@ class EnhancedChatDebugGUI:
         # 初始化聊天代理
         self.agent = None
         self.is_processing = False
+        
+        # 跟踪已打开的窗口
+        self.schedule_window = None
 
         # 创建UI组件
         self.create_widgets()
@@ -4003,9 +4006,15 @@ class EnhancedChatDebugGUI:
             messagebox.showerror("错误", "聊天代理未初始化")
             return
 
+        # 如果窗口已存在且未关闭，则聚焦到该窗口
+        if self.schedule_window and self.schedule_window.window.winfo_exists():
+            self.schedule_window.window.lift()
+            self.schedule_window.window.focus_force()
+            return
+
         try:
             # 创建日程管理窗口
-            ScheduleManagerWindow(self.root, self.agent.schedule_manager)
+            self.schedule_window = ScheduleManagerWindow(self.root, self.agent.schedule_manager)
         except Exception as e:
             messagebox.showerror("错误", f"打开日程管理器失败: {str(e)}")
 

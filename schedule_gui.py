@@ -229,19 +229,21 @@ class ScheduleManagerWindow:
             self.show_schedule_detail(None)
             return
 
-        # 获取选中的日程
+        # 获取选中的行索引
         item = selection[0]
-        values = self.schedule_tree.item(item)['values']
+        item_index = self.schedule_tree.index(item)
         
-        # 通过标题查找日程（简单实现）
+        # 获取当前日期的日程列表
         date_str = self.current_date.strftime('%Y-%m-%d')
         schedules = self.schedule_manager.get_schedules_by_date(date_str)
         
-        for schedule in schedules:
-            if schedule.title == values[1]:  # 标题匹配
-                self.selected_schedule = schedule
-                self.show_schedule_detail(schedule)
-                break
+        # 根据索引获取对应的日程
+        if 0 <= item_index < len(schedules):
+            self.selected_schedule = schedules[item_index]
+            self.show_schedule_detail(self.selected_schedule)
+        else:
+            self.selected_schedule = None
+            self.show_schedule_detail(None)
 
     def show_schedule_detail(self, schedule: Optional[Schedule]):
         """显示日程详情"""
