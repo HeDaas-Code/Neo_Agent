@@ -15,6 +15,7 @@ from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 from tooltip_utils import ToolTip, create_treeview_tooltip
+from schedule_gui import ScheduleManagerWindow
 
 
 class EmotionImpressionDisplay(Canvas):
@@ -994,6 +995,12 @@ class EnhancedChatDebugGUI:
         notebook.add(event_tab, text="📅 事件管理")
 
         self.create_event_management_panel(event_tab)
+
+        # 选项卡10: 日程管理
+        schedule_tab = ttk.Frame(notebook)
+        notebook.add(schedule_tab, text="📆 日程管理")
+
+        self.create_schedule_management_panel(schedule_tab)
 
     def create_control_panel(self, parent):
         """
@@ -3886,6 +3893,121 @@ class EnhancedChatDebugGUI:
                     self.refresh_expression_display(text_widget)
             else:
                 messagebox.showerror("错误", "清空用户表达习惯失败")
+
+    def create_schedule_management_panel(self, parent):
+        """
+        创建日程管理面板
+
+        Args:
+            parent: 父容器
+        """
+        main_container = ttk.Frame(parent, padding=10)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # 顶部说明
+        desc_frame = ttk.Frame(main_container)
+        desc_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(
+            desc_frame,
+            text="📆 智能体日程管理",
+            font=("微软雅黑", 12, "bold")
+        ).pack(side=tk.LEFT)
+
+        ttk.Label(
+            desc_frame,
+            text="管理智能体的日常日程安排，支持周期、预约和临时日程",
+            font=("微软雅黑", 9),
+            foreground="#666"
+        ).pack(side=tk.LEFT, padx=10)
+
+        # 打开日程管理窗口按钮
+        button_frame = ttk.Frame(main_container)
+        button_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(
+            button_frame,
+            text="📆 打开日程管理器",
+            command=self.open_schedule_manager_window,
+            width=25
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 说明信息
+        info_frame = ttk.LabelFrame(main_container, text="💡 使用说明", padding=10)
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        info_text = scrolledtext.ScrolledText(
+            info_frame,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9),
+            height=20
+        )
+        info_text.pack(fill=tk.BOTH, expand=True)
+
+        help_content = """日程管理系统说明
+
+📅 日程类型：
+
+1. 周期日程 (Recurring)
+   • 固定重复的日程，如周一到周五的课程表
+   • 优先级: 紧急 (自动设置)
+   • 支持多种重复模式：每天、每周、工作日、周末等
+
+2. 预约日程 (Appointment)
+   • 用户主动提及或意图识别的日程
+   • 优先级: 中等或高
+   • 例如："周三下午要开会"
+
+3. 临时日程 (Impromptu)
+   • LLM在空隙中适量添加的随机活动
+   • 优先级: 低
+   • 例如："今晚看月亮"
+
+🎯 优先级规则：
+
+• 紧急 (4): 周期性固定日程
+• 高 (3): 重要预约
+• 中 (2): 一般预约
+• 低 (1): 临时活动
+
+高优先级的日程会自动替换低优先级的冲突日程。
+
+⚙️ 功能特性：
+
+✓ 自动冲突检测
+✓ 优先级自动处理
+✓ 周期日程支持
+✓ 日程摘要生成
+✓ 对话上下文集成
+
+智能体会在对话中自然地提及相关日程，
+特别是当话题与日程有关时。
+
+📝 使用方法：
+
+1. 点击"打开日程管理器"按钮
+2. 使用日期导航查看不同日期的日程
+3. 点击"添加日程"创建新日程
+4. 双击日程或点击"编辑"修改日程
+5. 选中日程后点击"删除"移除日程
+
+日程信息会自动作为上下文提供给智能体，
+使其能够在对话中自然地谈论日程安排。
+"""
+        info_text.insert(1.0, help_content)
+        info_text.config(state=tk.DISABLED)
+
+    def open_schedule_manager_window(self):
+        """打开日程管理器窗口"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        try:
+            # 创建日程管理窗口
+            ScheduleManagerWindow(self.root, self.agent.schedule_manager)
+        except Exception as e:
+            messagebox.showerror("错误", f"打开日程管理器失败: {str(e)}")
 
     def show_about(self):
         """
