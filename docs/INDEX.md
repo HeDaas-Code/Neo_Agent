@@ -76,7 +76,15 @@ Welcome to Neo Agent project documentation!
    - 状态机图
    - 设计模式
 
-7. **[实现总结](zh-cn/IMPLEMENTATION_SUMMARY.md)** 📝
+7. **[智能体配置迁移指南](zh-cn/CONFIG_MIGRATION.md)** 📦 ✨NEW
+   - 功能概述
+   - 导出配置
+   - 导入配置
+   - 使用场景
+   - API参考
+   - 故障排除
+
+8. **[实现总结](zh-cn/IMPLEMENTATION_SUMMARY.md)** 📝
    - 功能完成情况
    - 技术亮点
    - 代码统计
@@ -132,7 +140,15 @@ Welcome to Neo Agent project documentation!
    - State Machine Diagrams
    - Design Patterns
 
-7. **[Implementation Summary](en/IMPLEMENTATION_SUMMARY.md)** 📝
+7. **[Agent Configuration Migration Guide](en/CONFIG_MIGRATION.md)** 📦 ✨NEW
+   - Overview
+   - Export Configuration
+   - Import Configuration
+   - Use Cases
+   - API Reference
+   - Troubleshooting
+
+8. **[Implementation Summary](en/IMPLEMENTATION_SUMMARY.md)** 📝
    - Feature Completion Status
    - Technical Highlights
    - Code Statistics
@@ -165,6 +181,10 @@ Welcome to Neo Agent project documentation!
 - [架构设计 - 数据持久层](zh-cn/ARCHITECTURE.md#1-数据持久层)
 - [API - DatabaseManager](zh-cn/API.md#databasemanager)
 - [开发指南 - DatabaseManager](zh-cn/DEVELOPMENT.md#databasemanager)
+
+### 配置管理 / Configuration Management
+- [智能体配置迁移指南](zh-cn/CONFIG_MIGRATION.md) - 导出/导入配置
+- [快速开始 - 配置环境变量](zh-cn/QUICKSTART.md#4-配置环境变量)
 
 ### GUI开发 / GUI Development
 - [开发指南 - GUI开发](zh-cn/DEVELOPMENT.md#gui-开发)
@@ -210,4 +230,4 @@ Contributions welcome! See [Contributing Guide](en/DEVELOPMENT.md)
 - 支持中英文双语切换
 - 所有代码示例均可直接运行
 
-最后更新 / Last Updated: 2025-01-07
+最后更新 / Last Updated: 2026-01-09

@@ -5,7 +5,7 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog
+from tkinter import ttk, scrolledtext, messagebox, Canvas, simpledialog, filedialog
 from datetime import datetime
 import threading
 import math
@@ -15,6 +15,7 @@ from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 from tooltip_utils import ToolTip, create_treeview_tooltip
+from agent_config_manager import AgentConfigManager
 
 
 class EmotionImpressionDisplay(Canvas):
@@ -1057,6 +1058,20 @@ class EnhancedChatDebugGUI:
         ttk.Separator(control_container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
 
         ttk.Label(control_container, text="系统设置", font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=5)
+
+        ttk.Button(
+            control_container,
+            text="📤 导出智能体配置",
+            command=self.export_agent_config,
+            width=25
+        ).pack(fill=tk.X, pady=2)
+
+        ttk.Button(
+            control_container,
+            text="📥 导入智能体配置",
+            command=self.import_agent_config,
+            width=25
+        ).pack(fill=tk.X, pady=2)
 
         ttk.Button(
             control_container,
@@ -2812,6 +2827,109 @@ class EnhancedChatDebugGUI:
                 self.chat_display.config(state=tk.DISABLED)
                 self.add_system_message("所有记忆已清空")
                 self.refresh_all()
+
+    def export_agent_config(self):
+        """
+        导出智能体配置
+        """
+        try:
+            # 打开文件对话框选择保存位置
+            file_path = filedialog.asksaveasfilename(
+                title="导出智能体配置",
+                defaultextension=".json",
+                filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
+                initialfile=f"agent_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
+            
+            if not file_path:
+                return  # 用户取消
+            
+            # 创建配置管理器并导出
+            config_manager = AgentConfigManager(db_manager=self.agent.db)
+            
+            # 显示进度提示
+            self.update_system_info("正在导出配置...")
+            
+            # 执行导出
+            success = config_manager.export_config(file_path)
+            
+            if success:
+                messagebox.showinfo(
+                    "导出成功",
+                    f"智能体配置已导出到:\n{file_path}\n\n"
+                    "该配置包含:\n"
+                    "- 环境变量设置\n"
+                    "- 环境描述和物体\n"
+                    "- 基础知识库\n"
+                    "- 智能体表达风格"
+                )
+                self.update_system_info("配置导出成功")
+            else:
+                messagebox.showerror("导出失败", "导出配置时发生错误，请查看控制台日志")
+                self.update_system_info("配置导出失败")
+        
+        except Exception as e:
+            messagebox.showerror("错误", f"导出配置时出错:\n{str(e)}")
+            self.update_system_info(f"配置导出错误: {str(e)}")
+    
+    def import_agent_config(self):
+        """
+        导入智能体配置
+        """
+        try:
+            # 打开文件对话框选择要导入的文件
+            file_path = filedialog.askopenfilename(
+                title="导入智能体配置",
+                filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")]
+            )
+            
+            if not file_path:
+                return  # 用户取消
+            
+            # 询问是否覆盖现有配置
+            overwrite = messagebox.askyesno(
+                "导入模式",
+                "是否覆盖现有配置?\n\n"
+                "选择「是」: 覆盖已存在的配置项\n"
+                "选择「否」: 只添加新配置，保留已存在的配置\n\n"
+                "注意: 环境变量将保存到新文件，需要手动替换"
+            )
+            
+            # 创建配置管理器并导入
+            config_manager = AgentConfigManager(db_manager=self.agent.db)
+            
+            # 显示进度提示
+            self.update_system_info("正在导入配置...")
+            
+            # 执行导入
+            success = config_manager.import_config(file_path, overwrite=overwrite)
+            
+            if success:
+                result_msg = (
+                    f"智能体配置已导入!\n\n"
+                    "导入内容:\n"
+                    "- 环境描述和物体\n"
+                    "- 基础知识库\n"
+                    "- 智能体表达风格\n"
+                )
+                
+                if not overwrite:
+                    result_msg += "\n⚠️ 环境变量已保存到 .env.new 文件\n请手动检查并重命名为 .env"
+                
+                result_msg += "\n\n建议重新加载代理以应用新配置"
+                
+                messagebox.showinfo("导入成功", result_msg)
+                self.update_system_info("配置导入成功")
+                
+                # 刷新显示
+                self.refresh_all()
+            else:
+                messagebox.showerror("导入失败", "导入配置时发生错误，请查看控制台日志")
+                self.update_system_info("配置导入失败")
+        
+        except Exception as e:
+            messagebox.showerror("错误", f"导入配置时出错:\n{str(e)}")
+            self.update_system_info(f"配置导入错误: {str(e)}")
 
     def reload_agent(self):
         """
