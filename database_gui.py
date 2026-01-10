@@ -115,6 +115,12 @@ class DatabaseManagerGUI:
         # 标签页5：情感分析历史
         self.create_emotion_tab()
 
+        # 标签页6：环境管理
+        self.create_environments_tab()
+
+        # 标签页7：域管理
+        self.create_domains_tab()
+
     def create_base_knowledge_tab(self):
         """
         创建基础知识管理标签页
@@ -441,6 +447,177 @@ class DatabaseManagerGUI:
         
         create_treeview_tooltip(self.emotion_tree, get_emotion_tooltip)
 
+    def create_environments_tab(self):
+        """
+        创建环境管理标签页
+        """
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="🗺️ 环境管理")
+
+        # 工具栏
+        toolbar = ttk.Frame(tab)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Button(toolbar, text="➕添加环境", command=self.add_environment, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="✏编辑", command=self.edit_environment, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🗑删除", command=self.delete_environment, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="✅激活", command=self.activate_environment, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🔄刷新", command=self.refresh_environments, width=8).pack(side=tk.LEFT, padx=2)
+
+        self.env_count_label = ttk.Label(toolbar, text="环境数: 0", font=("微软雅黑", 9))
+        self.env_count_label.pack(side=tk.RIGHT, padx=10)
+
+        # 创建Treeview
+        tree_frame = ttk.Frame(tab)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        scrollbar_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
+        scrollbar_x = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+
+        self.env_tree = ttk.Treeview(
+            tree_frame,
+            columns=("name", "description", "active", "created"),
+            show="headings",
+            yscrollcommand=scrollbar_y.set,
+            xscrollcommand=scrollbar_x.set
+        )
+
+        self.env_tree.heading("name", text="环境名称")
+        self.env_tree.heading("description", text="描述")
+        self.env_tree.heading("active", text="状态")
+        self.env_tree.heading("created", text="创建时间")
+
+        self.env_tree.column("name", width=150, minwidth=100, stretch=False)
+        self.env_tree.column("description", width=350, minwidth=200, stretch=True)
+        self.env_tree.column("active", width=80, minwidth=60, stretch=False)
+        self.env_tree.column("created", width=160, minwidth=140, stretch=False)
+
+        scrollbar_y.config(command=self.env_tree.yview)
+        scrollbar_x.config(command=self.env_tree.xview)
+
+        self.env_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar_y.grid(row=0, column=1, sticky="ns")
+        scrollbar_x.grid(row=1, column=0, sticky="ew")
+
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # 双击编辑
+        self.env_tree.bind("<Double-1>", lambda e: self.edit_environment())
+
+        # 添加鼠标悬停提示
+        def get_env_tooltip(item_id, values, tags):
+            """获取环境的工具提示文本"""
+            if not tags:
+                return None
+            
+            env_uuid = tags[0]
+            env = self.db.get_environment(env_uuid)
+            
+            if env:
+                tooltip_text = f"环境: {env['name']}\n"
+                tooltip_text += f"描述: {env['overall_description'][:100]}...\n" if len(env.get('overall_description', '')) > 100 else f"描述: {env.get('overall_description', '')}\n"
+                if env.get('atmosphere'):
+                    tooltip_text += f"氛围: {env['atmosphere']}\n"
+                if env.get('lighting'):
+                    tooltip_text += f"光照: {env['lighting']}\n"
+                tooltip_text += f"状态: {'激活' if env.get('is_active') else '未激活'}\n"
+                tooltip_text += f"创建时间: {env['created_at'][:19]}"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.env_tree, get_env_tooltip)
+
+    def create_domains_tab(self):
+        """
+        创建域管理标签页
+        """
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="🏘️ 域管理")
+
+        # 工具栏
+        toolbar = ttk.Frame(tab)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Button(toolbar, text="➕创建域", command=self.add_domain, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="✏编辑", command=self.edit_domain, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🗑删除", command=self.delete_domain, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="📍管理环境", command=self.manage_domain_environments, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🔄刷新", command=self.refresh_domains, width=8).pack(side=tk.LEFT, padx=2)
+
+        self.domain_count_label = ttk.Label(toolbar, text="域数: 0", font=("微软雅黑", 9))
+        self.domain_count_label.pack(side=tk.RIGHT, padx=10)
+
+        # 创建Treeview
+        tree_frame = ttk.Frame(tab)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        scrollbar_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
+        scrollbar_x = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+
+        self.domain_tree = ttk.Treeview(
+            tree_frame,
+            columns=("name", "description", "default_env", "env_count", "created"),
+            show="headings",
+            yscrollcommand=scrollbar_y.set,
+            xscrollcommand=scrollbar_x.set
+        )
+
+        self.domain_tree.heading("name", text="域名称")
+        self.domain_tree.heading("description", text="描述")
+        self.domain_tree.heading("default_env", text="默认环境")
+        self.domain_tree.heading("env_count", text="环境数")
+        self.domain_tree.heading("created", text="创建时间")
+
+        self.domain_tree.column("name", width=120, minwidth=100, stretch=False)
+        self.domain_tree.column("description", width=300, minwidth=200, stretch=True)
+        self.domain_tree.column("default_env", width=120, minwidth=100, stretch=False)
+        self.domain_tree.column("env_count", width=80, minwidth=60, stretch=False)
+        self.domain_tree.column("created", width=160, minwidth=140, stretch=False)
+
+        scrollbar_y.config(command=self.domain_tree.yview)
+        scrollbar_x.config(command=self.domain_tree.xview)
+
+        self.domain_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar_y.grid(row=0, column=1, sticky="ns")
+        scrollbar_x.grid(row=1, column=0, sticky="ew")
+
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # 双击编辑
+        self.domain_tree.bind("<Double-1>", lambda e: self.edit_domain())
+
+        # 添加鼠标悬停提示
+        def get_domain_tooltip(item_id, values, tags):
+            """获取域的工具提示文本"""
+            if not tags:
+                return None
+            
+            domain_uuid = tags[0]
+            domain = self.db.get_domain(domain_uuid)
+            
+            if domain:
+                tooltip_text = f"域: {domain['name']}\n"
+                tooltip_text += f"描述: {domain.get('description', '')}\n"
+                
+                # 获取域中的环境
+                envs = self.db.get_domain_environments(domain_uuid)
+                if envs:
+                    tooltip_text += f"包含环境: {', '.join([e['name'] for e in envs])}\n"
+                
+                # 显示默认环境
+                if domain.get('default_environment_uuid'):
+                    default_env = self.db.get_environment(domain['default_environment_uuid'])
+                    if default_env:
+                        tooltip_text += f"默认环境: {default_env['name']}\n"
+                
+                tooltip_text += f"创建时间: {domain['created_at'][:19]}"
+                return tooltip_text
+            return None
+        
+        create_treeview_tooltip(self.domain_tree, get_domain_tooltip)
+
     # ==================== 刷新方法 ====================
 
     def refresh_all(self):
@@ -454,6 +631,8 @@ class DatabaseManagerGUI:
             self.refresh_short_term()
             self.refresh_long_term()
             self.refresh_emotion()
+            self.refresh_environments()
+            self.refresh_domains()
             self.update_statistics()
 
             # 刷新完成，显示绿色指示器和时间戳
@@ -886,5 +1065,532 @@ class DatabaseManagerGUI:
                 # 这里需要实现清空所有数据的功能
                 messagebox.showinfo("提示", "清空所有数据功能需要在DatabaseManager中实现。")
     
+    # ==================== 环境管理方法 ====================
+
+    def refresh_environments(self):
+        """刷新环境列表"""
+        # 清空现有项
+        for item in self.env_tree.get_children():
+            self.env_tree.delete(item)
+
+        # 获取所有环境
+        environments = self.db.get_all_environments()
+        
+        # 更新计数
+        self.env_count_label.config(text=f"环境数: {len(environments)}")
+
+        # 添加到树视图
+        for env in environments:
+            status = "✅激活" if env.get('is_active') else "⭕未激活"
+            self.env_tree.insert("", tk.END, values=(
+                env['name'],
+                env.get('overall_description', '')[:50] + "..." if len(env.get('overall_description', '')) > 50 else env.get('overall_description', ''),
+                status,
+                env['created_at'][:19]
+            ), tags=(env['uuid'],))
+
+    def add_environment(self):
+        """添加新环境"""
+        dialog = tk.Toplevel(self.parent)
+        dialog.title("添加环境")
+        dialog.geometry("600x500")
+
+        ttk.Label(dialog, text="环境名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        name_entry = ttk.Entry(dialog, width=50)
+        name_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="整体描述:").grid(row=1, column=0, padx=10, pady=10, sticky="nw")
+        desc_text = tk.Text(dialog, width=50, height=5, wrap=tk.WORD)
+        desc_text.grid(row=1, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="氛围:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        atmosphere_entry = ttk.Entry(dialog, width=50)
+        atmosphere_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="光照:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        lighting_entry = ttk.Entry(dialog, width=50)
+        lighting_entry.grid(row=3, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="声音:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        sounds_entry = ttk.Entry(dialog, width=50)
+        sounds_entry.grid(row=4, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="气味:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
+        smells_entry = ttk.Entry(dialog, width=50)
+        smells_entry.grid(row=5, column=1, padx=10, pady=10)
+
+        def save():
+            name = name_entry.get().strip()
+            description = desc_text.get(1.0, tk.END).strip()
+            atmosphere = atmosphere_entry.get().strip()
+            lighting = lighting_entry.get().strip()
+            sounds = sounds_entry.get().strip()
+            smells = smells_entry.get().strip()
+
+            if not name or not description:
+                messagebox.showwarning("警告", "环境名称和描述不能为空！")
+                return
+
+            try:
+                env_uuid = self.db.create_environment(
+                    name=name,
+                    overall_description=description,
+                    atmosphere=atmosphere,
+                    lighting=lighting,
+                    sounds=sounds,
+                    smells=smells
+                )
+                messagebox.showinfo("成功", f"已创建环境: {name}")
+                self.refresh_environments()
+                self.update_statistics()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建失败: {str(e)}")
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+        ttk.Button(button_frame, text="保存", command=save, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def edit_environment(self):
+        """编辑选中的环境"""
+        selected = self.env_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个环境！")
+            return
+
+        env_uuid = self.env_tree.item(selected[0])['tags'][0]
+        env = self.db.get_environment(env_uuid)
+        
+        if not env:
+            messagebox.showerror("错误", "环境不存在！")
+            return
+
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(f"编辑环境: {env['name']}")
+        dialog.geometry("600x500")
+
+        ttk.Label(dialog, text="环境名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        name_entry = ttk.Entry(dialog, width=50)
+        name_entry.insert(0, env['name'])
+        name_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="整体描述:").grid(row=1, column=0, padx=10, pady=10, sticky="nw")
+        desc_text = tk.Text(dialog, width=50, height=5, wrap=tk.WORD)
+        desc_text.insert(1.0, env.get('overall_description', ''))
+        desc_text.grid(row=1, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="氛围:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        atmosphere_entry = ttk.Entry(dialog, width=50)
+        atmosphere_entry.insert(0, env.get('atmosphere', ''))
+        atmosphere_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="光照:").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        lighting_entry = ttk.Entry(dialog, width=50)
+        lighting_entry.insert(0, env.get('lighting', ''))
+        lighting_entry.grid(row=3, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="声音:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        sounds_entry = ttk.Entry(dialog, width=50)
+        sounds_entry.insert(0, env.get('sounds', ''))
+        sounds_entry.grid(row=4, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="气味:").grid(row=5, column=0, padx=10, pady=10, sticky="w")
+        smells_entry = ttk.Entry(dialog, width=50)
+        smells_entry.insert(0, env.get('smells', ''))
+        smells_entry.grid(row=5, column=1, padx=10, pady=10)
+
+        def save():
+            name = name_entry.get().strip()
+            description = desc_text.get(1.0, tk.END).strip()
+            atmosphere = atmosphere_entry.get().strip()
+            lighting = lighting_entry.get().strip()
+            sounds = sounds_entry.get().strip()
+            smells = smells_entry.get().strip()
+
+            if not name or not description:
+                messagebox.showwarning("警告", "环境名称和描述不能为空！")
+                return
+
+            try:
+                self.db.update_environment(
+                    env_uuid,
+                    name=name,
+                    overall_description=description,
+                    atmosphere=atmosphere,
+                    lighting=lighting,
+                    sounds=sounds,
+                    smells=smells
+                )
+                messagebox.showinfo("成功", f"已更新环境: {name}")
+                self.refresh_environments()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"更新失败: {str(e)}")
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+        ttk.Button(button_frame, text="保存", command=save, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def delete_environment(self):
+        """删除选中的环境"""
+        selected = self.env_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个环境！")
+            return
+
+        env_uuid = self.env_tree.item(selected[0])['tags'][0]
+        env = self.db.get_environment(env_uuid)
+        
+        if not env:
+            return
+
+        if messagebox.askyesno("确认", f"确定要删除环境 '{env['name']}' 吗？"):
+            if self.db.delete_environment(env_uuid):
+                messagebox.showinfo("成功", "环境已删除")
+                self.refresh_environments()
+                self.update_statistics()
+            else:
+                messagebox.showerror("错误", "删除失败！")
+
+    def activate_environment(self):
+        """激活选中的环境"""
+        selected = self.env_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个环境！")
+            return
+
+        env_uuid = self.env_tree.item(selected[0])['tags'][0]
+        env = self.db.get_environment(env_uuid)
+        
+        if not env:
+            return
+
+        if self.db.set_active_environment(env_uuid):
+            messagebox.showinfo("成功", f"已激活环境: {env['name']}")
+            self.refresh_environments()
+        else:
+            messagebox.showerror("错误", "激活失败！")
+
+    # ==================== 域管理方法 ====================
+
+    def refresh_domains(self):
+        """刷新域列表"""
+        # 清空现有项
+        for item in self.domain_tree.get_children():
+            self.domain_tree.delete(item)
+
+        # 获取所有域
+        domains = self.db.get_all_domains()
+        
+        # 更新计数
+        self.domain_count_label.config(text=f"域数: {len(domains)}")
+
+        # 添加到树视图
+        for domain in domains:
+            # 获取默认环境名称
+            default_env_name = ""
+            if domain.get('default_environment_uuid'):
+                default_env = self.db.get_environment(domain['default_environment_uuid'])
+                if default_env:
+                    default_env_name = default_env['name']
+            
+            # 获取域中的环境数量
+            envs = self.db.get_domain_environments(domain['uuid'])
+            env_count = len(envs)
+            
+            self.domain_tree.insert("", tk.END, values=(
+                domain['name'],
+                domain.get('description', '')[:50] + "..." if len(domain.get('description', '')) > 50 else domain.get('description', ''),
+                default_env_name,
+                env_count,
+                domain['created_at'][:19]
+            ), tags=(domain['uuid'],))
+
+    def add_domain(self):
+        """添加新域"""
+        dialog = tk.Toplevel(self.parent)
+        dialog.title("创建域")
+        dialog.geometry("500x300")
+
+        ttk.Label(dialog, text="域名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        name_entry = ttk.Entry(dialog, width=40)
+        name_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="描述:").grid(row=1, column=0, padx=10, pady=10, sticky="nw")
+        desc_text = tk.Text(dialog, width=40, height=6, wrap=tk.WORD)
+        desc_text.grid(row=1, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="默认环境:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        
+        # 获取所有环境
+        all_envs = self.db.get_all_environments()
+        env_names = ["(不设置)"] + [env['name'] for env in all_envs]
+        env_combo = ttk.Combobox(dialog, width=38, values=env_names, state="readonly")
+        env_combo.set("(不设置)")
+        env_combo.grid(row=2, column=1, padx=10, pady=10)
+
+        def save():
+            name = name_entry.get().strip()
+            description = desc_text.get(1.0, tk.END).strip()
+            default_env_name = env_combo.get()
+
+            if not name:
+                messagebox.showwarning("警告", "域名称不能为空！")
+                return
+
+            # 获取默认环境UUID
+            default_env_uuid = None
+            if default_env_name != "(不设置)":
+                for env in all_envs:
+                    if env['name'] == default_env_name:
+                        default_env_uuid = env['uuid']
+                        break
+
+            try:
+                domain_uuid = self.db.create_domain(
+                    name=name,
+                    description=description,
+                    default_environment_uuid=default_env_uuid
+                )
+                messagebox.showinfo("成功", f"已创建域: {name}")
+                self.refresh_domains()
+                self.update_statistics()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建失败: {str(e)}")
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=3, column=0, columnspan=2, pady=20)
+        ttk.Button(button_frame, text="保存", command=save, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def edit_domain(self):
+        """编辑选中的域"""
+        selected = self.domain_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个域！")
+            return
+
+        domain_uuid = self.domain_tree.item(selected[0])['tags'][0]
+        domain = self.db.get_domain(domain_uuid)
+        
+        if not domain:
+            messagebox.showerror("错误", "域不存在！")
+            return
+
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(f"编辑域: {domain['name']}")
+        dialog.geometry("500x300")
+
+        ttk.Label(dialog, text="域名称:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        name_entry = ttk.Entry(dialog, width=40)
+        name_entry.insert(0, domain['name'])
+        name_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="描述:").grid(row=1, column=0, padx=10, pady=10, sticky="nw")
+        desc_text = tk.Text(dialog, width=40, height=6, wrap=tk.WORD)
+        desc_text.insert(1.0, domain.get('description', ''))
+        desc_text.grid(row=1, column=1, padx=10, pady=10)
+
+        ttk.Label(dialog, text="默认环境:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        
+        # 获取所有环境
+        all_envs = self.db.get_all_environments()
+        env_names = ["(不设置)"] + [env['name'] for env in all_envs]
+        env_combo = ttk.Combobox(dialog, width=38, values=env_names, state="readonly")
+        
+        # 设置当前默认环境
+        if domain.get('default_environment_uuid'):
+            default_env = self.db.get_environment(domain['default_environment_uuid'])
+            if default_env:
+                env_combo.set(default_env['name'])
+            else:
+                env_combo.set("(不设置)")
+        else:
+            env_combo.set("(不设置)")
+        
+        env_combo.grid(row=2, column=1, padx=10, pady=10)
+
+        def save():
+            name = name_entry.get().strip()
+            description = desc_text.get(1.0, tk.END).strip()
+            default_env_name = env_combo.get()
+
+            if not name:
+                messagebox.showwarning("警告", "域名称不能为空！")
+                return
+
+            # 获取默认环境UUID
+            default_env_uuid = None
+            if default_env_name != "(不设置)":
+                for env in all_envs:
+                    if env['name'] == default_env_name:
+                        default_env_uuid = env['uuid']
+                        break
+
+            try:
+                self.db.update_domain(
+                    domain_uuid,
+                    name=name,
+                    description=description,
+                    default_environment_uuid=default_env_uuid
+                )
+                messagebox.showinfo("成功", f"已更新域: {name}")
+                self.refresh_domains()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"更新失败: {str(e)}")
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=3, column=0, columnspan=2, pady=20)
+        ttk.Button(button_frame, text="保存", command=save, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def delete_domain(self):
+        """删除选中的域"""
+        selected = self.domain_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个域！")
+            return
+
+        domain_uuid = self.domain_tree.item(selected[0])['tags'][0]
+        domain = self.db.get_domain(domain_uuid)
+        
+        if not domain:
+            return
+
+        if messagebox.askyesno("确认", f"确定要删除域 '{domain['name']}' 吗？\n这将移除域与环境的关联，但不会删除环境本身。"):
+            if self.db.delete_domain(domain_uuid):
+                messagebox.showinfo("成功", "域已删除")
+                self.refresh_domains()
+                self.update_statistics()
+            else:
+                messagebox.showerror("错误", "删除失败！")
+
+    def manage_domain_environments(self):
+        """管理域中的环境"""
+        selected = self.domain_tree.selection()
+        if not selected:
+            messagebox.showwarning("警告", "请先选择一个域！")
+            return
+
+        domain_uuid = self.domain_tree.item(selected[0])['tags'][0]
+        domain = self.db.get_domain(domain_uuid)
+        
+        if not domain:
+            messagebox.showerror("错误", "域不存在！")
+            return
+
+        dialog = tk.Toplevel(self.parent)
+        dialog.title(f"管理域的环境: {domain['name']}")
+        dialog.geometry("700x500")
+
+        # 左侧：域中的环境
+        left_frame = ttk.Frame(dialog)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        ttk.Label(left_frame, text="域中的环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
+        
+        domain_env_frame = ttk.Frame(left_frame)
+        domain_env_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar1 = ttk.Scrollbar(domain_env_frame)
+        domain_env_list = tk.Listbox(domain_env_frame, yscrollcommand=scrollbar1.set, selectmode=tk.SINGLE)
+        scrollbar1.config(command=domain_env_list.yview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        domain_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 中间：操作按钮
+        middle_frame = ttk.Frame(dialog)
+        middle_frame.pack(side=tk.LEFT, padx=10, pady=5)
+
+        ttk.Button(middle_frame, text="← 添加到域", command=lambda: add_to_domain(), width=15).pack(pady=10)
+        ttk.Button(middle_frame, text="从域移除 →", command=lambda: remove_from_domain(), width=15).pack(pady=10)
+        ttk.Button(middle_frame, text="🔄 刷新", command=lambda: refresh_lists(), width=15).pack(pady=10)
+
+        # 右侧：所有环境
+        right_frame = ttk.Frame(dialog)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        ttk.Label(right_frame, text="所有环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
+        
+        all_env_frame = ttk.Frame(right_frame)
+        all_env_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar2 = ttk.Scrollbar(all_env_frame)
+        all_env_list = tk.Listbox(all_env_frame, yscrollcommand=scrollbar2.set, selectmode=tk.SINGLE)
+        scrollbar2.config(command=all_env_list.yview)
+        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
+        all_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 存储环境UUID
+        domain_env_data = {}
+        all_env_data = {}
+
+        def refresh_lists():
+            """刷新环境列表"""
+            domain_env_list.delete(0, tk.END)
+            all_env_list.delete(0, tk.END)
+            domain_env_data.clear()
+            all_env_data.clear()
+
+            # 获取域中的环境
+            domain_envs = self.db.get_domain_environments(domain_uuid)
+            for env in domain_envs:
+                domain_env_list.insert(tk.END, env['name'])
+                domain_env_data[env['name']] = env['uuid']
+
+            # 获取所有环境（排除已在域中的）
+            all_envs = self.db.get_all_environments()
+            domain_env_uuids = set(domain_env_data.values())
+            for env in all_envs:
+                if env['uuid'] not in domain_env_uuids:
+                    all_env_list.insert(tk.END, env['name'])
+                    all_env_data[env['name']] = env['uuid']
+
+        def add_to_domain():
+            """添加环境到域"""
+            selection = all_env_list.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请先选择一个环境！")
+                return
+
+            env_name = all_env_list.get(selection[0])
+            env_uuid = all_env_data[env_name]
+
+            try:
+                self.db.add_environment_to_domain(domain_uuid, env_uuid)
+                refresh_lists()
+                self.refresh_domains()
+                messagebox.showinfo("成功", f"已添加环境 '{env_name}' 到域")
+            except Exception as e:
+                messagebox.showerror("错误", f"添加失败: {str(e)}")
+
+        def remove_from_domain():
+            """从域中移除环境"""
+            selection = domain_env_list.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请先选择一个环境！")
+                return
+
+            env_name = domain_env_list.get(selection[0])
+            env_uuid = domain_env_data[env_name]
+
+            if messagebox.askyesno("确认", f"确定要从域中移除环境 '{env_name}' 吗？"):
+                try:
+                    self.db.remove_environment_from_domain(domain_uuid, env_uuid)
+                    refresh_lists()
+                    self.refresh_domains()
+                    messagebox.showinfo("成功", f"已从域中移除环境 '{env_name}'")
+                except Exception as e:
+                    messagebox.showerror("错误", f"移除失败: {str(e)}")
+
+        # 初始加载
+        refresh_lists()
+
+        # 底部关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
 
 

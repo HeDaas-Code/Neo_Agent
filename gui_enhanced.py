@@ -867,6 +867,44 @@ class EnhancedChatDebugGUI:
             width=12
         ).pack(side=tk.LEFT, padx=2)
 
+        # 环境管理工具栏 - 第三行（域管理）
+        env_toolbar3 = ttk.Frame(environment_tab)
+        env_toolbar3.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        ttk.Label(
+            env_toolbar3,
+            text="域管理:",
+            font=("微软雅黑", 9, "bold")
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            env_toolbar3,
+            text="🏘️ 创建域",
+            command=self.create_domain_dialog,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar3,
+            text="✏️ 编辑域",
+            command=self.edit_domain_dialog,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar3,
+            text="📍 管理域环境",
+            command=self.manage_domain_environments_dialog,
+            width=14
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            env_toolbar3,
+            text="🎯 切换域",
+            command=self.switch_to_domain_dialog,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
         # 环境显示区域
         self.environment_display = scrolledtext.ScrolledText(
             environment_tab,
@@ -2829,12 +2867,40 @@ class EnhancedChatDebugGUI:
         刷新环境显示
         """
         try:
-            # 获取所有环境
+            # 获取所有环境和域
             environments = self.agent.db.get_all_environments()
+            domains = self.agent.db.get_all_domains()
             active_env = self.agent.db.get_active_environment()
             
             display_text = "【智能体视觉环境配置】\n\n"
             
+            # 显示域信息
+            if domains:
+                display_text += f"📊 域(Domain)总览: {len(domains)} 个\n"
+                display_text += "=" * 60 + "\n\n"
+                
+                for domain in domains:
+                    domain_envs = self.agent.db.get_domain_environments(domain['uuid'])
+                    default_env = None
+                    if domain.get('default_environment_uuid'):
+                        default_env = self.agent.db.get_environment(domain['default_environment_uuid'])
+                    
+                    display_text += f"🏘️ 【域: {domain['name']}】\n"
+                    display_text += f"描述: {domain.get('description', '无描述')}\n"
+                    display_text += f"包含环境: {len(domain_envs)} 个\n"
+                    if default_env:
+                        display_text += f"默认环境: {default_env['name']}\n"
+                    
+                    if domain_envs:
+                        display_text += "环境列表: "
+                        display_text += ", ".join([e['name'] for e in domain_envs])
+                        display_text += "\n"
+                    
+                    display_text += "\n"
+                
+                display_text += "=" * 60 + "\n\n"
+            
+            # 显示环境信息
             if not environments:
                 display_text += "暂无环境配置。\n\n"
                 display_text += "💡 提示:\n"
@@ -2842,9 +2908,15 @@ class EnhancedChatDebugGUI:
                 display_text += "- 点击「新建环境」手动创建自定义环境\n"
                 display_text += "- 环境配置后，当用户询问周围环境时，智能体会自动使用视觉工具\n"
             else:
-                display_text += f"共有 {len(environments)} 个环境配置\n"
+                display_text += f"📍 环境总览: {len(environments)} 个环境\n"
                 if active_env:
                     display_text += f"当前激活: {active_env['name']}\n"
+                    
+                    # 显示当前环境所属的域
+                    current_domains = self.agent.db.get_environment_domains(active_env['uuid'])
+                    if current_domains:
+                        display_text += f"所属域: {', '.join([d['name'] for d in current_domains])}\n"
+                
                 display_text += "=" * 60 + "\n\n"
                 
                 for env in environments:
@@ -2854,6 +2926,11 @@ class EnhancedChatDebugGUI:
                     display_text += f"{status_icon} 【环境: {env['name']}】\n"
                     display_text += f"UUID: {env['uuid'][:8]}...\n"
                     display_text += f"整体描述: {env['overall_description']}\n"
+                    
+                    # 显示环境所属的域
+                    env_domains = self.agent.db.get_environment_domains(env['uuid'])
+                    if env_domains:
+                        display_text += f"所属域: {', '.join([d['name'] for d in env_domains])}\n"
                     
                     if env.get('atmosphere'):
                         display_text += f"氛围: {env['atmosphere']}\n"
@@ -3579,6 +3656,565 @@ class EnhancedChatDebugGUI:
             except Exception as e:
                 messagebox.showerror("错误", f"切换环境时出错: {e}")
         
+        ttk.Button(button_frame, text="切换", command=do_switch, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    # ==================== 域管理相关方法 ====================
+
+    def create_domain_dialog(self):
+        """创建域的对话框"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("创建环境域")
+        dialog.geometry("600x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 标题
+        ttk.Label(
+            dialog,
+            text="创建环境域（Domain）",
+            font=("微软雅黑", 12, "bold")
+        ).pack(pady=10)
+
+        ttk.Label(
+            dialog,
+            text="域是多个环境的集合，如'小可家'包含房间、客厅、厨房",
+            font=("微软雅黑", 9),
+            foreground="#666666"
+        ).pack(pady=5)
+
+        # 输入框架
+        input_frame = ttk.Frame(dialog)
+        input_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # 域名称
+        ttk.Label(input_frame, text="域名称:", font=("微软雅黑", 10)).grid(row=0, column=0, sticky=tk.W, pady=10)
+        name_entry = ttk.Entry(input_frame, width=50, font=("微软雅黑", 10))
+        name_entry.grid(row=0, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        # 域描述
+        ttk.Label(input_frame, text="域描述:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky=tk.NW, pady=10)
+        desc_text = scrolledtext.ScrolledText(input_frame, width=50, height=6, wrap=tk.WORD, font=("微软雅黑", 9))
+        desc_text.grid(row=1, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        # 默认环境
+        ttk.Label(input_frame, text="默认环境:", font=("微软雅黑", 10)).grid(row=2, column=0, sticky=tk.W, pady=10)
+        
+        all_envs = self.agent.db.get_all_environments()
+        env_names = ["(暂不设置)"] + [env['name'] for env in all_envs]
+        env_combo = ttk.Combobox(input_frame, values=env_names, state="readonly", width=47, font=("微软雅黑", 9))
+        env_combo.set("(暂不设置)")
+        env_combo.grid(row=2, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        input_frame.columnconfigure(1, weight=1)
+
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+
+        def save_domain():
+            name = name_entry.get().strip()
+            description = desc_text.get("1.0", tk.END).strip()
+            default_env_name = env_combo.get()
+
+            if not name:
+                messagebox.showwarning("警告", "域名称不能为空！")
+                return
+
+            # 获取默认环境UUID
+            default_env_uuid = None
+            if default_env_name != "(暂不设置)":
+                for env in all_envs:
+                    if env['name'] == default_env_name:
+                        default_env_uuid = env['uuid']
+                        break
+
+            try:
+                domain_uuid = self.agent.db.create_domain(
+                    name=name,
+                    description=description,
+                    default_environment_uuid=default_env_uuid
+                )
+                messagebox.showinfo("成功", f"域创建成功！\n域名: {name}")
+                self.add_system_message(f"🏘️ 创建了新域: {name}")
+                self.refresh_environment_display()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"创建域失败: {str(e)}")
+
+        ttk.Button(button_frame, text="创建", command=save_domain, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def edit_domain_dialog(self):
+        """编辑域的对话框"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        # 获取所有域
+        domains = self.agent.db.get_all_domains()
+        if not domains:
+            messagebox.showinfo("提示", "还没有创建任何域。\n请先使用'创建域'功能创建域。")
+            return
+
+        # 选择域对话框
+        select_dialog = tk.Toplevel(self.root)
+        select_dialog.title("选择要编辑的域")
+        select_dialog.geometry("500x400")
+        select_dialog.transient(self.root)
+        select_dialog.grab_set()
+
+        ttk.Label(
+            select_dialog,
+            text="选择要编辑的域:",
+            font=("微软雅黑", 10, "bold")
+        ).pack(pady=10)
+
+        # 域列表
+        listbox_frame = ttk.Frame(select_dialog)
+        listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        domain_listbox = tk.Listbox(
+            listbox_frame,
+            font=("微软雅黑", 9),
+            yscrollcommand=scrollbar.set
+        )
+        domain_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=domain_listbox.yview)
+
+        # 填充域列表
+        domain_map = {}
+        for i, domain in enumerate(domains):
+            envs = self.agent.db.get_domain_environments(domain['uuid'])
+            label = f"{domain['name']} ({len(envs)}个环境)"
+            domain_listbox.insert(tk.END, label)
+            domain_map[i] = domain
+
+        def do_edit():
+            selection = domain_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请选择一个域！")
+                return
+
+            selected_domain = domain_map[selection[0]]
+            select_dialog.destroy()
+            self._show_edit_domain_form(selected_domain)
+
+        # 按钮
+        button_frame = ttk.Frame(select_dialog)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="编辑", command=do_edit, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=select_dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def _show_edit_domain_form(self, domain):
+        """显示编辑域的表单"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"编辑域: {domain['name']}")
+        dialog.geometry("600x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 标题
+        ttk.Label(
+            dialog,
+            text=f"编辑域: {domain['name']}",
+            font=("微软雅黑", 12, "bold")
+        ).pack(pady=10)
+
+        # 输入框架
+        input_frame = ttk.Frame(dialog)
+        input_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # 域名称
+        ttk.Label(input_frame, text="域名称:", font=("微软雅黑", 10)).grid(row=0, column=0, sticky=tk.W, pady=10)
+        name_entry = ttk.Entry(input_frame, width=50, font=("微软雅黑", 10))
+        name_entry.insert(0, domain['name'])
+        name_entry.grid(row=0, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        # 域描述
+        ttk.Label(input_frame, text="域描述:", font=("微软雅黑", 10)).grid(row=1, column=0, sticky=tk.NW, pady=10)
+        desc_text = scrolledtext.ScrolledText(input_frame, width=50, height=6, wrap=tk.WORD, font=("微软雅黑", 9))
+        desc_text.insert("1.0", domain.get('description', ''))
+        desc_text.grid(row=1, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        # 默认环境
+        ttk.Label(input_frame, text="默认环境:", font=("微软雅黑", 10)).grid(row=2, column=0, sticky=tk.W, pady=10)
+        
+        all_envs = self.agent.db.get_all_environments()
+        env_names = ["(暂不设置)"] + [env['name'] for env in all_envs]
+        env_combo = ttk.Combobox(input_frame, values=env_names, state="readonly", width=47, font=("微软雅黑", 9))
+        
+        # 设置当前默认环境
+        if domain.get('default_environment_uuid'):
+            default_env = self.agent.db.get_environment(domain['default_environment_uuid'])
+            if default_env:
+                env_combo.set(default_env['name'])
+            else:
+                env_combo.set("(暂不设置)")
+        else:
+            env_combo.set("(暂不设置)")
+        
+        env_combo.grid(row=2, column=1, pady=10, padx=10, sticky=tk.W+tk.E)
+
+        input_frame.columnconfigure(1, weight=1)
+
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+
+        def save_changes():
+            name = name_entry.get().strip()
+            description = desc_text.get("1.0", tk.END).strip()
+            default_env_name = env_combo.get()
+
+            if not name:
+                messagebox.showwarning("警告", "域名称不能为空！")
+                return
+
+            # 获取默认环境UUID
+            default_env_uuid = None
+            if default_env_name != "(暂不设置)":
+                for env in all_envs:
+                    if env['name'] == default_env_name:
+                        default_env_uuid = env['uuid']
+                        break
+
+            try:
+                self.agent.db.update_domain(
+                    domain['uuid'],
+                    name=name,
+                    description=description,
+                    default_environment_uuid=default_env_uuid
+                )
+                messagebox.showinfo("成功", f"域更新成功！\n域名: {name}")
+                self.add_system_message(f"🏘️ 更新了域: {name}")
+                self.refresh_environment_display()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("错误", f"更新域失败: {str(e)}")
+
+        ttk.Button(button_frame, text="保存", command=save_changes, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def manage_domain_environments_dialog(self):
+        """管理域中的环境"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        # 获取所有域
+        domains = self.agent.db.get_all_domains()
+        if not domains:
+            messagebox.showinfo("提示", "还没有创建任何域。\n请先使用'创建域'功能创建域。")
+            return
+
+        # 选择域对话框
+        select_dialog = tk.Toplevel(self.root)
+        select_dialog.title("选择要管理的域")
+        select_dialog.geometry("500x400")
+        select_dialog.transient(self.root)
+        select_dialog.grab_set()
+
+        ttk.Label(
+            select_dialog,
+            text="选择要管理环境的域:",
+            font=("微软雅黑", 10, "bold")
+        ).pack(pady=10)
+
+        # 域列表
+        listbox_frame = ttk.Frame(select_dialog)
+        listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        domain_listbox = tk.Listbox(
+            listbox_frame,
+            font=("微软雅黑", 9),
+            yscrollcommand=scrollbar.set
+        )
+        domain_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=domain_listbox.yview)
+
+        # 填充域列表
+        domain_map = {}
+        for i, domain in enumerate(domains):
+            envs = self.agent.db.get_domain_environments(domain['uuid'])
+            label = f"{domain['name']} ({len(envs)}个环境)"
+            domain_listbox.insert(tk.END, label)
+            domain_map[i] = domain
+
+        def do_manage():
+            selection = domain_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请选择一个域！")
+                return
+
+            selected_domain = domain_map[selection[0]]
+            select_dialog.destroy()
+            self._show_manage_domain_envs_form(selected_domain)
+
+        # 按钮
+        button_frame = ttk.Frame(select_dialog)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="管理", command=do_manage, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=select_dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    def _show_manage_domain_envs_form(self, domain):
+        """显示管理域环境的表单"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"管理域的环境: {domain['name']}")
+        dialog.geometry("800x550")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 标题
+        ttk.Label(
+            dialog,
+            text=f"域: {domain['name']}",
+            font=("微软雅黑", 12, "bold")
+        ).pack(pady=10)
+
+        ttk.Label(
+            dialog,
+            text=domain.get('description', ''),
+            font=("微软雅黑", 9),
+            foreground="#666666"
+        ).pack(pady=5)
+
+        # 主框架
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 左侧：域中的环境
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+
+        ttk.Label(left_frame, text="域中的环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
+        
+        domain_env_frame = ttk.Frame(left_frame)
+        domain_env_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar1 = ttk.Scrollbar(domain_env_frame)
+        domain_env_list = tk.Listbox(domain_env_frame, yscrollcommand=scrollbar1.set, font=("微软雅黑", 9))
+        scrollbar1.config(command=domain_env_list.yview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        domain_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 中间：操作按钮
+        middle_frame = ttk.Frame(main_frame)
+        middle_frame.pack(side=tk.LEFT, padx=15)
+
+        ttk.Button(middle_frame, text="← 添加", command=lambda: add_to_domain(), width=12).pack(pady=10)
+        ttk.Button(middle_frame, text="移除 →", command=lambda: remove_from_domain(), width=12).pack(pady=10)
+        ttk.Button(middle_frame, text="🔄 刷新", command=lambda: refresh_lists(), width=12).pack(pady=10)
+
+        # 右侧：所有环境
+        right_frame = ttk.Frame(main_frame)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+
+        ttk.Label(right_frame, text="所有环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
+        
+        all_env_frame = ttk.Frame(right_frame)
+        all_env_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar2 = ttk.Scrollbar(all_env_frame)
+        all_env_list = tk.Listbox(all_env_frame, yscrollcommand=scrollbar2.set, font=("微软雅黑", 9))
+        scrollbar2.config(command=all_env_list.yview)
+        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
+        all_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 存储环境UUID
+        domain_env_data = {}
+        all_env_data = {}
+
+        def refresh_lists():
+            """刷新环境列表"""
+            domain_env_list.delete(0, tk.END)
+            all_env_list.delete(0, tk.END)
+            domain_env_data.clear()
+            all_env_data.clear()
+
+            # 获取域中的环境
+            domain_envs = self.agent.db.get_domain_environments(domain['uuid'])
+            for env in domain_envs:
+                domain_env_list.insert(tk.END, env['name'])
+                domain_env_data[env['name']] = env['uuid']
+
+            # 获取所有环境（排除已在域中的）
+            all_envs = self.agent.db.get_all_environments()
+            domain_env_uuids = set(domain_env_data.values())
+            for env in all_envs:
+                if env['uuid'] not in domain_env_uuids:
+                    all_env_list.insert(tk.END, env['name'])
+                    all_env_data[env['name']] = env['uuid']
+
+        def add_to_domain():
+            """添加环境到域"""
+            selection = all_env_list.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请先选择一个环境！")
+                return
+
+            env_name = all_env_list.get(selection[0])
+            env_uuid = all_env_data[env_name]
+
+            try:
+                self.agent.db.add_environment_to_domain(domain['uuid'], env_uuid)
+                refresh_lists()
+                self.add_system_message(f"🏘️ 将环境 '{env_name}' 添加到域 '{domain['name']}'")
+                messagebox.showinfo("成功", f"已添加环境 '{env_name}' 到域")
+            except Exception as e:
+                messagebox.showerror("错误", f"添加失败: {str(e)}")
+
+        def remove_from_domain():
+            """从域中移除环境"""
+            selection = domain_env_list.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请先选择一个环境！")
+                return
+
+            env_name = domain_env_list.get(selection[0])
+            env_uuid = domain_env_data[env_name]
+
+            result = messagebox.askyesno("确认", f"确定要从域中移除环境 '{env_name}' 吗？")
+            if result:
+                try:
+                    self.agent.db.remove_environment_from_domain(domain['uuid'], env_uuid)
+                    refresh_lists()
+                    self.add_system_message(f"🏘️ 从域 '{domain['name']}' 移除了环境 '{env_name}'")
+                    messagebox.showinfo("成功", f"已从域中移除环境 '{env_name}'")
+                except Exception as e:
+                    messagebox.showerror("错误", f"移除失败: {str(e)}")
+
+        # 初始加载
+        refresh_lists()
+
+        # 底部关闭按钮
+        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
+
+    def switch_to_domain_dialog(self):
+        """切换到域的对话框"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        # 获取所有域
+        domains = self.agent.db.get_all_domains()
+        if not domains:
+            messagebox.showinfo("提示", "还没有创建任何域。\n请先使用'创建域'功能创建域。")
+            return
+
+        # 获取当前环境和域
+        current_env = self.agent.db.get_active_environment()
+        current_domain = None
+        if current_env:
+            current_domains = self.agent.db.get_environment_domains(current_env['uuid'])
+            if current_domains:
+                current_domain = current_domains[0]
+
+        # 创建对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("切换域")
+        dialog.geometry("550x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="选择要切换到的域:",
+            font=("微软雅黑", 10, "bold")
+        ).pack(pady=10)
+
+        if current_domain:
+            ttk.Label(
+                dialog,
+                text=f"当前域: {current_domain['name']}",
+                font=("微软雅黑", 9),
+                foreground="#0066cc"
+            ).pack(pady=5)
+
+        # 域列表
+        listbox_frame = ttk.Frame(dialog)
+        listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        domain_listbox = tk.Listbox(
+            listbox_frame,
+            font=("微软雅黑", 9),
+            yscrollcommand=scrollbar.set
+        )
+        domain_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=domain_listbox.yview)
+
+        # 填充域列表
+        domain_map = {}
+        for i, domain in enumerate(domains):
+            envs = self.agent.db.get_domain_environments(domain['uuid'])
+            default_env = None
+            if domain.get('default_environment_uuid'):
+                default_env = self.agent.db.get_environment(domain['default_environment_uuid'])
+            
+            label = f"{domain['name']} ({len(envs)}个环境"
+            if default_env:
+                label += f", 默认: {default_env['name']}"
+            label += ")"
+            
+            if current_domain and domain['uuid'] == current_domain['uuid']:
+                label += " (当前)"
+            
+            domain_listbox.insert(tk.END, label)
+            domain_map[i] = domain
+
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+
+        def do_switch():
+            selection = domain_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("警告", "请选择一个域！")
+                return
+
+            selected_domain = domain_map[selection[0]]
+
+            # 如果是当前域，不需要切换
+            if current_domain and selected_domain['uuid'] == current_domain['uuid']:
+                messagebox.showinfo("提示", "已经在该域中了！")
+                dialog.destroy()
+                return
+
+            try:
+                # 使用vision_tool的切换域方法
+                success = self.agent.vision_tool.switch_to_domain(selected_domain['uuid'])
+                
+                if success:
+                    new_env = self.agent.db.get_active_environment()
+                    messagebox.showinfo(
+                        "成功",
+                        f"已切换到域: {selected_domain['name']}\n当前位置: {new_env['name']}"
+                    )
+                    self.add_system_message(
+                        f"🎯 切换到域: {selected_domain['name']} (位置: {new_env['name']})"
+                    )
+                    self.refresh_environment_display()
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("错误", "切换域失败！请检查域的配置。")
+            except Exception as e:
+                messagebox.showerror("错误", f"切换域时出错: {str(e)}")
+
         ttk.Button(button_frame, text="切换", command=do_switch, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="取消", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 

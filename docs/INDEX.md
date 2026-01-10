@@ -82,6 +82,19 @@ Welcome to Neo Agent project documentation!
    - 代码统计
    - 测试情况
 
+8. **[环境域功能文档](zh-cn/DOMAIN_FEATURE.md)** 🗺️
+   - 域概念和架构
+   - 数据库设计
+   - 核心API使用
+   - 实际使用场景
+   - 最佳实践
+
+9. **[GUI域管理功能](zh-cn/GUI_DOMAIN_FEATURE.md)** 🖥️
+   - 环境管理界面
+   - 域管理界面
+   - 操作流程指南
+   - 使用示例
+
 ### English Documentation
 
 #### Getting Started
@@ -138,6 +151,19 @@ Welcome to Neo Agent project documentation!
    - Code Statistics
    - Testing Status
 
+8. **[Environment Domain Feature](en/DOMAIN_FEATURE.md)** 🗺️
+   - Domain Concept and Architecture
+   - Database Design
+   - Core API Usage
+   - Use Cases
+   - Best Practices
+
+9. **[GUI Domain Management](en/GUI_DOMAIN_FEATURE.md)** 🖥️
+   - Environment Management Interface
+   - Domain Management Interface
+   - Operation Guide
+   - Usage Examples
+
 ## 📖 按主题浏览 / Browse by Topic
 
 ### 记忆系统 / Memory System
@@ -160,6 +186,11 @@ Welcome to Neo Agent project documentation!
 - [架构设计 - 事件驱动系统](zh-cn/ARCHITECTURE.md#7-事件驱动系统)
 - [API - EventManager](zh-cn/API.md#eventmanager)
 - [API - MultiAgentCoordinator](zh-cn/API.md#multiagentcoordinator)
+
+### 环境域系统 / Environment Domain System
+- [环境域功能文档](zh-cn/DOMAIN_FEATURE.md) - 完整使用指南
+- [GUI域管理功能](zh-cn/GUI_DOMAIN_FEATURE.md) - 可视化管理界面
+- [API - AgentVisionTool](zh-cn/API.md#agentvisiontool)
 
 ### 数据库 / Database
 - [架构设计 - 数据持久层](zh-cn/ARCHITECTURE.md#1-数据持久层)
