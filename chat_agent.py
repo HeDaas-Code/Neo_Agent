@@ -20,6 +20,7 @@ from event_manager import EventManager, EventType, EventStatus, NotificationEven
 from interrupt_question_tool import InterruptQuestionTool
 from multi_agent_coordinator import MultiAgentCoordinator
 from expression_style import ExpressionStyleManager
+from schedule_manager import ScheduleManager
 
 # 加载环境变量
 load_dotenv()
@@ -367,6 +368,9 @@ class ChatAgent:
         
         # 初始化个性化表达风格管理器（共享数据库）
         self.expression_style_manager = ExpressionStyleManager(db_manager=self.db)
+        
+        # 初始化日程管理器（共享数据库）
+        self.schedule_manager = ScheduleManager(db_manager=self.db)
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -383,6 +387,12 @@ class ChatAgent:
         expr_stats = self.expression_style_manager.get_statistics()
         print(f"表达风格: {expr_stats['agent_expressions']['total']} 个智能体表达, "
               f"{expr_stats['user_habits']['total']} 个用户习惯")
+        
+        # 显示日程统计
+        schedule_stats = self.schedule_manager.get_statistics()
+        print(f"日程管理: {schedule_stats['total_schedules']} 个日程 "
+              f"(周期: {schedule_stats['recurring']}, 预约: {schedule_stats['appointments']}, "
+              f"临时: {schedule_stats['impromptu']})")
 
     def chat(self, user_input: str) -> str:
         """
@@ -622,6 +632,15 @@ class ChatAgent:
                 'prompt_length': len(vision_prompt)
             })
 
+        # 添加日程上下文（如果有今日或相关日程）
+        schedule_context = self._get_schedule_context()
+        if schedule_context:
+            messages.append({'role': 'system', 'content': schedule_context})
+            debug_logger.log_prompt('ChatAgent', 'system', schedule_context, {
+                'stage': '日程安排上下文'
+            })
+            debug_logger.log_info('ChatAgent', '已添加日程上下文到系统消息')
+
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
         if long_context:
@@ -723,6 +742,31 @@ class ChatAgent:
         context_parts.append("请基于以上知识库信息进行回答，保持角色设定的同时确保信息准确。")
 
         return '\n'.join(context_parts)
+
+    def _get_schedule_context(self) -> str:
+        """
+        获取当前日程上下文（用于对话）
+        
+        Returns:
+            日程上下文字符串，如果没有相关日程则返回空字符串
+        """
+        from datetime import date
+        
+        # 获取今天的日期
+        today = date.today().strftime('%Y-%m-%d')
+        
+        # 获取今天的日程摘要
+        schedule_summary = self.schedule_manager.get_schedule_summary(today)
+        
+        # 如果今天没有日程，返回空字符串
+        if "没有安排任何日程" in schedule_summary:
+            return ""
+        
+        # 构建上下文提示
+        context = f"【今日日程安排】\n{schedule_summary}\n\n"
+        context += "注意：在对话中可以自然地提及你的日程安排，特别是当话题相关时。"
+        
+        return context
 
     def get_last_understanding(self) -> Dict[str, Any]:
         """

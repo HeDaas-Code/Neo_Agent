@@ -15,6 +15,7 @@ from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 from tooltip_utils import ToolTip, create_treeview_tooltip
+from schedule_manager import ScheduleType, SchedulePriority, RecurrencePattern
 
 
 class EmotionImpressionDisplay(Canvas):
@@ -418,6 +419,10 @@ class EnhancedChatDebugGUI:
         # 初始化聊天代理
         self.agent = None
         self.is_processing = False
+        
+        # 日程管理相关属性
+        self.current_schedule_date = None
+        self.selected_schedule = None
 
         # 创建UI组件
         self.create_widgets()
@@ -994,6 +999,12 @@ class EnhancedChatDebugGUI:
         notebook.add(event_tab, text="📅 事件管理")
 
         self.create_event_management_panel(event_tab)
+
+        # 选项卡10: 日程管理
+        schedule_tab = ttk.Frame(notebook)
+        notebook.add(schedule_tab, text="📆 日程管理")
+
+        self.create_schedule_management_panel(schedule_tab)
 
     def create_control_panel(self, parent):
         """
@@ -3886,6 +3897,538 @@ class EnhancedChatDebugGUI:
                     self.refresh_expression_display(text_widget)
             else:
                 messagebox.showerror("错误", "清空用户表达习惯失败")
+
+    def create_schedule_management_panel(self, parent):
+        """
+        创建日程管理面板（集成在增强GUI中）
+
+        Args:
+            parent: 父容器
+        """
+        from datetime import date, timedelta
+        
+        # 主容器
+        main_container = ttk.Frame(parent, padding=10)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # 顶部工具栏
+        toolbar = ttk.Frame(main_container)
+        toolbar.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(toolbar, text="📆 智能体日程管理", font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT, padx=5)
+
+        # 日期导航
+        date_nav_frame = ttk.Frame(toolbar)
+        date_nav_frame.pack(side=tk.LEFT, padx=20)
+
+        ttk.Button(
+            date_nav_frame,
+            text="◀ 前一天",
+            command=self.schedule_prev_day,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            date_nav_frame,
+            text="今天",
+            command=self.schedule_go_to_today,
+            width=8
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            date_nav_frame,
+            text="后一天 ▶",
+            command=self.schedule_next_day,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        self.schedule_date_label = ttk.Label(
+            date_nav_frame,
+            text="",
+            font=("微软雅黑", 10, "bold")
+        )
+        self.schedule_date_label.pack(side=tk.LEFT, padx=10)
+
+        # 操作按钮
+        button_frame = ttk.Frame(toolbar)
+        button_frame.pack(side=tk.RIGHT)
+
+        ttk.Button(
+            button_frame,
+            text="➕ 添加日程",
+            command=self.schedule_add,
+            width=12
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            button_frame,
+            text="✏️ 编辑",
+            command=self.schedule_edit,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            button_frame,
+            text="🗑️ 删除",
+            command=self.schedule_delete,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(
+            button_frame,
+            text="🔄 刷新",
+            command=self.schedule_refresh,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+
+        # 统计信息
+        stats_frame = ttk.LabelFrame(main_container, text="📊 日程统计", padding=10)
+        stats_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.schedule_stats_label = ttk.Label(
+            stats_frame,
+            text="加载中...",
+            font=("微软雅黑", 9)
+        )
+        self.schedule_stats_label.pack(anchor=tk.W)
+
+        # 日程列表容器
+        list_frame = ttk.LabelFrame(main_container, text="📋 日程列表", padding=5)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # 创建Treeview显示日程列表
+        columns = ('时间', '标题', '类型', '优先级', '地点', '重复')
+        self.schedule_tree = ttk.Treeview(
+            list_frame,
+            columns=columns,
+            show='headings',
+            selectmode='browse'
+        )
+
+        # 设置列标题
+        self.schedule_tree.heading('时间', text='时间')
+        self.schedule_tree.heading('标题', text='标题')
+        self.schedule_tree.heading('类型', text='类型')
+        self.schedule_tree.heading('优先级', text='优先级')
+        self.schedule_tree.heading('地点', text='地点')
+        self.schedule_tree.heading('重复', text='重复')
+
+        # 设置列宽
+        self.schedule_tree.column('时间', width=120, minwidth=100)
+        self.schedule_tree.column('标题', width=250, minwidth=150, stretch=True)
+        self.schedule_tree.column('类型', width=100, minwidth=80)
+        self.schedule_tree.column('优先级', width=80, minwidth=60)
+        self.schedule_tree.column('地点', width=150, minwidth=100)
+        self.schedule_tree.column('重复', width=100, minwidth=80)
+
+        # 滚动条
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.schedule_tree.yview)
+        self.schedule_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.schedule_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 绑定选择事件
+        self.schedule_tree.bind('<<TreeviewSelect>>', self.schedule_on_select)
+        self.schedule_tree.bind('<Double-1>', lambda e: self.schedule_edit())
+
+        # 日程详情容器
+        detail_frame = ttk.LabelFrame(main_container, text="📝 日程详情", padding=10)
+        detail_frame.pack(fill=tk.X)
+
+        self.schedule_detail_text = scrolledtext.ScrolledText(
+            detail_frame,
+            height=6,
+            wrap=tk.WORD,
+            font=("微软雅黑", 9)
+        )
+        self.schedule_detail_text.pack(fill=tk.BOTH, expand=True)
+        self.schedule_detail_text.config(state=tk.DISABLED)
+
+        # 初始化当前日期为今天
+        self.current_schedule_date = date.today()
+        
+        # 初次加载日程
+        self.root.after(100, self.schedule_refresh)
+
+    def schedule_refresh(self):
+        """刷新日程列表"""
+        if not self.agent:
+            return
+
+        # 清空现有项目
+        for item in self.schedule_tree.get_children():
+            self.schedule_tree.delete(item)
+
+        # 更新日期标签
+        weekday_names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+        weekday = weekday_names[self.current_schedule_date.weekday()]
+        date_str = self.current_schedule_date.strftime('%Y年%m月%d日')
+        self.schedule_date_label.config(text=f"{date_str} {weekday}")
+
+        # 获取当前日期的日程
+        date_str_iso = self.current_schedule_date.strftime('%Y-%m-%d')
+        schedules = self.agent.schedule_manager.get_schedules_by_date(date_str_iso)
+
+        # 类型映射
+        type_map = {
+            ScheduleType.RECURRING: '周期日程',
+            ScheduleType.APPOINTMENT: '预约日程',
+            ScheduleType.IMPROMPTU: '临时日程'
+        }
+
+        priority_map = {
+            SchedulePriority.LOW: '低',
+            SchedulePriority.MEDIUM: '中',
+            SchedulePriority.HIGH: '高',
+            SchedulePriority.URGENT: '紧急'
+        }
+
+        recurrence_map = {
+            RecurrencePattern.NONE: '不重复',
+            RecurrencePattern.DAILY: '每天',
+            RecurrencePattern.WEEKLY: '每周',
+            RecurrencePattern.WEEKDAYS: '工作日',
+            RecurrencePattern.WEEKENDS: '周末',
+            RecurrencePattern.MONTHLY: '每月',
+            RecurrencePattern.CUSTOM: '自定义'
+        }
+
+        # 添加日程到表格
+        for schedule in schedules:
+            time_str = f"{schedule.start_time} - {schedule.end_time}"
+            type_str = type_map.get(schedule.schedule_type, '未知')
+            priority_str = priority_map.get(schedule.priority, '未知')
+            location_str = schedule.location or '-'
+            recurrence_str = recurrence_map.get(schedule.recurrence_pattern, '未知')
+
+            # 根据优先级设置标签
+            tags = []
+            if schedule.priority == SchedulePriority.URGENT:
+                tags.append('urgent')
+            elif schedule.priority == SchedulePriority.HIGH:
+                tags.append('high')
+
+            self.schedule_tree.insert('', tk.END,
+                                     values=(time_str, schedule.title, type_str,
+                                           priority_str, location_str, recurrence_str),
+                                     tags=tags)
+
+        # 设置标签颜色
+        self.schedule_tree.tag_configure('urgent', background='#ffebee')
+        self.schedule_tree.tag_configure('high', background='#fff3e0')
+
+        # 更新统计信息
+        stats = self.agent.schedule_manager.get_statistics()
+        stats_text = (f"总计: {stats['total_schedules']} 个日程 | "
+                     f"周期: {stats['recurring']} | "
+                     f"预约: {stats['appointments']} | "
+                     f"临时: {stats['impromptu']}")
+        self.schedule_stats_label.config(text=stats_text)
+
+        # 清空详情
+        self.schedule_show_detail(None)
+
+    def schedule_on_select(self, event):
+        """日程选择事件"""
+        selection = self.schedule_tree.selection()
+        if not selection:
+            self.selected_schedule = None
+            self.schedule_show_detail(None)
+            return
+
+        # 获取选中的行索引
+        item = selection[0]
+        item_index = self.schedule_tree.index(item)
+
+        # 获取当前日期的日程列表
+        date_str = self.current_schedule_date.strftime('%Y-%m-%d')
+        schedules = self.agent.schedule_manager.get_schedules_by_date(date_str)
+
+        # 根据索引获取对应的日程
+        if 0 <= item_index < len(schedules):
+            self.selected_schedule = schedules[item_index]
+            self.schedule_show_detail(self.selected_schedule)
+        else:
+            self.selected_schedule = None
+            self.schedule_show_detail(None)
+
+    def schedule_show_detail(self, schedule):
+        """显示日程详情"""
+        self.schedule_detail_text.config(state=tk.NORMAL)
+        self.schedule_detail_text.delete(1.0, tk.END)
+
+        if schedule is None:
+            self.schedule_detail_text.insert(tk.END, "请选择一个日程查看详情")
+        else:
+            detail = f"标题: {schedule.title}\n"
+            detail += f"时间: {schedule.start_time} - {schedule.end_time}\n"
+            detail += f"日期: {schedule.date}\n"
+
+            if schedule.description:
+                detail += f"描述: {schedule.description}\n"
+
+            if schedule.location:
+                detail += f"地点: {schedule.location}\n"
+
+            # 类型和优先级
+            type_map = {
+                ScheduleType.RECURRING: '周期日程',
+                ScheduleType.APPOINTMENT: '预约日程',
+                ScheduleType.IMPROMPTU: '临时日程'
+            }
+            priority_map = {
+                SchedulePriority.LOW: '低',
+                SchedulePriority.MEDIUM: '中',
+                SchedulePriority.HIGH: '高',
+                SchedulePriority.URGENT: '紧急'
+            }
+
+            detail += f"类型: {type_map.get(schedule.schedule_type, '未知')}\n"
+            detail += f"优先级: {priority_map.get(schedule.priority, '未知')}\n"
+
+            # 重复信息
+            if schedule.is_recurring():
+                recurrence_map = {
+                    RecurrencePattern.DAILY: '每天',
+                    RecurrencePattern.WEEKLY: '每周',
+                    RecurrencePattern.WEEKDAYS: '工作日（周一到周五）',
+                    RecurrencePattern.WEEKENDS: '周末',
+                    RecurrencePattern.MONTHLY: '每月',
+                    RecurrencePattern.CUSTOM: '自定义'
+                }
+                detail += f"重复: {recurrence_map.get(schedule.recurrence_pattern, '未知')}\n"
+
+                if schedule.recurrence_end_date:
+                    detail += f"重复截止: {schedule.recurrence_end_date}\n"
+
+            self.schedule_detail_text.insert(tk.END, detail)
+
+        self.schedule_detail_text.config(state=tk.DISABLED)
+
+    def schedule_prev_day(self):
+        """前一天"""
+        from datetime import timedelta
+        self.current_schedule_date -= timedelta(days=1)
+        self.schedule_refresh()
+
+    def schedule_next_day(self):
+        """后一天"""
+        from datetime import timedelta
+        self.current_schedule_date += timedelta(days=1)
+        self.schedule_refresh()
+
+    def schedule_go_to_today(self):
+        """回到今天"""
+        from datetime import date
+        self.current_schedule_date = date.today()
+        self.schedule_refresh()
+
+    def schedule_add(self):
+        """添加新日程"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        self.schedule_edit_dialog(None)
+
+    def schedule_edit(self):
+        """编辑选中的日程"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        if not self.selected_schedule:
+            messagebox.showwarning("提示", "请先选择一个日程")
+            return
+
+        self.schedule_edit_dialog(self.selected_schedule)
+
+    def schedule_delete(self):
+        """删除选中的日程"""
+        if not self.agent:
+            messagebox.showerror("错误", "聊天代理未初始化")
+            return
+
+        if not self.selected_schedule:
+            messagebox.showwarning("提示", "请先选择一个日程")
+            return
+
+        if messagebox.askyesno("确认删除",
+                              f"确定要删除日程「{self.selected_schedule.title}」吗？"):
+            if self.agent.schedule_manager.delete_schedule(self.selected_schedule.schedule_id):
+                messagebox.showinfo("成功", "日程已删除")
+                self.schedule_refresh()
+            else:
+                messagebox.showerror("错误", "删除日程失败")
+
+    def schedule_edit_dialog(self, schedule):
+        """日程编辑对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("编辑日程" if schedule else "添加日程")
+        dialog.geometry("550x650")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        row = 0
+
+        # 标题
+        ttk.Label(main_frame, text="标题:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        title_var = tk.StringVar(value=schedule.title if schedule else "")
+        ttk.Entry(main_frame, textvariable=title_var, width=40).grid(row=row, column=1, pady=5, sticky=tk.EW)
+        row += 1
+
+        # 描述
+        ttk.Label(main_frame, text="描述:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        description_text = tk.Text(main_frame, height=3, width=40)
+        if schedule and schedule.description:
+            description_text.insert(1.0, schedule.description)
+        description_text.grid(row=row, column=1, pady=5, sticky=tk.EW)
+        row += 1
+
+        # 日期
+        ttk.Label(main_frame, text="日期:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        default_date = schedule.date if schedule else self.current_schedule_date.strftime('%Y-%m-%d')
+        date_var = tk.StringVar(value=default_date)
+        ttk.Entry(main_frame, textvariable=date_var, width=40).grid(row=row, column=1, pady=5, sticky=tk.EW)
+        ttk.Label(main_frame, text="(格式: YYYY-MM-DD)", font=('微软雅黑', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
+        row += 1
+
+        # 时间
+        time_frame = ttk.Frame(main_frame)
+        time_frame.grid(row=row, column=1, pady=5, sticky=tk.EW)
+
+        ttk.Label(main_frame, text="时间:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        start_time_var = tk.StringVar(value=schedule.start_time if schedule else "09:00")
+        ttk.Entry(time_frame, textvariable=start_time_var, width=8).pack(side=tk.LEFT)
+        ttk.Label(time_frame, text=" - ").pack(side=tk.LEFT, padx=5)
+        end_time_var = tk.StringVar(value=schedule.end_time if schedule else "10:00")
+        ttk.Entry(time_frame, textvariable=end_time_var, width=8).pack(side=tk.LEFT)
+        ttk.Label(time_frame, text="(格式: HH:MM)", font=('微软雅黑', 8)).pack(side=tk.LEFT, padx=5)
+        row += 1
+
+        # 地点
+        ttk.Label(main_frame, text="地点:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        location_var = tk.StringVar(value=schedule.location if schedule else "")
+        ttk.Entry(main_frame, textvariable=location_var, width=40).grid(row=row, column=1, pady=5, sticky=tk.EW)
+        row += 1
+
+        # 类型
+        ttk.Label(main_frame, text="类型:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        type_var = tk.StringVar(value=schedule.schedule_type.value if schedule else ScheduleType.APPOINTMENT.value)
+        type_combo = ttk.Combobox(main_frame, textvariable=type_var, state='readonly', width=37)
+        type_combo['values'] = ('recurring', 'appointment', 'impromptu')
+        type_combo.grid(row=row, column=1, pady=5, sticky=tk.EW)
+        row += 1
+
+        # 优先级
+        ttk.Label(main_frame, text="优先级:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        priority_var = tk.IntVar(value=schedule.priority.value if schedule else SchedulePriority.MEDIUM.value)
+        priority_combo = ttk.Combobox(main_frame, textvariable=priority_var, state='readonly', width=37)
+        priority_combo['values'] = (1, 2, 3, 4)
+        priority_combo.grid(row=row, column=1, pady=5, sticky=tk.EW)
+        ttk.Label(main_frame, text="(1=低, 2=中, 3=高, 4=紧急)", font=('微软雅黑', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
+        row += 1
+
+        # 重复模式
+        ttk.Label(main_frame, text="重复:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        recurrence_var = tk.StringVar(value=schedule.recurrence_pattern.value if schedule else RecurrencePattern.NONE.value)
+        recurrence_combo = ttk.Combobox(main_frame, textvariable=recurrence_var, state='readonly', width=37)
+        recurrence_combo['values'] = ('none', 'daily', 'weekly', 'weekdays', 'weekends', 'monthly')
+        recurrence_combo.grid(row=row, column=1, pady=5, sticky=tk.EW)
+        row += 1
+
+        # 重复截止日期
+        ttk.Label(main_frame, text="重复截止:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        recurrence_end_var = tk.StringVar(value=schedule.recurrence_end_date if schedule and schedule.recurrence_end_date else "")
+        ttk.Entry(main_frame, textvariable=recurrence_end_var, width=40).grid(row=row, column=1, pady=5, sticky=tk.EW)
+        ttk.Label(main_frame, text="(可选)", font=('微软雅黑', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
+        row += 1
+
+        # 保存函数
+        def save_schedule():
+            title = title_var.get().strip()
+            if not title:
+                messagebox.showerror("错误", "请输入标题")
+                return
+
+            date_str = date_var.get().strip()
+            if not date_str:
+                messagebox.showerror("错误", "请输入日期")
+                return
+
+            start_time = start_time_var.get().strip()
+            end_time = end_time_var.get().strip()
+            if not start_time or not end_time:
+                messagebox.showerror("错误", "请输入时间")
+                return
+
+            description = description_text.get(1.0, tk.END).strip()
+            location = location_var.get().strip()
+            schedule_type = ScheduleType(type_var.get())
+            priority = SchedulePriority(priority_var.get())
+            recurrence_pattern = RecurrencePattern(recurrence_var.get())
+            recurrence_end_date = recurrence_end_var.get().strip() or None
+
+            try:
+                if schedule:
+                    # 更新现有日程
+                    success, message = self.agent.schedule_manager.update_schedule(
+                        schedule.schedule_id,
+                        title=title,
+                        description=description,
+                        date=date_str,
+                        start_time=start_time,
+                        end_time=end_time,
+                        location=location,
+                        schedule_type=schedule_type,
+                        priority=priority,
+                        recurrence_pattern=recurrence_pattern,
+                        recurrence_end_date=recurrence_end_date
+                    )
+
+                    if success:
+                        messagebox.showinfo("成功", "日程已更新")
+                        dialog.destroy()
+                        self.schedule_refresh()
+                    else:
+                        messagebox.showerror("错误", f"更新失败: {message}")
+                else:
+                    # 添加新日程
+                    success, new_schedule, message = self.agent.schedule_manager.add_schedule(
+                        title=title,
+                        description=description,
+                        schedule_type=schedule_type,
+                        priority=priority,
+                        start_time=start_time,
+                        end_time=end_time,
+                        date=date_str,
+                        recurrence_pattern=recurrence_pattern,
+                        recurrence_end_date=recurrence_end_date,
+                        location=location,
+                        auto_resolve_conflicts=True
+                    )
+
+                    if success:
+                        messagebox.showinfo("成功", message)
+                        dialog.destroy()
+                        self.schedule_refresh()
+                    else:
+                        messagebox.showerror("错误", f"添加失败: {message}")
+            except Exception as e:
+                messagebox.showerror("错误", f"操作失败: {str(e)}")
+
+        # 按钮
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=row, column=0, columnspan=3, pady=20)
+
+        ttk.Button(button_frame, text="保存", command=save_schedule).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        main_frame.columnconfigure(1, weight=1)
 
     def show_about(self):
         """

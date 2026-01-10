@@ -37,6 +37,17 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Backup & Restore**: Complete data import/export
 - **Query Optimization**: Efficient data retrieval
 
+### 📆 Agent Schedule Management
+- **Three Schedule Types**:
+  - Recurring Schedule: Fixed repeating schedules (e.g., Monday to Friday class schedule)
+  - Appointment Schedule: User-mentioned or intent-recognized schedules (e.g., Wednesday afternoon meeting)
+  - Impromptu Schedule: Random activities added by LLM in free slots (e.g., watching the moon tonight)
+- **Automatic Priority Management**: High-priority schedules automatically replace low-priority conflicting schedules
+- **Conflict Detection**: Intelligent detection of time overlaps to prevent schedule conflicts
+- **Dialogue Integration**: Schedule information as context, agent can naturally mention schedules in conversations
+- **Flexible Recurrence Patterns**: Support daily, weekly, weekdays, weekends, monthly, and custom patterns
+- **Visual Management**: GUI interface to view, add, edit, and delete schedules
+
 ### 🔧 Extended Features
 - **Intelligent Vision**: Uses LLM to intelligently determine if environmental information is needed, simulating visual perception through environment descriptions
   - LLM Intelligent Detection: Understands semantics, recognizes questions like "Where are you?" that implicitly require environmental information
