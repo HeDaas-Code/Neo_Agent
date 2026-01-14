@@ -809,13 +809,23 @@ class ChatAgent:
         
         # 使用LLM进行意图识别
         try:
-            prompt = f"""请分析以下用户输入，判断是否包含预约或安排事项的意图。
+            # 获取智能体角色名称
+            agent_name = self.character.name
+            
+            prompt = f"""请分析以下用户输入，判断是否包含与智能体「{agent_name}」相关的预约或安排事项。
 
 用户输入："{user_input}"
 
-如果用户提到了需要安排的事项（如会议、课程、活动等），请以JSON格式返回：
+重要：只有当该事项明确涉及智能体「{agent_name}」时才算有效预约。
+例如：
+- "周三我们一起去看电影" - 有效（包含智能体）
+- "我明天要开会" - 无效（不涉及智能体）
+- "明天和你一起吃饭" - 有效（包含智能体）
+
+如果用户提到了涉及智能体的预约事项，请以JSON格式返回：
 {{
     "has_appointment": true,
+    "involves_agent": true,
     "title": "事项标题",
     "description": "事项描述",
     "time_mentioned": "是否提到了时间（true/false）",
@@ -825,9 +835,10 @@ class ChatAgent:
     "missing_info": ["需要追问的信息列表，如 date, time, location等"]
 }}
 
-如果没有检测到预约意图，返回：
+如果没有检测到预约意图，或预约不涉及智能体，返回：
 {{
-    "has_appointment": false
+    "has_appointment": false,
+    "involves_agent": false
 }}
 
 请只返回JSON，不要有其他内容。"""
@@ -862,9 +873,12 @@ class ChatAgent:
                 json_match = re.search(r'\{.*\}', content, re.DOTALL)
                 if json_match:
                     appointment_data = json.loads(json_match.group())
-                    if appointment_data.get('has_appointment'):
-                        debug_logger.log_info('ChatAgent', '检测到预约意图', appointment_data)
+                    # 检查是否有预约意图且涉及智能体
+                    if appointment_data.get('has_appointment') and appointment_data.get('involves_agent'):
+                        debug_logger.log_info('ChatAgent', '检测到涉及智能体的预约意图', appointment_data)
                         return appointment_data
+                    elif appointment_data.get('has_appointment') and not appointment_data.get('involves_agent'):
+                        debug_logger.log_info('ChatAgent', '检测到预约意图但不涉及智能体，已忽略', appointment_data)
                         
         except Exception as e:
             debug_logger.log_error('ChatAgent', f'预约意图检测失败: {str(e)}', e)
@@ -883,16 +897,26 @@ class ChatAgent:
         """
         debug_logger.log_module('ChatAgent', '提取临时日程', {'response_length': len(agent_response)})
         
+        # 获取智能体角色名称
+        agent_name = self.character.name
+        
         try:
-            prompt = f"""请分析以下智能体回复，提取其中提到的所有活动或日程安排。
+            prompt = f"""请分析以下智能体「{agent_name}」的回复，提取其中提到的所有涉及智能体自己的活动或日程安排。
 
 智能体回复："{agent_response}"
+
+重要：只提取智能体「{agent_name}」参与的活动，不要提取用户单独的活动。
+例如：
+- "我们今晚一起看星星" - 有效（智能体参与）
+- "今晚我会陪你看星星" - 有效（智能体参与）
+- "你今晚可以看星星" - 无效（只是建议，智能体不参与）
 
 请以JSON数组格式返回提取的日程：
 [
     {{
         "title": "活动标题",
         "description": "活动描述",
+        "involves_agent": true,
         "date_info": "日期信息（如'今天'、'明天'、'周三'等）",
         "time_info": "时间信息（如'下午3点'、'晚上'等）",
         "start_time": "开始时间（HH:MM格式，如果能推断）",
@@ -901,10 +925,10 @@ class ChatAgent:
     }}
 ]
 
-如果没有提到任何日程，返回空数组 []
+如果没有提到任何涉及智能体的日程，返回空数组 []
 
 注意：
-- 只提取具体的活动或日程，不要提取泛泛的描述
+- 只提取智能体参与的具体活动或日程
 - 尽量推断具体的时间
 - 如果是"今天"、"今晚"等，需要转换为具体时间
 - 如果只说了"下午"，可推断为14:00-17:00
@@ -941,9 +965,13 @@ class ChatAgent:
                 json_match = re.search(r'\[.*\]', content, re.DOTALL)
                 if json_match:
                     schedules = json.loads(json_match.group())
-                    if schedules:
-                        debug_logger.log_info('ChatAgent', f'提取到 {len(schedules)} 个临时日程', schedules)
-                        return schedules
+                    # 只保留涉及智能体的日程
+                    agent_schedules = [s for s in schedules if s.get('involves_agent', True)]
+                    if agent_schedules:
+                        debug_logger.log_info('ChatAgent', f'提取到 {len(agent_schedules)} 个涉及智能体的临时日程', agent_schedules)
+                        return agent_schedules
+                    elif schedules:
+                        debug_logger.log_info('ChatAgent', f'提取到 {len(schedules)} 个日程但均不涉及智能体，已过滤')
                         
         except Exception as e:
             debug_logger.log_error('ChatAgent', f'临时日程提取失败: {str(e)}', e)
