@@ -498,14 +498,18 @@ class ChatAgent:
                     print(supplement_msg)
                     debug_logger.log_info('ChatAgent', '日程信息已补充', supplement_info)
 
-        # 6. 检测预约意图
+        # 6. 检测预约意图并立即处理
         appointment_intent = self._detect_appointment_intent(user_input)
         if appointment_intent and appointment_intent.get('has_appointment'):
             debug_logger.log_info('ChatAgent', '检测到预约意图', appointment_intent)
-            # 存储预约意图供后续处理
-            self._pending_appointment = appointment_intent
+            # 立即处理预约（不再等待回复）
+            self._process_appointment_creation_immediate(appointment_intent)
+            self._pending_appointment = None
         else:
             self._pending_appointment = None
+        
+        # 7. 检测用户输入中的临时日程意图（使用LLM）
+        self._detect_and_process_user_impromptu_schedules(user_input)
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
@@ -702,15 +706,6 @@ class ChatAgent:
             })
             debug_logger.log_info('ChatAgent', '已添加日程上下文到系统消息')
 
-        # 添加预约处理提示（如果检测到预约意图）
-        if self._pending_appointment:
-            appointment_prompt = self._build_appointment_prompt(self._pending_appointment)
-            messages.append({'role': 'system', 'content': appointment_prompt})
-            debug_logger.log_prompt('ChatAgent', 'system', appointment_prompt, {
-                'stage': '预约意图处理'
-            })
-            debug_logger.log_info('ChatAgent', '已添加预约处理提示')
-
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
         if long_context:
@@ -735,11 +730,7 @@ class ChatAgent:
         })
 
         # ===== 后处理阶段 =====
-        # 1. 处理预约创建
-        if self._pending_appointment:
-            self._process_appointment_creation(self._pending_appointment, response)
-        
-        # 2. 提取并添加临时日程
+        # 提取并添加临时日程（从智能体回复中）
         self._process_impromptu_schedules(response)
 
         # 添加助手回复到记忆（自动保存到数据库）
@@ -1598,6 +1589,272 @@ class ChatAgent:
                 
         except Exception as e:
             debug_logger.log_error('ChatAgent', f'预约创建失败: {str(e)}', e)
+
+    def _process_appointment_creation_immediate(self, appointment_data: Dict[str, Any]):
+        """
+        立即处理预约创建（在理解阶段，不等待回复）
+        
+        Args:
+            appointment_data: 预约数据
+        """
+        from schedule_manager import ScheduleType, SchedulePriority
+        from datetime import date, timedelta
+        
+        # 检查是否有足够的信息创建预约
+        missing = appointment_data.get('missing_info', [])
+        if missing:
+            debug_logger.log_info('ChatAgent', '预约信息不完整，将在对话中请求补充', {
+                'missing': missing,
+                'appointment': appointment_data
+            })
+            # 将预约信息添加到上下文，以便智能体可以询问缺失信息
+            context_msg = f"\n💬 [待确认预约] {appointment_data.get('title', '未知事项')}"
+            context_msg += f"\n   缺少信息：{', '.join(missing)}"
+            context_msg += f"\n   提示：智能体将在对话中询问这些信息"
+            print(context_msg)
+            self.memory_manager.add_message('system', context_msg)
+            # 存储待处理预约
+            self._pending_appointment = appointment_data
+            return
+        
+        try:
+            # 提取时间信息
+            date_info = appointment_data.get('date_info', '今天')
+            time_info = appointment_data.get('time_info', '下午')
+            
+            target_date, start_time, end_time = self._convert_relative_time_to_absolute(
+                date_info, time_info
+            )
+            
+            # 检查冲突
+            conflicts = self._check_appointment_conflicts(target_date, start_time, end_time)
+            
+            # 使用LLM决定是否接受预约
+            decision = self._decide_appointment_acceptance(appointment_data, conflicts)
+            
+            # 将决策结果添加到上下文
+            decision_context = f"\n\n【预约决策】\n"
+            decision_context += f"预约：{appointment_data.get('title', '未知事项')}\n"
+            decision_context += f"时间：{target_date} {start_time}-{end_time}\n"
+            decision_context += f"决定：{'接受' if decision.get('should_accept') else '拒绝'}\n"
+            decision_context += f"理由：{decision.get('reason', '')}\n"
+            
+            if decision.get('should_accept'):
+                # 创建预约日程
+                success, schedule, message = self.schedule_manager.add_schedule(
+                    title=appointment_data.get('title', '预约事项'),
+                    description=appointment_data.get('description', ''),
+                    schedule_type=ScheduleType.APPOINTMENT,
+                    priority=SchedulePriority.MEDIUM,
+                    start_time=start_time,
+                    end_time=end_time,
+                    date=target_date,
+                    location=appointment_data.get('location_info', ''),
+                    auto_resolve_conflicts=decision.get('can_resolve', True)
+                )
+                
+                if success:
+                    # 记录到最近日程列表
+                    stats = self.memory_manager.get_statistics()
+                    current_round = stats['short_term']['rounds']
+                    self._recent_schedules[schedule.schedule_id] = {
+                        'created_round': current_round,
+                        'schedule': schedule
+                    }
+                    
+                    debug_logger.log_info('ChatAgent', '预约日程创建成功', {
+                        'schedule_id': schedule.schedule_id,
+                        'title': schedule.title,
+                        'date': target_date,
+                        'decision': decision
+                    })
+                    print(f"\n✅ [预约接受] {schedule.title} ({target_date} {start_time}-{end_time})")
+                    print(decision_context)
+                    # 添加到对话上下文
+                    self.memory_manager.add_message('system', f"✅ [预约接受] {schedule.title} ({target_date} {start_time}-{end_time})")
+                else:
+                    debug_logger.log_warning('ChatAgent', '预约日程创建失败', {'message': message})
+                    print(f"\n❌ [预约失败] {message}")
+            else:
+                # 拒绝预约
+                debug_logger.log_info('ChatAgent', '预约被拒绝', {
+                    'title': appointment_data.get('title'),
+                    'reason': decision.get('reason')
+                })
+                print(f"\n🚫 [预约拒绝] {appointment_data.get('title', '未知事项')}")
+                print(decision_context)
+                # 添加到对话上下文
+                self.memory_manager.add_message('system', f"🚫 [预约拒绝] {appointment_data.get('title', '未知事项')} - {decision.get('reason', '')}")
+                
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'立即预约创建失败: {str(e)}', e)
+
+    def _detect_and_process_user_impromptu_schedules(self, user_input: str):
+        """
+        使用LLM检测并处理用户输入中的临时日程意图
+        
+        Args:
+            user_input: 用户输入
+        """
+        from schedule_manager import ScheduleType, SchedulePriority
+        
+        debug_logger.log_module('ChatAgent', '检测用户输入中的临时日程', {'input': user_input})
+        
+        try:
+            # 获取智能体角色名称
+            agent_name = self.character.name
+            
+            prompt = f"""请分析以下用户输入，判断是否包含与智能体「{agent_name}」一起进行的临时活动或日程。
+
+用户输入："{user_input}"
+
+注意：
+1. 只识别涉及智能体「{agent_name}」的活动
+2. 临时日程是指即兴提出的、非正式的活动
+3. 排除正式预约（如会议、课程等）
+4. 排除仅仅是建议或询问的内容
+
+例如：
+- "我们今晚一起看星星吧" - 有效（临时活动，涉及智能体）
+- "今天下午陪我去散步" - 有效（临时活动，涉及智能体）
+- "我明天要开会" - 无效（不涉及智能体）
+- "你觉得我们什么时候去" - 无效（仅是询问）
+
+如果检测到临时日程，请以JSON格式返回：
+{{
+    "has_impromptu": true,
+    "schedules": [
+        {{
+            "title": "活动标题",
+            "description": "活动描述",
+            "date_info": "日期信息（如'今天'、'明天'）",
+            "time_info": "时间信息（如'晚上'、'下午3点'）",
+            "involves_agent": true
+        }}
+    ]
+}}
+
+如果没有检测到临时日程，返回：
+{{
+    "has_impromptu": false,
+    "schedules": []
+}}
+
+请只返回JSON，不要有其他内容。"""
+
+            headers = {
+                'Authorization': f'Bearer {self.llm.api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'model': self.llm.model_name,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.3,
+                'max_tokens': 500
+            }
+
+            response = requests.post(
+                self.llm.api_url,
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                
+                # 尝试解析JSON
+                import json
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group())
+                    
+                    if data.get('has_impromptu') and data.get('schedules'):
+                        schedules = data['schedules']
+                        debug_logger.log_info('ChatAgent', f'检测到{len(schedules)}个用户临时日程', {
+                            'schedules': schedules
+                        })
+                        
+                        # 处理每个临时日程
+                        for schedule_data in schedules:
+                            if not schedule_data.get('involves_agent', True):
+                                continue
+                                
+                            try:
+                                # 转换时间
+                                date_info = schedule_data.get('date_info', '今天')
+                                time_info = schedule_data.get('time_info', '下午')
+                                
+                                target_date, start_time, end_time = self._convert_relative_time_to_absolute(
+                                    date_info, time_info
+                                )
+                                
+                                # 检查是否已存在类似的日程
+                                existing_schedules = self.schedule_manager.get_schedules_by_date(target_date)
+                                title = schedule_data.get('title', '临时活动')
+                                
+                                if any(s.title == title for s in existing_schedules):
+                                    debug_logger.log_info('ChatAgent', '日程已存在，跳过创建', {'title': title})
+                                    continue
+                                
+                                # 检查自主决策
+                                autonomy_decision = self._check_autonomous_decision(schedule_data)
+                                
+                                if not autonomy_decision.get('can_decide') or autonomy_decision.get('need_confirmation'):
+                                    # 需要确认
+                                    confirm_msg = f"\n❓ [需要确认] {title}"
+                                    confirm_msg += f"\n   原因：{autonomy_decision.get('reason', '需要用户配合')}"
+                                    confirm_msg += f"\n   请用户回应确认"
+                                    print(confirm_msg)
+                                    debug_logger.log_info('ChatAgent', '临时日程需要用户确认', {
+                                        'title': title,
+                                        'reason': autonomy_decision.get('reason')
+                                    })
+                                    continue
+                                
+                                # 创建临时日程
+                                success, schedule, message = self.schedule_manager.add_schedule(
+                                    title=title,
+                                    description=schedule_data.get('description', ''),
+                                    schedule_type=ScheduleType.IMPROMPTU,
+                                    priority=SchedulePriority.LOW,
+                                    start_time=start_time,
+                                    end_time=end_time,
+                                    date=target_date,
+                                    auto_resolve_conflicts=True
+                                )
+                                
+                                if success:
+                                    # 记录到最近日程列表
+                                    stats = self.memory_manager.get_statistics()
+                                    current_round = stats['short_term']['rounds']
+                                    self._recent_schedules[schedule.schedule_id] = {
+                                        'created_round': current_round,
+                                        'schedule': schedule
+                                    }
+                                    
+                                    print(f"\n📅 [自动日程] 已添加临时活动：{title} ({target_date} {start_time}-{end_time})")
+                                    debug_logger.log_info('ChatAgent', '用户临时日程创建成功', {
+                                        'schedule_id': schedule.schedule_id,
+                                        'title': title,
+                                        'date': target_date
+                                    })
+                                else:
+                                    debug_logger.log_warning('ChatAgent', '用户临时日程创建失败', {
+                                        'title': title,
+                                        'message': message
+                                    })
+                                    
+                            except Exception as e:
+                                debug_logger.log_error('ChatAgent', f'处理用户临时日程失败: {str(e)}', e)
+                    else:
+                        debug_logger.log_info('ChatAgent', '未检测到用户临时日程')
+                        
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'检测用户临时日程失败: {str(e)}', e)
 
     def _process_impromptu_schedules(self, agent_response: str):
         """
