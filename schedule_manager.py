@@ -666,7 +666,7 @@ class ScheduleManager:
             # 过滤只允许白名单中的列名
             safe_kwargs = {k: v for k, v in kwargs.items() if k in allowed_columns}
             if not safe_kwargs:
-                print(f"⚠ 没有有效的字段可更新")
+                debug_logger.log_info('ScheduleManager', '没有有效的字段可更新')
                 return False
 
             set_clause = ", ".join([f"{k} = ?" for k in safe_kwargs.keys()])
@@ -682,7 +682,7 @@ class ScheduleManager:
                 ''', values)
                 return cursor.rowcount > 0
         except Exception as e:
-            print(f"✗ 更新日程时出错: {e}")
+            debug_logger.log_error('ScheduleManager', f'更新日程时出错: {str(e)}', e)
             return False
 
     def delete_schedule(self, schedule_id: str) -> bool:

@@ -20,7 +20,7 @@ from event_manager import EventManager, EventType, EventStatus, NotificationEven
 from interrupt_question_tool import InterruptQuestionTool
 from multi_agent_coordinator import MultiAgentCoordinator
 from expression_style import ExpressionStyleManager
-from schedule_manager import ScheduleManager
+from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from schedule_intent_tool import ScheduleIntentTool
 from schedule_generator import TemporaryScheduleGenerator
 
@@ -498,7 +498,6 @@ class ChatAgent:
                 
                 if start_time and end_time:
                     # 检查冲突并创建日程
-                    from schedule_manager import ScheduleType, SchedulePriority
                     success, schedule, message = self.schedule_manager.create_schedule(
                         title=title,
                         description=description,
@@ -522,7 +521,6 @@ class ChatAgent:
             elif intent_result['schedule_type'] == 'query':
                 # 用户查询日程
                 # 检查今天是否有临时日程
-                from datetime import datetime, timedelta
                 today = datetime.now().date().isoformat()
                 
                 if not self.schedule_generator.has_temporary_schedules_today():

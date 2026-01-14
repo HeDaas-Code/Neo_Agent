@@ -18,6 +18,12 @@ load_dotenv()
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
 
+# 星期映射常量
+WEEKDAY_MAP = {
+    '一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6,
+    '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6
+}
+
 
 class ScheduleIntentTool:
     """
@@ -190,9 +196,7 @@ class ScheduleIntentTool:
             # 找到下周的对应星期
             weekday_match = re.search(r'[周星期]([一二三四五六日天1-7])', time_expr)
             if weekday_match:
-                weekday_map = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6,
-                              '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6}
-                target_weekday = weekday_map.get(weekday_match.group(1), 0)
+                target_weekday = WEEKDAY_MAP.get(weekday_match.group(1), 0)
                 days_ahead = target_weekday - now.weekday() + 7
                 if days_ahead <= 7:
                     days_ahead += 7
@@ -205,9 +209,7 @@ class ScheduleIntentTool:
             # 尝试匹配本周的星期
             weekday_match = re.search(r'[周星期]([一二三四五六日天1-7])', time_expr)
             if weekday_match:
-                weekday_map = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6,
-                              '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6}
-                target_weekday = weekday_map.get(weekday_match.group(1), 0)
+                target_weekday = WEEKDAY_MAP.get(weekday_match.group(1), 0)
                 days_ahead = target_weekday - now.weekday()
                 if days_ahead < 0:
                     days_ahead += 7
