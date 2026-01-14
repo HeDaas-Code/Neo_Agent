@@ -20,6 +20,9 @@ from event_manager import EventManager, EventType, EventStatus, NotificationEven
 from interrupt_question_tool import InterruptQuestionTool
 from multi_agent_coordinator import MultiAgentCoordinator
 from expression_style import ExpressionStyleManager
+from schedule_manager import ScheduleManager
+from schedule_intent_tool import ScheduleIntentTool
+from schedule_generator import TemporaryScheduleGenerator
 
 # 加载环境变量
 load_dotenv()
@@ -367,6 +370,15 @@ class ChatAgent:
         
         # 初始化个性化表达风格管理器（共享数据库）
         self.expression_style_manager = ExpressionStyleManager(db_manager=self.db)
+        
+        # 初始化日程管理器（共享数据库）
+        self.schedule_manager = ScheduleManager(db_manager=self.db)
+        
+        # 初始化日程意图识别工具
+        self.schedule_intent_tool = ScheduleIntentTool()
+        
+        # 初始化临时日程生成器
+        self.schedule_generator = TemporaryScheduleGenerator(schedule_manager=self.schedule_manager)
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -383,6 +395,14 @@ class ChatAgent:
         expr_stats = self.expression_style_manager.get_statistics()
         print(f"表达风格: {expr_stats['agent_expressions']['total']} 个智能体表达, "
               f"{expr_stats['user_habits']['total']} 个用户习惯")
+        
+        # 显示日程统计
+        schedule_stats = self.schedule_manager.get_statistics()
+        print(f"日程系统: {schedule_stats['total_schedules']} 个日程 "
+              f"(周期: {schedule_stats['recurring']}, 预约: {schedule_stats['appointments']}, "
+              f"临时: {schedule_stats['temporary']})")
+        if schedule_stats['pending_collaboration'] > 0:
+            print(f"  ⚠️  有 {schedule_stats['pending_collaboration']} 个待确认的协作日程")
 
     def chat(self, user_input: str) -> str:
         """
@@ -435,14 +455,125 @@ class ChatAgent:
                 'objects_count': vision_context['object_count']
             })
 
+        # 4. 检查日程相关意图
+        schedule_context = None
+        schedule_action_message = None
+        
+        # 4.1 检查是否有待确认的协作日程
+        pending_schedules = self.schedule_manager.get_pending_collaboration_schedules()
+        if pending_schedules:
+            # 有待确认的日程，检查用户是否在回应
+            confirmation_keywords = ['好', '可以', '行', '同意', '确认', 'ok', 'yes', '不', '不行', '不要', 'no']
+            if any(kw in user_input.lower() for kw in confirmation_keywords):
+                # 用户可能在回应日程确认，获取最近的待确认日程
+                last_pending = pending_schedules[0]
+                is_positive = any(kw in user_input.lower() for kw in ['好', '可以', '行', '同意', '确认', 'ok', 'yes'])
+                
+                if is_positive:
+                    self.schedule_manager.confirm_collaboration(last_pending.schedule_id, True)
+                    schedule_action_message = f"✓ 已确认日程：{last_pending.title}"
+                    debug_logger.log_info('ChatAgent', '用户确认协作日程', {'schedule': last_pending.title})
+                else:
+                    self.schedule_manager.confirm_collaboration(last_pending.schedule_id, False)
+                    schedule_action_message = f"✗ 已取消日程：{last_pending.title}"
+                    debug_logger.log_info('ChatAgent', '用户拒绝协作日程', {'schedule': last_pending.title})
+        
+        # 4.2 识别日程意图（邀约或查询）
+        intent_result = self.schedule_intent_tool.recognize_intent(
+            user_input,
+            self.character.name,
+            self._get_recent_context()
+        )
+        
+        if intent_result.get('has_schedule_intent'):
+            debug_logger.log_info('ChatAgent', '识别到日程意图', intent_result)
+            
+            if intent_result['schedule_type'] == 'appointment':
+                # 用户想创建预约
+                title = intent_result.get('title', '未命名活动')
+                description = intent_result.get('description', '')
+                start_time = intent_result.get('start_time')
+                end_time = intent_result.get('end_time')
+                involves_agent = intent_result.get('involves_agent', False)
+                
+                if start_time and end_time:
+                    # 检查冲突并创建日程
+                    from schedule_manager import ScheduleType, SchedulePriority
+                    success, schedule, message = self.schedule_manager.create_schedule(
+                        title=title,
+                        description=description,
+                        schedule_type=ScheduleType.APPOINTMENT,
+                        start_time=start_time,
+                        end_time=end_time,
+                        priority=SchedulePriority.MEDIUM,
+                        source='intent',
+                        check_conflict=True
+                    )
+                    
+                    if success:
+                        schedule_action_message = f"✓ 已创建日程：{title}"
+                        schedule_context = f"已同意该日程安排：{title}，时间为{start_time}至{end_time}"
+                        debug_logger.log_info('ChatAgent', '日程创建成功', {'title': title})
+                    else:
+                        schedule_action_message = f"✗ 日程冲突：{message}"
+                        schedule_context = f"由于{message}，无法创建该日程"
+                        debug_logger.log_info('ChatAgent', '日程创建失败', {'reason': message})
+            
+            elif intent_result['schedule_type'] == 'query':
+                # 用户查询日程
+                # 检查今天是否有临时日程
+                from datetime import datetime, timedelta
+                today = datetime.now().date().isoformat()
+                
+                if not self.schedule_generator.has_temporary_schedules_today():
+                    # 没有临时日程，生成1-3个
+                    debug_logger.log_info('ChatAgent', '触发临时日程生成')
+                    print("\n📅 [日程规划] 正在为你规划今天的日程...")
+                    
+                    generated_schedules = self.schedule_generator.generate_temporary_schedules(
+                        date=today,
+                        character_name=self.character.name,
+                        character_info=self.character.get_info_dict(),
+                        context=self._get_recent_context()
+                    )
+                    
+                    if generated_schedules:
+                        print(f"   已生成 {len(generated_schedules)} 个临时日程")
+                        # 检查是否有需要确认的日程
+                        needs_confirmation = [s for s in generated_schedules 
+                                            if s.get('collaboration_status') == 'pending']
+                        if needs_confirmation:
+                            print(f"   其中 {len(needs_confirmation)} 个需要你确认")
+                
+                # 获取今天的所有日程
+                start_of_day = f"{today}T00:00:00"
+                end_of_day = f"{today}T23:59:59"
+                schedules = self.schedule_manager.get_schedules_by_time_range(
+                    start_of_day, end_of_day, queryable_only=True
+                )
+                
+                if schedules:
+                    schedule_list = []
+                    for s in schedules:
+                        start_dt = datetime.fromisoformat(s.start_time)
+                        schedule_list.append(f"{start_dt.strftime('%H:%M')} - {s.title}")
+                    schedule_context = f"我今天的日程安排：\n" + "\n".join(schedule_list)
+                else:
+                    schedule_context = "我今天没有特别的日程安排，比较空闲"
+                
+                debug_logger.log_info('ChatAgent', '日程查询完成', {'count': len(schedules)})
+
         # 记录理解阶段的结果（用于调试）
         self._last_understanding = relevant_knowledge
         self._last_vision_context = vision_context
+        self._last_schedule_context = schedule_context
+        self._last_schedule_action = schedule_action_message
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
             'knowledge_count': len(relevant_knowledge.get('knowledge_items', [])),
-            'vision_used': vision_context is not None
+            'vision_used': vision_context is not None,
+            'schedule_intent': intent_result.get('has_schedule_intent', False) if 'intent_result' in locals() else False
         })
 
         # 添加用户消息到记忆
@@ -621,6 +752,19 @@ class ChatAgent:
                 'objects_count': vision_context['object_count'],
                 'prompt_length': len(vision_prompt)
             })
+        
+        # 添加日程上下文（如果有日程相关信息）
+        if schedule_context:
+            messages.append({'role': 'system', 'content': f"【日程信息】\n{schedule_context}"})
+            debug_logger.log_prompt('ChatAgent', 'system', schedule_context, {
+                'stage': '日程上下文'
+            })
+        
+        if schedule_action_message:
+            # 如果有日程操作消息，添加到系统消息中告知智能体
+            messages.append({'role': 'system', 'content': f"【日程操作】{schedule_action_message}"})
+            print(f"\n{schedule_action_message}\n")
+            debug_logger.log_info('ChatAgent', '日程操作已执行', {'message': schedule_action_message})
 
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
@@ -1140,6 +1284,21 @@ class ChatAgent:
             统计信息
         """
         return self.event_manager.get_statistics()
+    
+    def _get_recent_context(self) -> str:
+        """
+        获取最近对话的上下文摘要
+        
+        Returns:
+            上下文字符串
+        """
+        recent_messages = self.memory_manager.get_recent_messages(count=5)
+        context_parts = []
+        for msg in recent_messages:
+            role = "用户" if msg['role'] == 'user' else self.character.name
+            content = msg['content'][:100]  # 限制长度
+            context_parts.append(f"{role}: {content}")
+        return "\n".join(context_parts)
 
 
 # 测试代码
