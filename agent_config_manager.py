@@ -52,12 +52,16 @@ class AgentConfigManager:
             # 4. 导出智能体表达风格
             agent_expressions = self._export_agent_expressions()
             
-            # 5. 组装完整配置
+            # 5. 导出环境域
+            domains = self._export_domains()
+            
+            # 6. 组装完整配置
             config_data = {
                 "version": "1.0",
                 "export_time": datetime.now().isoformat(),
                 "env_config": env_config,
                 "environments": environments,
+                "domains": domains,
                 "base_knowledge": base_knowledge,
                 "agent_expressions": agent_expressions
             }
@@ -69,6 +73,7 @@ class AgentConfigManager:
             print(f"✓ 配置导出成功: {output_file}")
             print(f"  - 环境变量: {len(env_config)} 项")
             print(f"  - 环境描述: {len(environments)} 个")
+            print(f"  - 环境域: {len(domains)} 个")
             print(f"  - 基础知识: {len(base_knowledge)} 条")
             print(f"  - 表达风格: {len(agent_expressions)} 个")
             return True
@@ -112,15 +117,19 @@ class AgentConfigManager:
             # 4. 导入环境描述
             env_desc_count = self._import_environments(config_data.get('environments', []), overwrite)
             
-            # 5. 导入基础知识
+            # 5. 导入环境域
+            domain_count = self._import_domains(config_data.get('domains', []), overwrite)
+            
+            # 6. 导入基础知识
             knowledge_count = self._import_base_knowledge(config_data.get('base_knowledge', []), overwrite)
             
-            # 6. 导入智能体表达风格
+            # 7. 导入智能体表达风格
             expr_count = self._import_agent_expressions(config_data.get('agent_expressions', []), overwrite)
             
             print(f"✓ 配置导入完成:")
             print(f"  - 环境变量: {env_count} 项")
             print(f"  - 环境描述: {env_desc_count} 个")
+            print(f"  - 环境域: {domain_count} 个")
             print(f"  - 基础知识: {knowledge_count} 条")
             print(f"  - 表达风格: {expr_count} 个")
             return True
@@ -268,6 +277,42 @@ class AgentConfigManager:
             print(f"⚠ 导出表达风格时出错: {e}")
         
         return expressions
+    
+    def _export_domains(self) -> List[Dict[str, Any]]:
+        """
+        导出所有环境域
+        
+        Returns:
+            域列表
+        """
+        domains = []
+        
+        try:
+            # 获取所有域
+            all_domains = self.db.get_all_domains()
+            
+            for domain in all_domains:
+                # 获取域中的环境
+                domain_envs = self.db.get_domain_environments(domain['uuid'])
+                
+                # 获取默认环境名称
+                default_env_name = ''
+                if domain.get('default_environment_uuid'):
+                    default_env_name = self._get_env_name_by_uuid(domain['default_environment_uuid'])
+                
+                domain_data = {
+                    'name': domain['name'],
+                    'description': domain.get('description', ''),
+                    'default_environment_name': default_env_name,
+                    'environment_names': [env['name'] for env in domain_envs]
+                }
+                
+                domains.append(domain_data)
+        
+        except Exception as e:
+            print(f"⚠ 导出环境域时出错: {e}")
+        
+        return domains
     
     def _get_env_name_by_uuid(self, env_uuid: str) -> str:
         """
@@ -584,6 +629,81 @@ class AgentConfigManager:
         
         except Exception as e:
             print(f"⚠ 导入表达风格时出错: {e}")
+        
+        return count
+    
+    def _import_domains(self, domains: List[Dict[str, Any]], overwrite: bool) -> int:
+        """
+        导入环境域
+        
+        Args:
+            domains: 域列表
+            overwrite: 是否覆盖现有数据
+            
+        Returns:
+            导入的域数量
+        """
+        if not domains:
+            return 0
+        
+        count = 0
+        
+        try:
+            # 先创建环境名称到UUID的映射
+            all_envs = self.db.get_all_environments()
+            env_name_to_uuid = {env['name']: env['uuid'] for env in all_envs}
+            
+            for domain_data in domains:
+                domain_name = domain_data.get('name', '')
+                if not domain_name:
+                    continue
+                
+                # 检查是否已存在
+                existing_domain = self.db.get_domain_by_name(domain_name)
+                
+                if existing_domain and not overwrite:
+                    print(f"  ⚠ 环境域已存在，跳过: {domain_name}")
+                    continue
+                
+                # 获取默认环境UUID
+                default_env_uuid = None
+                default_env_name = domain_data.get('default_environment_name', '')
+                if default_env_name and default_env_name in env_name_to_uuid:
+                    default_env_uuid = env_name_to_uuid[default_env_name]
+                
+                # 创建或更新域
+                if existing_domain and overwrite:
+                    # 更新现有域
+                    self.db.update_domain(
+                        existing_domain['uuid'],
+                        description=domain_data.get('description', ''),
+                        default_environment_uuid=default_env_uuid
+                    )
+                    domain_uuid = existing_domain['uuid']
+                    
+                    # 清空现有的环境关联
+                    existing_envs = self.db.get_domain_environments(domain_uuid)
+                    for env in existing_envs:
+                        self.db.remove_environment_from_domain(domain_uuid, env['uuid'])
+                else:
+                    # 创建新域
+                    domain_uuid = self.db.create_domain(
+                        name=domain_name,
+                        description=domain_data.get('description', ''),
+                        default_environment_uuid=default_env_uuid
+                    )
+                
+                # 添加环境到域
+                env_names = domain_data.get('environment_names', [])
+                for env_name in env_names:
+                    if env_name in env_name_to_uuid:
+                        env_uuid = env_name_to_uuid[env_name]
+                        self.db.add_environment_to_domain(domain_uuid, env_uuid)
+                
+                count += 1
+        
+        except Exception as e:
+            print(f"⚠ 导入环境域时出错: {e}")
         
         return count
 
