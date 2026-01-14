@@ -8,7 +8,7 @@ import os
 import json
 import time
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 import requests
 from database_manager import DatabaseManager
@@ -449,10 +449,20 @@ class ChatAgent:
         self._last_understanding = relevant_knowledge
         self._last_vision_context = vision_context
 
+        # 4. 检测预约意图
+        appointment_intent = self._detect_appointment_intent(user_input)
+        if appointment_intent and appointment_intent.get('has_appointment'):
+            debug_logger.log_info('ChatAgent', '检测到预约意图', appointment_intent)
+            # 存储预约意图供后续处理
+            self._pending_appointment = appointment_intent
+        else:
+            self._pending_appointment = None
+
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
             'knowledge_count': len(relevant_knowledge.get('knowledge_items', [])),
-            'vision_used': vision_context is not None
+            'vision_used': vision_context is not None,
+            'appointment_detected': appointment_intent is not None
         })
 
         # 添加用户消息到记忆
@@ -641,6 +651,15 @@ class ChatAgent:
             })
             debug_logger.log_info('ChatAgent', '已添加日程上下文到系统消息')
 
+        # 添加预约处理提示（如果检测到预约意图）
+        if self._pending_appointment:
+            appointment_prompt = self._build_appointment_prompt(self._pending_appointment)
+            messages.append({'role': 'system', 'content': appointment_prompt})
+            debug_logger.log_prompt('ChatAgent', 'system', appointment_prompt, {
+                'stage': '预约意图处理'
+            })
+            debug_logger.log_info('ChatAgent', '已添加预约处理提示')
+
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
         if long_context:
@@ -663,6 +682,14 @@ class ChatAgent:
         debug_logger.log_info('ChatAgent', 'LLM回复完成', {
             'response_length': len(response)
         })
+
+        # ===== 后处理阶段 =====
+        # 1. 处理预约创建
+        if self._pending_appointment:
+            self._process_appointment_creation(self._pending_appointment, response)
+        
+        # 2. 提取并添加临时日程
+        self._process_impromptu_schedules(response)
 
         # 添加助手回复到记忆（自动保存到数据库）
         self.memory_manager.add_message('assistant', response)
@@ -767,6 +794,385 @@ class ChatAgent:
         context += "注意：在对话中可以自然地提及你的日程安排，特别是当话题相关时。"
         
         return context
+
+    def _detect_appointment_intent(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        检测用户输入中的预约意图
+        
+        Args:
+            user_input: 用户输入
+            
+        Returns:
+            预约信息字典，如果没有检测到预约意图则返回None
+        """
+        debug_logger.log_module('ChatAgent', '检测预约意图', {'input': user_input})
+        
+        # 使用LLM进行意图识别
+        try:
+            prompt = f"""请分析以下用户输入，判断是否包含预约或安排事项的意图。
+
+用户输入："{user_input}"
+
+如果用户提到了需要安排的事项（如会议、课程、活动等），请以JSON格式返回：
+{{
+    "has_appointment": true,
+    "title": "事项标题",
+    "description": "事项描述",
+    "time_mentioned": "是否提到了时间（true/false）",
+    "date_info": "提到的日期信息（如果有）",
+    "time_info": "提到的时间信息（如果有）",
+    "location_info": "提到的地点信息（如果有）",
+    "missing_info": ["需要追问的信息列表，如 date, time, location等"]
+}}
+
+如果没有检测到预约意图，返回：
+{{
+    "has_appointment": false
+}}
+
+请只返回JSON，不要有其他内容。"""
+
+            headers = {
+                'Authorization': f'Bearer {self.llm.api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'model': self.llm.model_name,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.3,  # 使用较低温度以获得更稳定的结果
+                'max_tokens': 500
+            }
+
+            response = requests.post(
+                self.llm.api_url,
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                
+                # 尝试解析JSON
+                import json
+                import re
+                # 提取JSON部分
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    appointment_data = json.loads(json_match.group())
+                    if appointment_data.get('has_appointment'):
+                        debug_logger.log_info('ChatAgent', '检测到预约意图', appointment_data)
+                        return appointment_data
+                        
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'预约意图检测失败: {str(e)}', e)
+        
+        return None
+
+    def _extract_impromptu_schedules(self, agent_response: str) -> List[Dict[str, Any]]:
+        """
+        从智能体回复中提取提到的但数据库中不存在的日程
+        
+        Args:
+            agent_response: 智能体的回复文本
+            
+        Returns:
+            提取的日程信息列表
+        """
+        debug_logger.log_module('ChatAgent', '提取临时日程', {'response_length': len(agent_response)})
+        
+        try:
+            prompt = f"""请分析以下智能体回复，提取其中提到的所有活动或日程安排。
+
+智能体回复："{agent_response}"
+
+请以JSON数组格式返回提取的日程：
+[
+    {{
+        "title": "活动标题",
+        "description": "活动描述",
+        "date_info": "日期信息（如'今天'、'明天'、'周三'等）",
+        "time_info": "时间信息（如'下午3点'、'晚上'等）",
+        "start_time": "开始时间（HH:MM格式，如果能推断）",
+        "end_time": "结束时间（HH:MM格式，如果能推断）",
+        "duration_minutes": "持续时间（分钟，如果能推断）"
+    }}
+]
+
+如果没有提到任何日程，返回空数组 []
+
+注意：
+- 只提取具体的活动或日程，不要提取泛泛的描述
+- 尽量推断具体的时间
+- 如果是"今天"、"今晚"等，需要转换为具体时间
+- 如果只说了"下午"，可推断为14:00-17:00
+
+请只返回JSON数组，不要有其他内容。"""
+
+            headers = {
+                'Authorization': f'Bearer {self.llm.api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            payload = {
+                'model': self.llm.model_name,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.3,
+                'max_tokens': 800
+            }
+
+            response = requests.post(
+                self.llm.api_url,
+                headers=headers,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                
+                # 尝试解析JSON
+                import json
+                import re
+                # 提取JSON数组部分
+                json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                if json_match:
+                    schedules = json.loads(json_match.group())
+                    if schedules:
+                        debug_logger.log_info('ChatAgent', f'提取到 {len(schedules)} 个临时日程', schedules)
+                        return schedules
+                        
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'临时日程提取失败: {str(e)}', e)
+        
+        return []
+
+    def _convert_relative_time_to_absolute(self, date_info: str, time_info: str) -> Tuple[str, str, str]:
+        """
+        将相对时间转换为绝对时间
+        
+        Args:
+            date_info: 日期信息（如"今天"、"明天"、"周三"）
+            time_info: 时间信息（如"下午3点"、"晚上"）
+            
+        Returns:
+            (日期YYYY-MM-DD, 开始时间HH:MM, 结束时间HH:MM)
+        """
+        from datetime import date, timedelta, datetime
+        import re
+        
+        today = date.today()
+        target_date = today
+        
+        # 解析日期
+        if '今天' in date_info or '今日' in date_info:
+            target_date = today
+        elif '明天' in date_info:
+            target_date = today + timedelta(days=1)
+        elif '后天' in date_info:
+            target_date = today + timedelta(days=2)
+        elif '周' in date_info or '星期' in date_info:
+            # 简单处理，假设是下周
+            weekday_map = {
+                '一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6
+            }
+            for cn, num in weekday_map.items():
+                if cn in date_info:
+                    days_ahead = num - today.weekday()
+                    if days_ahead <= 0:
+                        days_ahead += 7
+                    target_date = today + timedelta(days=days_ahead)
+                    break
+        
+        # 解析时间
+        start_time = "09:00"
+        end_time = "10:00"
+        
+        if '点' in time_info or ':' in time_info or '：' in time_info:
+            # 尝试提取具体时间
+            time_match = re.search(r'(\d{1,2})[点:：](\d{0,2})', time_info)
+            if time_match:
+                hour = int(time_match.group(1))
+                minute = int(time_match.group(2)) if time_match.group(2) else 0
+                
+                # 处理上午/下午
+                if '下午' in time_info or '晚' in time_info:
+                    if hour < 12:
+                        hour += 12
+                elif '早' in time_info or '上午' in time_info:
+                    if hour >= 12:
+                        hour -= 12
+                
+                start_time = f"{hour:02d}:{minute:02d}"
+                end_time = f"{(hour+1):02d}:{minute:02d}"
+        else:
+            # 根据描述推断时间段
+            if '早' in time_info or '早上' in time_info or '上午' in time_info:
+                start_time = "09:00"
+                end_time = "10:00"
+            elif '中午' in time_info:
+                start_time = "12:00"
+                end_time = "13:00"
+            elif '下午' in time_info:
+                start_time = "14:00"
+                end_time = "15:00"
+            elif '晚' in time_info or '晚上' in time_info:
+                start_time = "19:00"
+                end_time = "20:00"
+        
+        return target_date.strftime('%Y-%m-%d'), start_time, end_time
+
+    def _build_appointment_prompt(self, appointment_data: Dict[str, Any]) -> str:
+        """
+        构建预约处理提示
+        
+        Args:
+            appointment_data: 预约数据
+            
+        Returns:
+            预约处理提示
+        """
+        prompt = "【用户提到了预约事项】\n"
+        prompt += f"事项：{appointment_data.get('title', '未知')}\n"
+        
+        if appointment_data.get('description'):
+            prompt += f"描述：{appointment_data['description']}\n"
+        
+        missing = appointment_data.get('missing_info', [])
+        if missing:
+            prompt += f"\n缺少信息：{', '.join(missing)}\n"
+            prompt += "请在回复中自然地询问用户这些缺失的信息，以便完整记录这个预约。\n"
+            prompt += "例如：\"好的，我帮你记录这个预约。请问具体是什么时间呢？\"\n"
+        else:
+            prompt += "\n信息已完整，请确认用户的预约并表示已记录。\n"
+        
+        return prompt
+
+    def _process_appointment_creation(self, appointment_data: Dict[str, Any], agent_response: str):
+        """
+        处理预约创建
+        
+        Args:
+            appointment_data: 预约数据
+            agent_response: 智能体的回复
+        """
+        from schedule_manager import ScheduleType, SchedulePriority
+        
+        # 检查是否有足够的信息创建预约
+        missing = appointment_data.get('missing_info', [])
+        if missing:
+            debug_logger.log_info('ChatAgent', '预约信息不完整，等待用户补充', {
+                'missing': missing
+            })
+            return
+        
+        try:
+            # 提取时间信息
+            date_info = appointment_data.get('date_info', '今天')
+            time_info = appointment_data.get('time_info', '下午')
+            
+            target_date, start_time, end_time = self._convert_relative_time_to_absolute(
+                date_info, time_info
+            )
+            
+            # 创建预约日程
+            success, schedule, message = self.schedule_manager.add_schedule(
+                title=appointment_data.get('title', '预约事项'),
+                description=appointment_data.get('description', ''),
+                schedule_type=ScheduleType.APPOINTMENT,
+                priority=SchedulePriority.MEDIUM,
+                start_time=start_time,
+                end_time=end_time,
+                date=target_date,
+                location=appointment_data.get('location_info', ''),
+                auto_resolve_conflicts=True
+            )
+            
+            if success:
+                debug_logger.log_info('ChatAgent', '预约日程创建成功', {
+                    'schedule_id': schedule.schedule_id,
+                    'title': schedule.title,
+                    'date': target_date
+                })
+                print(f"\n📅 [自动日程] 已为您创建预约：{schedule.title} ({target_date} {start_time}-{end_time})")
+            else:
+                debug_logger.log_warning('ChatAgent', '预约日程创建失败', {'message': message})
+                
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'预约创建失败: {str(e)}', e)
+
+    def _process_impromptu_schedules(self, agent_response: str):
+        """
+        处理智能体回复中的临时日程
+        
+        Args:
+            agent_response: 智能体的回复
+        """
+        from schedule_manager import ScheduleType, SchedulePriority
+        
+        # 提取临时日程
+        schedules = self._extract_impromptu_schedules(agent_response)
+        
+        if not schedules:
+            return
+        
+        for schedule_data in schedules:
+            try:
+                # 转换时间
+                date_info = schedule_data.get('date_info', '今天')
+                time_info = schedule_data.get('time_info', '')
+                
+                # 如果有明确的开始结束时间，使用它们
+                start_time = schedule_data.get('start_time')
+                end_time = schedule_data.get('end_time')
+                
+                if not start_time or not end_time:
+                    target_date, start_time, end_time = self._convert_relative_time_to_absolute(
+                        date_info, time_info
+                    )
+                else:
+                    from datetime import date
+                    target_date = date.today().strftime('%Y-%m-%d')
+                    if '明天' in date_info:
+                        from datetime import timedelta
+                        target_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+                
+                # 检查是否已存在类似的日程
+                existing_schedules = self.schedule_manager.get_schedules_by_date(target_date)
+                title = schedule_data.get('title', '临时活动')
+                
+                # 检查是否有相同标题的日程
+                if any(s.title == title for s in existing_schedules):
+                    debug_logger.log_info('ChatAgent', '日程已存在，跳过创建', {'title': title})
+                    continue
+                
+                # 创建临时日程
+                success, schedule, message = self.schedule_manager.add_schedule(
+                    title=title,
+                    description=schedule_data.get('description', ''),
+                    schedule_type=ScheduleType.IMPROMPTU,
+                    priority=SchedulePriority.LOW,
+                    start_time=start_time,
+                    end_time=end_time,
+                    date=target_date,
+                    auto_resolve_conflicts=True
+                )
+                
+                if success:
+                    debug_logger.log_info('ChatAgent', '临时日程创建成功', {
+                        'schedule_id': schedule.schedule_id,
+                        'title': schedule.title,
+                        'date': target_date
+                    })
+                    print(f"\n📅 [自动日程] 已添加临时活动：{schedule.title} ({target_date} {start_time}-{end_time})")
+                else:
+                    debug_logger.log_info('ChatAgent', '临时日程创建被跳过', {'message': message})
+                    
+            except Exception as e:
+                debug_logger.log_error('ChatAgent', f'临时日程创建失败: {str(e)}', e)
 
     def get_last_understanding(self) -> Dict[str, Any]:
         """
