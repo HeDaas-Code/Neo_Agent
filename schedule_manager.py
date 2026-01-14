@@ -62,7 +62,9 @@ class Schedule:
         location: str = "",
         environment_uuid: str = None,  # 关联的环境UUID
         created_at: str = None,
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        collaboration_confirmed: bool = True,  # 协作是否已确认
+        queryable: bool = True  # 是否可被查询
     ):
         """
         初始化日程
@@ -83,6 +85,8 @@ class Schedule:
             environment_uuid: 关联的环境UUID
             created_at: 创建时间
             metadata: 附加元数据
+            collaboration_confirmed: 协作是否已确认
+            queryable: 是否可被查询
         """
         self.schedule_id = schedule_id or str(uuid.uuid4())
         self.title = title
@@ -99,6 +103,8 @@ class Schedule:
         self.environment_uuid = environment_uuid
         self.created_at = created_at or datetime.now().isoformat()
         self.metadata = metadata or {}
+        self.collaboration_confirmed = collaboration_confirmed
+        self.queryable = queryable
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -122,7 +128,9 @@ class Schedule:
             'location': self.location,
             'environment_uuid': self.environment_uuid,
             'created_at': self.created_at,
-            'metadata': self.metadata
+            'metadata': self.metadata,
+            'collaboration_confirmed': self.collaboration_confirmed,
+            'queryable': self.queryable
         }
 
     @classmethod
@@ -151,7 +159,9 @@ class Schedule:
             location=data.get('location', ''),
             environment_uuid=data.get('environment_uuid'),
             created_at=data.get('created_at'),
-            metadata=data.get('metadata', {})
+            metadata=data.get('metadata', {}),
+            collaboration_confirmed=data.get('collaboration_confirmed', True),
+            queryable=data.get('queryable', True)
         )
 
     def is_recurring(self) -> bool:
@@ -278,6 +288,22 @@ class ScheduleManager:
                 # 列已存在，忽略错误
                 pass
             
+            # 添加collaboration_confirmed列（用于现有数据库迁移）
+            try:
+                conn.execute('ALTER TABLE schedules ADD COLUMN collaboration_confirmed INTEGER DEFAULT 1')
+                debug_logger.log_info('ScheduleManager', '成功添加collaboration_confirmed列')
+            except Exception:
+                # 列已存在，忽略错误
+                pass
+            
+            # 添加queryable列（用于现有数据库迁移）
+            try:
+                conn.execute('ALTER TABLE schedules ADD COLUMN queryable INTEGER DEFAULT 1')
+                debug_logger.log_info('ScheduleManager', '成功添加queryable列')
+            except Exception:
+                # 列已存在，忽略错误
+                pass
+            
             # 创建索引以提高查询性能
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_type ON schedules(schedule_type)')
@@ -285,6 +311,38 @@ class ScheduleManager:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_environment ON schedules(environment_uuid)')
         
         debug_logger.log_info('ScheduleManager', '数据库表初始化完成')
+
+    def _row_to_schedule(self, row) -> Schedule:
+        """
+        将数据库行转换为Schedule对象
+        
+        Args:
+            row: 数据库行
+            
+        Returns:
+            Schedule对象
+        """
+        import json
+        data = {
+            'schedule_id': row[0],
+            'title': row[1],
+            'description': row[2],
+            'schedule_type': row[3],
+            'priority': row[4],
+            'start_time': row[5],
+            'end_time': row[6],
+            'date': row[7],
+            'recurrence_pattern': row[8],
+            'weekday_list': json.loads(row[9]) if row[9] else [],
+            'recurrence_end_date': row[10],
+            'location': row[11],
+            'environment_uuid': row[12],
+            'created_at': row[13],
+            'metadata': json.loads(row[15]) if row[15] else {},
+            'collaboration_confirmed': bool(row[16]) if len(row) > 16 and row[16] is not None else True,
+            'queryable': bool(row[17]) if len(row) > 17 and row[17] is not None else True
+        }
+        return Schedule.from_dict(data)
 
     def _parse_time(self, time_str: str) -> time:
         """
@@ -424,7 +482,9 @@ class ScheduleManager:
         location: str = "",
         environment_uuid: str = None,
         auto_resolve_conflicts: bool = True,
-        auto_use_current_environment: bool = True
+        auto_use_current_environment: bool = True,
+        collaboration_confirmed: bool = True,
+        queryable: bool = True
     ) -> Tuple[bool, Optional[Schedule], str]:
         """
         添加日程
@@ -444,6 +504,8 @@ class ScheduleManager:
             environment_uuid: 关联的环境UUID
             auto_resolve_conflicts: 是否自动解决冲突
             auto_use_current_environment: 如果为True且environment_uuid为None，自动使用当前活动环境
+            collaboration_confirmed: 协作是否已确认
+            queryable: 是否可被查询
 
         Returns:
             (是否成功, 日程对象, 消息)
@@ -488,7 +550,9 @@ class ScheduleManager:
             weekday_list=weekday_list,
             recurrence_end_date=recurrence_end_date,
             location=location,
-            environment_uuid=environment_uuid
+            environment_uuid=environment_uuid,
+            collaboration_confirmed=collaboration_confirmed,
+            queryable=queryable
         )
 
         # 检查冲突
@@ -514,8 +578,9 @@ class ScheduleManager:
                         schedule_id, title, description, schedule_type,
                         priority, start_time, end_time, date,
                         recurrence_pattern, weekday_list, recurrence_end_date,
-                        location, environment_uuid, created_at, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        location, environment_uuid, created_at, metadata,
+                        collaboration_confirmed, queryable
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     schedule.schedule_id,
                     schedule.title,
@@ -531,7 +596,9 @@ class ScheduleManager:
                     schedule.location,
                     schedule.environment_uuid,
                     schedule.created_at,
-                    json.dumps(schedule.metadata, ensure_ascii=False)
+                    json.dumps(schedule.metadata, ensure_ascii=False),
+                    int(schedule.collaboration_confirmed),
+                    int(schedule.queryable)
                 ))
 
             debug_logger.log_info('ScheduleManager', '日程添加成功', {
@@ -563,25 +630,7 @@ class ScheduleManager:
             row = cursor.fetchone()
 
             if row:
-                import json
-                data = {
-                    'schedule_id': row[0],
-                    'title': row[1],
-                    'description': row[2],
-                    'schedule_type': row[3],
-                    'priority': row[4],
-                    'start_time': row[5],
-                    'end_time': row[6],
-                    'date': row[7],
-                    'recurrence_pattern': row[8],
-                    'weekday_list': json.loads(row[9]) if row[9] else [],
-                    'recurrence_end_date': row[10],
-                    'location': row[11],
-                    'environment_uuid': row[12],
-                    'created_at': row[13],
-                    'metadata': json.loads(row[15]) if row[15] else {}
-                }
-                return Schedule.from_dict(data)
+                return self._row_to_schedule(row)
 
         return None
 
@@ -601,26 +650,8 @@ class ScheduleManager:
             # 获取所有日程
             cursor = conn.execute('SELECT * FROM schedules')
             
-            import json
             for row in cursor.fetchall():
-                data = {
-                    'schedule_id': row[0],
-                    'title': row[1],
-                    'description': row[2],
-                    'schedule_type': row[3],
-                    'priority': row[4],
-                    'start_time': row[5],
-                    'end_time': row[6],
-                    'date': row[7],
-                    'recurrence_pattern': row[8],
-                    'weekday_list': json.loads(row[9]) if row[9] else [],
-                    'recurrence_end_date': row[10],
-                    'location': row[11],
-                    'environment_uuid': row[12],
-                    'created_at': row[13],
-                    'metadata': json.loads(row[15]) if row[15] else {}
-                }
-                schedule = Schedule.from_dict(data)
+                schedule = self._row_to_schedule(row)
                 
                 # 检查日程是否适用于目标日期
                 if schedule.applies_to_date(target_date):
@@ -654,26 +685,8 @@ class ScheduleManager:
             ''', (schedule_type.value, limit))
 
             schedules = []
-            import json
             for row in cursor.fetchall():
-                data = {
-                    'schedule_id': row[0],
-                    'title': row[1],
-                    'description': row[2],
-                    'schedule_type': row[3],
-                    'priority': row[4],
-                    'start_time': row[5],
-                    'end_time': row[6],
-                    'date': row[7],
-                    'recurrence_pattern': row[8],
-                    'weekday_list': json.loads(row[9]) if row[9] else [],
-                    'recurrence_end_date': row[10],
-                    'location': row[11],
-                    'environment_uuid': row[12],
-                    'created_at': row[13],
-                    'metadata': json.loads(row[15]) if row[15] else {}
-                }
-                schedules.append(Schedule.from_dict(data))
+                schedules.append(self._row_to_schedule(row))
 
         return schedules
 
@@ -695,26 +708,8 @@ class ScheduleManager:
             ''', (limit,))
 
             schedules = []
-            import json
             for row in cursor.fetchall():
-                data = {
-                    'schedule_id': row[0],
-                    'title': row[1],
-                    'description': row[2],
-                    'schedule_type': row[3],
-                    'priority': row[4],
-                    'start_time': row[5],
-                    'end_time': row[6],
-                    'date': row[7],
-                    'recurrence_pattern': row[8],
-                    'weekday_list': json.loads(row[9]) if row[9] else [],
-                    'recurrence_end_date': row[10],
-                    'location': row[11],
-                    'environment_uuid': row[12],
-                    'created_at': row[13],
-                    'metadata': json.loads(row[15]) if row[15] else {}
-                }
-                schedules.append(Schedule.from_dict(data))
+                schedules.append(self._row_to_schedule(row))
 
         return schedules
 
@@ -743,7 +738,8 @@ class ScheduleManager:
             allowed_columns = {
                 'title', 'description', 'schedule_type', 'priority',
                 'start_time', 'end_time', 'date', 'recurrence_pattern',
-                'weekday_list', 'recurrence_end_date', 'location', 'environment_uuid', 'metadata'
+                'weekday_list', 'recurrence_end_date', 'location', 'environment_uuid', 'metadata',
+                'collaboration_confirmed', 'queryable'
             }
 
             # 过滤只允许白名单中的列名
@@ -781,6 +777,8 @@ class ScheduleManager:
                     processed_kwargs[key] = json.dumps(value)
                 elif key == 'metadata':
                     processed_kwargs[key] = json.dumps(value, ensure_ascii=False)
+                elif key in ('collaboration_confirmed', 'queryable'):
+                    processed_kwargs[key] = int(value)  # Convert bool to int for SQLite
                 else:
                     processed_kwargs[key] = value
 
@@ -852,6 +850,9 @@ class ScheduleManager:
             日程摘要文本
         """
         schedules = self.get_schedules_by_date(target_date)
+        
+        # 过滤出可查询的日程
+        schedules = [s for s in schedules if s.queryable]
         
         if not schedules:
             return f"{target_date} 没有安排任何日程。"
