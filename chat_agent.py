@@ -499,17 +499,21 @@ class ChatAgent:
                     debug_logger.log_info('ChatAgent', '日程信息已补充', supplement_info)
 
         # 6. 检测预约意图并立即处理
+        appointment_detected = False
         appointment_intent = self._detect_appointment_intent(user_input)
         if appointment_intent and appointment_intent.get('has_appointment'):
             debug_logger.log_info('ChatAgent', '检测到预约意图', appointment_intent)
             # 立即处理预约（不再等待回复）
             self._process_appointment_creation_immediate(appointment_intent)
             self._pending_appointment = None
+            appointment_detected = True
         else:
             self._pending_appointment = None
         
         # 7. 检测用户输入中的临时日程意图（使用LLM）
-        self._detect_and_process_user_impromptu_schedules(user_input)
+        # 如果已经检测到预约，则跳过临时日程检测，避免重复处理
+        if not appointment_detected:
+            self._detect_and_process_user_impromptu_schedules(user_input)
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
@@ -1906,14 +1910,17 @@ class ChatAgent:
                 
                 if not autonomy_decision.get('can_decide') or autonomy_decision.get('need_confirmation'):
                     # 需要用户确认
-                    confirmation_msg = autonomy_decision.get('confirmation_message', 
-                                                            f"我想{title}，可以吗？")
+                    confirmation_msg = autonomy_decision.get('confirmation_message')
+                    if not confirmation_msg:
+                        confirmation_msg = f"我想{title}，可以吗？"
+                    reason = autonomy_decision.get('reason', '需要用户确认')
+                    
                     debug_logger.log_info('ChatAgent', '临时日程需要用户确认', {
                         'title': title,
-                        'reason': autonomy_decision.get('reason')
+                        'reason': reason
                     })
                     print(f"\n❓ [需要确认] {title}")
-                    print(f"   原因：{autonomy_decision.get('reason')}")
+                    print(f"   原因：{reason}")
                     print(f"   请用户回应：{confirmation_msg}")
                     continue
                 
