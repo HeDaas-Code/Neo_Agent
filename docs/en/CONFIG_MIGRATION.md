@@ -30,12 +30,18 @@ The exported configuration file includes:
    - Connections between environments
    - Currently active environment
 
-3. **Base Knowledge**
+3. **Environment Domains** (Environment collections) ✨ NEW
+   - Domain names and descriptions
+   - Default environment settings
+   - All environments in each domain
+   - Domain-environment associations
+
+4. **Base Knowledge**
    - All base facts
    - Knowledge categories and descriptions
    - Priority and confidence levels
 
-4. **Agent Expression Styles**
+5. **Agent Expression Styles**
    - Personalized expressions
    - Expression meanings and categories
    - Active status
@@ -98,6 +104,14 @@ The exported JSON file structure:
         }
       ],
       "connections": []
+    }
+  ],
+  "domains": [
+    {
+      "name": "Xiao Ke's Home",
+      "description": "Xiao Ke's warm family environment",
+      "default_environment_name": "Living Room",
+      "environment_names": ["Living Room", "Bedroom", "Kitchen"]
     }
   ],
   "base_knowledge": [
