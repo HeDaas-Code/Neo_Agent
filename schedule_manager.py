@@ -60,6 +60,7 @@ class Schedule:
         weekday_list: List[int] = None,  # 0=周一, 6=周日
         recurrence_end_date: str = None,  # 重复结束日期
         location: str = "",
+        environment_uuid: str = None,  # 关联的环境UUID
         created_at: str = None,
         metadata: Dict[str, Any] = None
     ):
@@ -79,6 +80,7 @@ class Schedule:
             weekday_list: 自定义重复的星期列表（0-6）
             recurrence_end_date: 重复结束日期
             location: 地点
+            environment_uuid: 关联的环境UUID
             created_at: 创建时间
             metadata: 附加元数据
         """
@@ -94,6 +96,7 @@ class Schedule:
         self.weekday_list = weekday_list or []
         self.recurrence_end_date = recurrence_end_date
         self.location = location
+        self.environment_uuid = environment_uuid
         self.created_at = created_at or datetime.now().isoformat()
         self.metadata = metadata or {}
 
@@ -117,6 +120,7 @@ class Schedule:
             'weekday_list': self.weekday_list,
             'recurrence_end_date': self.recurrence_end_date,
             'location': self.location,
+            'environment_uuid': self.environment_uuid,
             'created_at': self.created_at,
             'metadata': self.metadata
         }
@@ -145,6 +149,7 @@ class Schedule:
             weekday_list=data.get('weekday_list', []),
             recurrence_end_date=data.get('recurrence_end_date'),
             location=data.get('location', ''),
+            environment_uuid=data.get('environment_uuid'),
             created_at=data.get('created_at'),
             metadata=data.get('metadata', {})
         )
@@ -258,16 +263,26 @@ class ScheduleManager:
                     weekday_list TEXT,
                     recurrence_end_date TEXT,
                     location TEXT,
+                    environment_uuid TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT,
                     metadata TEXT
                 )
             ''')
             
+            # 尝试添加environment_uuid列（如果不存在）- 用于现有数据库迁移
+            try:
+                conn.execute('ALTER TABLE schedules ADD COLUMN environment_uuid TEXT')
+                debug_logger.log_info('ScheduleManager', '成功添加environment_uuid列')
+            except Exception:
+                # 列已存在，忽略错误
+                pass
+            
             # 创建索引以提高查询性能
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_type ON schedules(schedule_type)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_priority ON schedules(priority)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_environment ON schedules(environment_uuid)')
         
         debug_logger.log_info('ScheduleManager', '数据库表初始化完成')
 
@@ -407,7 +422,9 @@ class ScheduleManager:
         weekday_list: List[int] = None,
         recurrence_end_date: str = None,
         location: str = "",
-        auto_resolve_conflicts: bool = True
+        environment_uuid: str = None,
+        auto_resolve_conflicts: bool = True,
+        auto_use_current_environment: bool = True
     ) -> Tuple[bool, Optional[Schedule], str]:
         """
         添加日程
@@ -424,7 +441,9 @@ class ScheduleManager:
             weekday_list: 自定义重复的星期列表
             recurrence_end_date: 重复结束日期
             location: 地点
+            environment_uuid: 关联的环境UUID
             auto_resolve_conflicts: 是否自动解决冲突
+            auto_use_current_environment: 如果为True且environment_uuid为None，自动使用当前活动环境
 
         Returns:
             (是否成功, 日程对象, 消息)
@@ -443,6 +462,19 @@ class ScheduleManager:
             else:  # IMPROMPTU
                 priority = SchedulePriority.LOW
 
+        # 如果没有指定环境且需要自动使用当前环境
+        if environment_uuid is None and auto_use_current_environment:
+            current_env = self.db.get_active_environment()
+            if current_env:
+                environment_uuid = current_env['uuid']
+                # 如果没有指定地点，使用环境名称作为地点
+                if not location:
+                    location = current_env['name']
+                debug_logger.log_info('ScheduleManager', '使用当前活动环境', {
+                    'environment_name': current_env['name'],
+                    'environment_uuid': environment_uuid
+                })
+
         # 创建日程对象
         schedule = Schedule(
             title=title,
@@ -455,7 +487,8 @@ class ScheduleManager:
             recurrence_pattern=recurrence_pattern,
             weekday_list=weekday_list,
             recurrence_end_date=recurrence_end_date,
-            location=location
+            location=location,
+            environment_uuid=environment_uuid
         )
 
         # 检查冲突
@@ -481,8 +514,8 @@ class ScheduleManager:
                         schedule_id, title, description, schedule_type,
                         priority, start_time, end_time, date,
                         recurrence_pattern, weekday_list, recurrence_end_date,
-                        location, created_at, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        location, environment_uuid, created_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     schedule.schedule_id,
                     schedule.title,
@@ -496,6 +529,7 @@ class ScheduleManager:
                     json.dumps(schedule.weekday_list),
                     schedule.recurrence_end_date,
                     schedule.location,
+                    schedule.environment_uuid,
                     schedule.created_at,
                     json.dumps(schedule.metadata, ensure_ascii=False)
                 ))
@@ -543,8 +577,9 @@ class ScheduleManager:
                     'weekday_list': json.loads(row[9]) if row[9] else [],
                     'recurrence_end_date': row[10],
                     'location': row[11],
-                    'created_at': row[12],
-                    'metadata': json.loads(row[14]) if row[14] else {}
+                    'environment_uuid': row[12],
+                    'created_at': row[13],
+                    'metadata': json.loads(row[15]) if row[15] else {}
                 }
                 return Schedule.from_dict(data)
 
@@ -581,8 +616,9 @@ class ScheduleManager:
                     'weekday_list': json.loads(row[9]) if row[9] else [],
                     'recurrence_end_date': row[10],
                     'location': row[11],
-                    'created_at': row[12],
-                    'metadata': json.loads(row[14]) if row[14] else {}
+                    'environment_uuid': row[12],
+                    'created_at': row[13],
+                    'metadata': json.loads(row[15]) if row[15] else {}
                 }
                 schedule = Schedule.from_dict(data)
                 
@@ -633,8 +669,9 @@ class ScheduleManager:
                     'weekday_list': json.loads(row[9]) if row[9] else [],
                     'recurrence_end_date': row[10],
                     'location': row[11],
-                    'created_at': row[12],
-                    'metadata': json.loads(row[14]) if row[14] else {}
+                    'environment_uuid': row[12],
+                    'created_at': row[13],
+                    'metadata': json.loads(row[15]) if row[15] else {}
                 }
                 schedules.append(Schedule.from_dict(data))
 
@@ -673,8 +710,9 @@ class ScheduleManager:
                     'weekday_list': json.loads(row[9]) if row[9] else [],
                     'recurrence_end_date': row[10],
                     'location': row[11],
-                    'created_at': row[12],
-                    'metadata': json.loads(row[14]) if row[14] else {}
+                    'environment_uuid': row[12],
+                    'created_at': row[13],
+                    'metadata': json.loads(row[15]) if row[15] else {}
                 }
                 schedules.append(Schedule.from_dict(data))
 
@@ -705,7 +743,7 @@ class ScheduleManager:
             allowed_columns = {
                 'title', 'description', 'schedule_type', 'priority',
                 'start_time', 'end_time', 'date', 'recurrence_pattern',
-                'weekday_list', 'recurrence_end_date', 'location', 'metadata'
+                'weekday_list', 'recurrence_end_date', 'location', 'environment_uuid', 'metadata'
             }
 
             # 过滤只允许白名单中的列名

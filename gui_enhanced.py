@@ -4316,6 +4316,48 @@ class EnhancedChatDebugGUI:
         ttk.Entry(main_frame, textvariable=location_var, width=40).grid(row=row, column=1, pady=5, sticky=tk.EW)
         row += 1
 
+        # 环境选择
+        ttk.Label(main_frame, text="关联环境:").grid(row=row, column=0, sticky=tk.W, pady=5)
+        
+        # 获取所有环境
+        environments = self.agent.db.get_all_environments()
+        env_dict = {env['uuid']: env['name'] for env in environments}
+        
+        # 添加"无"选项和"当前环境"选项
+        env_options = ['无', '当前环境'] + [env['name'] for env in environments]
+        
+        # 确定默认值
+        if schedule and schedule.environment_uuid:
+            default_env = env_dict.get(schedule.environment_uuid, '无')
+        else:
+            default_env = '当前环境'
+        
+        env_var = tk.StringVar(value=default_env)
+        env_combo = ttk.Combobox(main_frame, textvariable=env_var, state='readonly', width=37)
+        env_combo['values'] = env_options
+        env_combo.grid(row=row, column=1, pady=5, sticky=tk.EW)
+        ttk.Label(main_frame, text="(自动设置地点)", font=('微软雅黑', 8)).grid(row=row, column=2, sticky=tk.W, padx=5)
+        
+        # 当环境改变时，自动填充地点
+        def on_env_change(event=None):
+            selected = env_var.get()
+            if selected == '无':
+                pass  # 保持当前地点不变
+            elif selected == '当前环境':
+                current_env = self.agent.db.get_active_environment()
+                if current_env and not location_var.get():
+                    location_var.set(current_env['name'])
+            else:
+                # 查找选中的环境
+                for env in environments:
+                    if env['name'] == selected:
+                        if not location_var.get():  # 只在地点为空时自动填充
+                            location_var.set(env['name'])
+                        break
+        
+        env_combo.bind('<<ComboboxSelected>>', on_env_change)
+        row += 1
+
         # 类型
         ttk.Label(main_frame, text="类型:").grid(row=row, column=0, sticky=tk.W, pady=5)
         type_var = tk.StringVar(value=schedule.schedule_type.value if schedule else ScheduleType.APPOINTMENT.value)
@@ -4373,6 +4415,20 @@ class EnhancedChatDebugGUI:
             recurrence_pattern = RecurrencePattern(recurrence_var.get())
             recurrence_end_date = recurrence_end_var.get().strip() or None
 
+            # 处理环境UUID
+            selected_env = env_var.get()
+            environment_uuid = None
+            if selected_env == '当前环境':
+                current_env = self.agent.db.get_active_environment()
+                if current_env:
+                    environment_uuid = current_env['uuid']
+            elif selected_env != '无':
+                # 查找选中的环境
+                for env in environments:
+                    if env['name'] == selected_env:
+                        environment_uuid = env['uuid']
+                        break
+
             try:
                 if schedule:
                     # 更新现有日程
@@ -4384,6 +4440,7 @@ class EnhancedChatDebugGUI:
                         start_time=start_time,
                         end_time=end_time,
                         location=location,
+                        environment_uuid=environment_uuid,
                         schedule_type=schedule_type,
                         priority=priority,
                         recurrence_pattern=recurrence_pattern,
@@ -4409,7 +4466,9 @@ class EnhancedChatDebugGUI:
                         recurrence_pattern=recurrence_pattern,
                         recurrence_end_date=recurrence_end_date,
                         location=location,
-                        auto_resolve_conflicts=True
+                        environment_uuid=environment_uuid,
+                        auto_resolve_conflicts=True,
+                        auto_use_current_environment=False  # 我们已经手动处理了环境
                     )
 
                     if success:
