@@ -1486,40 +1486,34 @@ class DatabaseManagerGUI:
         if not selected:
             messagebox.showwarning("警告", "请先选择一个域！")
             return
+
     def create_schedules_tab(self):
         """
-        创建日程管理标签页
+        创建日程数据管理标签页（简化版，仅用于数据查看和编辑）
         """
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="📅 日程管理")
+        self.notebook.add(tab, text="📅 日程数据")
+        
+        # 说明文本
+        info_frame = ttk.Frame(tab)
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        info_label = ttk.Label(
+            info_frame,
+            text="💡 提示：完整的日程管理功能请使用主界面的「📅 日程管理」标签页\n这里仅提供基础的数据查看和编辑功能",
+            font=("微软雅黑", 9),
+            foreground="#666",
+            justify=tk.LEFT
+        )
+        info_label.pack(side=tk.LEFT, padx=5)
         
         # 工具栏
         toolbar = ttk.Frame(tab)
         toolbar.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Button(toolbar, text="➕添加日程", command=self.add_schedule, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="✏编辑", command=self.edit_schedule, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="🗑删除", command=self.delete_schedule, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="🔄刷新", command=self.refresh_schedules, width=8).pack(side=tk.LEFT, padx=2)
-        
-        # 待确认日程提示
-        self.schedule_pending_label = ttk.Label(toolbar, text="", font=("微软雅黑", 9), foreground="orange")
-        self.schedule_pending_label.pack(side=tk.LEFT, padx=10)
-        
-        # 筛选器
-        ttk.Label(toolbar, text="类型:").pack(side=tk.LEFT, padx=(20, 5))
-        self.schedule_type_var = tk.StringVar(value="全部")
-        schedule_type_combo = ttk.Combobox(toolbar, textvariable=self.schedule_type_var, width=12, state="readonly")
-        schedule_type_combo['values'] = ['全部', '周期日程', '预约日程', '临时日程']
-        schedule_type_combo.pack(side=tk.LEFT, padx=2)
-        schedule_type_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_schedules())
-        
-        ttk.Label(toolbar, text="日期:").pack(side=tk.LEFT, padx=(10, 5))
-        self.schedule_date_var = tk.StringVar(value="今天")
-        schedule_date_combo = ttk.Combobox(toolbar, textvariable=self.schedule_date_var, width=12, state="readonly")
-        schedule_date_combo['values'] = ['今天', '明天', '本周', '全部']
-        schedule_date_combo.pack(side=tk.LEFT, padx=2)
-        schedule_date_combo.bind('<<ComboboxSelected>>', lambda e: self.refresh_schedules())
+        ttk.Button(toolbar, text="🔄 刷新", command=self.refresh_schedules, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="📝 编辑数据", command=self.edit_schedule_data, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🗑 删除", command=self.delete_schedule_data, width=8).pack(side=tk.LEFT, padx=2)
         
         # 创建Treeview显示列表
         tree_frame = ttk.Frame(tab)
@@ -1532,26 +1526,28 @@ class DatabaseManagerGUI:
         # Treeview
         self.schedules_tree = ttk.Treeview(
             tree_frame,
-            columns=("title", "type", "priority", "time", "status", "queryable"),
+            columns=("id", "title", "type", "start_time", "end_time", "priority", "status"),
             show="headings",
             yscrollcommand=scrollbar_y.set,
             xscrollcommand=scrollbar_x.set
         )
         
         # 配置列
+        self.schedules_tree.heading("id", text="ID")
         self.schedules_tree.heading("title", text="标题")
         self.schedules_tree.heading("type", text="类型")
+        self.schedules_tree.heading("start_time", text="开始时间")
+        self.schedules_tree.heading("end_time", text="结束时间")
         self.schedules_tree.heading("priority", text="优先级")
-        self.schedules_tree.heading("time", text="时间")
-        self.schedules_tree.heading("status", text="协作状态")
-        self.schedules_tree.heading("queryable", text="可查询")
+        self.schedules_tree.heading("status", text="状态")
         
-        self.schedules_tree.column("title", width=200, minwidth=150, stretch=True)
-        self.schedules_tree.column("type", width=100, minwidth=80, stretch=False)
-        self.schedules_tree.column("priority", width=80, minwidth=70, stretch=False)
-        self.schedules_tree.column("time", width=300, minwidth=200, stretch=False)
-        self.schedules_tree.column("status", width=100, minwidth=80, stretch=False)
-        self.schedules_tree.column("queryable", width=80, minwidth=70, stretch=False)
+        self.schedules_tree.column("id", width=80, minwidth=60, stretch=False)
+        self.schedules_tree.column("title", width=150, minwidth=100, stretch=True)
+        self.schedules_tree.column("type", width=80, minwidth=70, stretch=False)
+        self.schedules_tree.column("start_time", width=150, minwidth=120, stretch=False)
+        self.schedules_tree.column("end_time", width=150, minwidth=120, stretch=False)
+        self.schedules_tree.column("priority", width=70, minwidth=60, stretch=False)
+        self.schedules_tree.column("status", width=80, minwidth=70, stretch=False)
         
         scrollbar_y.config(command=self.schedules_tree.yview)
         scrollbar_x.config(command=self.schedules_tree.xview)
@@ -1565,17 +1561,7 @@ class DatabaseManagerGUI:
         tree_frame.grid_columnconfigure(0, weight=1)
         
         # 双击编辑
-        self.schedules_tree.bind("<Double-1>", lambda e: self.edit_schedule())
-        
-        # 右键菜单
-        self.schedule_context_menu = tk.Menu(self.schedules_tree, tearoff=0)
-        self.schedule_context_menu.add_command(label="编辑", command=self.edit_schedule)
-        self.schedule_context_menu.add_command(label="删除", command=self.delete_schedule)
-        self.schedule_context_menu.add_separator()
-        self.schedule_context_menu.add_command(label="确认协作", command=self.confirm_schedule_collaboration)
-        self.schedule_context_menu.add_command(label="拒绝协作", command=self.reject_schedule_collaboration)
-        
-        self.schedules_tree.bind("<Button-3>", self.show_schedule_context_menu)
+        self.schedules_tree.bind("<Double-1>", lambda e: self.edit_schedule_data())
         
         # 统计信息
         stats_frame = ttk.Frame(tab)
@@ -1588,283 +1574,55 @@ class DatabaseManagerGUI:
         self.refresh_schedules()
     
     def refresh_schedules(self):
-        """刷新日程列表"""
+        """刷新日程数据列表"""
         # 清空现有内容
         for item in self.schedules_tree.get_children():
             self.schedules_tree.delete(item)
         
         try:
-            from datetime import datetime, timedelta
-            from schedule_manager import ScheduleManager
+            # 直接从数据库读取
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
             
-            # 获取schedule_manager
-            if hasattr(self.db, 'schedule_manager'):
-                schedule_manager = self.db.schedule_manager
-            else:
-                schedule_manager = ScheduleManager(self.db)
+            cursor.execute("""
+                SELECT schedule_id, title, schedule_type, start_time, end_time, 
+                       priority, is_active, collaboration_status
+                FROM schedules
+                ORDER BY start_time DESC
+                LIMIT 500
+            """)
             
-            # 根据日期筛选确定时间范围
-            date_filter = self.schedule_date_var.get()
-            today = datetime.now().date()
+            schedules = cursor.fetchall()
             
-            if date_filter == "今天":
-                start_date = today
-                end_date = today
-            elif date_filter == "明天":
-                start_date = today + timedelta(days=1)
-                end_date = today + timedelta(days=1)
-            elif date_filter == "本周":
-                # 本周一到周日
-                days_since_monday = today.weekday()
-                start_date = today - timedelta(days=days_since_monday)
-                end_date = start_date + timedelta(days=6)
-            else:  # 全部
-                start_date = today - timedelta(days=365)
-                end_date = today + timedelta(days=365)
+            # 类型映射
+            type_map = {'recurring': '周期', 'appointment': '预约', 'temporary': '临时'}
+            priority_map = {1: '低', 2: '中', 3: '高', 4: '关键'}
             
-            start_time = datetime.combine(start_date, datetime.min.time()).isoformat()
-            end_time = datetime.combine(end_date, datetime.max.time()).isoformat()
-            
-            # 获取日程
-            schedules = schedule_manager.get_schedules_by_time_range(
-                start_time, end_time, queryable_only=False, active_only=True
-            )
-            
-            # 根据类型筛选
-            type_filter = self.schedule_type_var.get()
-            type_map = {
-                '周期日程': 'recurring',
-                '预约日程': 'appointment',
-                '临时日程': 'temporary'
-            }
-            
-            if type_filter != "全部":
-                filter_type = type_map.get(type_filter)
-                schedules = [s for s in schedules if s.schedule_type.value == filter_type]
-            
-            # 类型映射（显示用）
-            type_display_map = {
-                'recurring': '周期',
-                'appointment': '预约',
-                'temporary': '临时'
-            }
-            
-            # 优先级映射
-            priority_display_map = {
-                1: '低',
-                2: '中',
-                3: '高',
-                4: '关键'
-            }
-            
-            # 协作状态映射
-            status_map = {
-                'not_required': '不需要',
-                'pending': '待确认',
-                'confirmed': '已确认',
-                'rejected': '已拒绝'
-            }
-            
-            # 填充数据
-            pending_count = 0
             for schedule in schedules:
-                start_dt = datetime.fromisoformat(schedule.start_time)
-                end_dt = datetime.fromisoformat(schedule.end_time)
-                time_str = f"{start_dt.strftime('%Y-%m-%d %H:%M')} - {end_dt.strftime('%H:%M')}"
+                schedule_id = schedule[0][:8]  # 显示前8位
+                title = schedule[1]
+                stype = type_map.get(schedule[2], schedule[2])
+                start_time = schedule[3][:16] if schedule[3] else ""
+                end_time = schedule[4][:16] if schedule[4] else ""
+                priority = priority_map.get(schedule[5], str(schedule[5]))
+                status = "激活" if schedule[6] else "已删除"
                 
-                schedule_type = type_display_map.get(schedule.schedule_type.value, schedule.schedule_type.value)
-                priority = priority_display_map.get(schedule.priority.value, str(schedule.priority.value))
-                status = status_map.get(schedule.collaboration_status.value, schedule.collaboration_status.value)
-                queryable = "是" if schedule.is_queryable else "否"
-                
-                # 统计待确认数量
-                if schedule.collaboration_status.value == 'pending':
-                    pending_count += 1
-                
-                # 添加颜色标记
-                tags = []
-                if schedule.collaboration_status.value == 'pending':
-                    tags.append('pending')
-                elif schedule.priority.value >= 3:
-                    tags.append('high_priority')
-                
+                # 添加到树
                 self.schedules_tree.insert(
                     "",
                     tk.END,
-                    values=(schedule.title, schedule_type, priority, time_str, status, queryable),
-                    tags=(schedule.schedule_id,) + tuple(tags)
+                    values=(schedule_id, title, stype, start_time, end_time, priority, status),
+                    tags=(schedule[0],)  # 完整ID作为tag
                 )
             
-            # 配置标签颜色
-            self.schedules_tree.tag_configure('pending', foreground='orange')
-            self.schedules_tree.tag_configure('high_priority', foreground='red')
-            
-            # 更新待确认提示
-            if pending_count > 0:
-                self.schedule_pending_label.config(text=f"⚠️ 有 {pending_count} 个待确认的协作日程")
-            else:
-                self.schedule_pending_label.config(text="")
-            
-            # 更新统计信息
-            stats = schedule_manager.get_statistics()
-            stats_text = (f"总计: {len(schedules)} 个日程 | "
-                         f"周期: {stats['recurring']} | "
-                         f"预约: {stats['appointments']} | "
-                         f"临时: {stats['temporary']} | "
-                         f"待确认: {stats['pending_collaboration']}")
-            self.schedule_stats_label.config(text=stats_text)
+            # 更新统计
+            self.schedule_stats_label.config(text=f"共 {len(schedules)} 条日程记录")
             
         except Exception as e:
-            messagebox.showerror("错误", f"刷新日程列表失败:\n{str(e)}")
+            messagebox.showerror("错误", f"刷新日程数据失败:\n{str(e)}")
     
-    def add_schedule(self):
-        """添加新日程"""
-        dialog = tk.Toplevel(self.parent)
-        dialog.title("添加日程")
-        dialog.geometry("500x450")
-        dialog.transient(self.parent)
-        dialog.grab_set()
-        
-        # 创建表单
-        form_frame = ttk.Frame(dialog, padding=20)
-        form_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 标题
-        ttk.Label(form_frame, text="标题:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        title_entry = ttk.Entry(form_frame, width=40)
-        title_entry.grid(row=0, column=1, pady=5, sticky=tk.EW)
-        
-        # 描述
-        ttk.Label(form_frame, text="描述:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        description_text = tk.Text(form_frame, width=40, height=3)
-        description_text.grid(row=1, column=1, pady=5, sticky=tk.EW)
-        
-        # 类型
-        ttk.Label(form_frame, text="类型:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        type_var = tk.StringVar(value="预约日程")
-        type_combo = ttk.Combobox(form_frame, textvariable=type_var, width=38, state="readonly")
-        type_combo['values'] = ['周期日程', '预约日程', '临时日程']
-        type_combo.grid(row=2, column=1, pady=5, sticky=tk.EW)
-        
-        # 优先级
-        ttk.Label(form_frame, text="优先级:").grid(row=3, column=0, sticky=tk.W, pady=5)
-        priority_var = tk.StringVar(value="中")
-        priority_combo = ttk.Combobox(form_frame, textvariable=priority_var, width=38, state="readonly")
-        priority_combo['values'] = ['低', '中', '高', '关键']
-        priority_combo.grid(row=3, column=1, pady=5, sticky=tk.EW)
-        
-        # 开始时间
-        ttk.Label(form_frame, text="开始时间:").grid(row=4, column=0, sticky=tk.W, pady=5)
-        start_frame = ttk.Frame(form_frame)
-        start_frame.grid(row=4, column=1, pady=5, sticky=tk.EW)
-        
-        from datetime import datetime
-        now = datetime.now()
-        start_date_entry = ttk.Entry(start_frame, width=12)
-        start_date_entry.insert(0, now.strftime("%Y-%m-%d"))
-        start_date_entry.pack(side=tk.LEFT, padx=2)
-        
-        start_time_entry = ttk.Entry(start_frame, width=8)
-        start_time_entry.insert(0, "09:00")
-        start_time_entry.pack(side=tk.LEFT, padx=2)
-        
-        # 结束时间
-        ttk.Label(form_frame, text="结束时间:").grid(row=5, column=0, sticky=tk.W, pady=5)
-        end_frame = ttk.Frame(form_frame)
-        end_frame.grid(row=5, column=1, pady=5, sticky=tk.EW)
-        
-        end_date_entry = ttk.Entry(end_frame, width=12)
-        end_date_entry.insert(0, now.strftime("%Y-%m-%d"))
-        end_date_entry.pack(side=tk.LEFT, padx=2)
-        
-        end_time_entry = ttk.Entry(end_frame, width=8)
-        end_time_entry.insert(0, "11:00")
-        end_time_entry.pack(side=tk.LEFT, padx=2)
-        
-        # 涉及用户参与
-        involves_user_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(form_frame, text="涉及用户参与", variable=involves_user_var).grid(
-            row=6, column=1, pady=5, sticky=tk.W
-        )
-        
-        form_frame.grid_columnconfigure(1, weight=1)
-        
-        # 按钮区域
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(fill=tk.X, padx=20, pady=10)
-        
-        def save_schedule():
-            try:
-                from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
-                
-                title = title_entry.get().strip()
-                if not title:
-                    messagebox.showwarning("警告", "请输入标题")
-                    return
-                
-                description = description_text.get("1.0", tk.END).strip()
-                
-                # 类型映射
-                type_map = {
-                    '周期日程': ScheduleType.RECURRING,
-                    '预约日程': ScheduleType.APPOINTMENT,
-                    '临时日程': ScheduleType.TEMPORARY
-                }
-                schedule_type = type_map[type_var.get()]
-                
-                # 优先级映射
-                priority_map = {
-                    '低': SchedulePriority.LOW,
-                    '中': SchedulePriority.MEDIUM,
-                    '高': SchedulePriority.HIGH,
-                    '关键': SchedulePriority.CRITICAL
-                }
-                priority = priority_map[priority_var.get()]
-                
-                # 解析时间
-                start_date = start_date_entry.get().strip()
-                start_time = start_time_entry.get().strip()
-                end_date = end_date_entry.get().strip()
-                end_time = end_time_entry.get().strip()
-                
-                start_datetime = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
-                end_datetime = datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M")
-                
-                # 获取schedule_manager
-                if hasattr(self.db, 'schedule_manager'):
-                    schedule_manager = self.db.schedule_manager
-                else:
-                    schedule_manager = ScheduleManager(self.db)
-                
-                # 创建日程
-                success, schedule, message = schedule_manager.create_schedule(
-                    title=title,
-                    description=description,
-                    schedule_type=schedule_type,
-                    start_time=start_datetime.isoformat(),
-                    end_time=end_datetime.isoformat(),
-                    priority=priority,
-                    involves_user=involves_user_var.get() if schedule_type == ScheduleType.TEMPORARY else False,
-                    check_conflict=True
-                )
-                
-                if success:
-                    messagebox.showinfo("成功", message)
-                    dialog.destroy()
-                    self.refresh_schedules()
-                else:
-                    messagebox.showerror("错误", message)
-                    
-            except ValueError as e:
-                messagebox.showerror("错误", f"时间格式不正确:\n{str(e)}")
-            except Exception as e:
-                messagebox.showerror("错误", f"创建日程失败:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="保存", command=save_schedule, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="取消", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
-    
-    def edit_schedule(self):
-        """编辑选中的日程"""
+    def edit_schedule_data(self):
+        """编辑日程数据"""
         selection = self.schedules_tree.selection()
         if not selection:
             messagebox.showwarning("警告", "请选择要编辑的日程")
@@ -1874,140 +1632,91 @@ class DatabaseManagerGUI:
         schedule_id = self.schedules_tree.item(item)['tags'][0]
         
         try:
-            from schedule_manager import ScheduleManager
+            # 从数据库读取完整数据
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM schedules WHERE schedule_id = ?", (schedule_id,))
+            schedule = cursor.fetchone()
             
-            # 获取schedule_manager
-            if hasattr(self.db, 'schedule_manager'):
-                schedule_manager = self.db.schedule_manager
-            else:
-                schedule_manager = ScheduleManager(self.db)
-            
-            schedule = schedule_manager.get_schedule(schedule_id)
             if not schedule:
                 messagebox.showerror("错误", "日程不存在")
                 return
             
-            # 创建编辑对话框（与添加类似，但预填充数据）
+            # 创建编辑对话框
             dialog = tk.Toplevel(self.parent)
-            dialog.title("编辑日程")
+            dialog.title("编辑日程数据")
             dialog.geometry("500x400")
             dialog.transient(self.parent)
             dialog.grab_set()
             
-            form_frame = ttk.Frame(dialog, padding=20)
+            form_frame = ttk.Frame(dialog, padding=10)
             form_frame.pack(fill=tk.BOTH, expand=True)
             
+            # 显示可编辑字段
+            fields = []
+            
             # 标题
-            ttk.Label(form_frame, text="标题:").grid(row=0, column=0, sticky=tk.W, pady=5)
+            ttk.Label(form_frame, text="标题:").grid(row=0, column=0, sticky=tk.W, pady=2)
             title_entry = ttk.Entry(form_frame, width=40)
-            title_entry.insert(0, schedule.title)
-            title_entry.grid(row=0, column=1, pady=5, sticky=tk.EW)
+            title_entry.insert(0, schedule[1] or "")
+            title_entry.grid(row=0, column=1, pady=2)
+            fields.append(('title', title_entry))
             
             # 描述
-            ttk.Label(form_frame, text="描述:").grid(row=1, column=0, sticky=tk.W, pady=5)
-            description_text = tk.Text(form_frame, width=40, height=3)
-            description_text.insert("1.0", schedule.description)
-            description_text.grid(row=1, column=1, pady=5, sticky=tk.EW)
+            ttk.Label(form_frame, text="描述:").grid(row=1, column=0, sticky=tk.W, pady=2)
+            desc_text = tk.Text(form_frame, width=40, height=3)
+            desc_text.insert("1.0", schedule[2] or "")
+            desc_text.grid(row=1, column=1, pady=2)
+            fields.append(('description', desc_text))
             
             # 优先级
-            ttk.Label(form_frame, text="优先级:").grid(row=2, column=0, sticky=tk.W, pady=5)
-            priority_map = {1: '低', 2: '中', 3: '高', 4: '关键'}
-            priority_var = tk.StringVar(value=priority_map[schedule.priority.value])
-            priority_combo = ttk.Combobox(form_frame, textvariable=priority_var, width=38, state="readonly")
-            priority_combo['values'] = ['低', '中', '高', '关键']
-            priority_combo.grid(row=2, column=1, pady=5, sticky=tk.EW)
+            ttk.Label(form_frame, text="优先级 (1-4):").grid(row=2, column=0, sticky=tk.W, pady=2)
+            priority_entry = ttk.Entry(form_frame, width=40)
+            priority_entry.insert(0, str(schedule[6]))
+            priority_entry.grid(row=2, column=1, pady=2)
+            fields.append(('priority', priority_entry))
             
-            # 开始时间
-            from datetime import datetime
-            start_dt = datetime.fromisoformat(schedule.start_time)
-            end_dt = datetime.fromisoformat(schedule.end_time)
+            # 激活状态
+            ttk.Label(form_frame, text="激活状态:").grid(row=3, column=0, sticky=tk.W, pady=2)
+            active_var = tk.BooleanVar(value=bool(schedule[10]))
+            ttk.Checkbutton(form_frame, variable=active_var).grid(row=3, column=1, sticky=tk.W, pady=2)
             
-            ttk.Label(form_frame, text="开始时间:").grid(row=3, column=0, sticky=tk.W, pady=5)
-            start_frame = ttk.Frame(form_frame)
-            start_frame.grid(row=3, column=1, pady=5, sticky=tk.EW)
-            
-            start_date_entry = ttk.Entry(start_frame, width=12)
-            start_date_entry.insert(0, start_dt.strftime("%Y-%m-%d"))
-            start_date_entry.pack(side=tk.LEFT, padx=2)
-            
-            start_time_entry = ttk.Entry(start_frame, width=8)
-            start_time_entry.insert(0, start_dt.strftime("%H:%M"))
-            start_time_entry.pack(side=tk.LEFT, padx=2)
-            
-            # 结束时间
-            ttk.Label(form_frame, text="结束时间:").grid(row=4, column=0, sticky=tk.W, pady=5)
-            end_frame = ttk.Frame(form_frame)
-            end_frame.grid(row=4, column=1, pady=5, sticky=tk.EW)
-            
-            end_date_entry = ttk.Entry(end_frame, width=12)
-            end_date_entry.insert(0, end_dt.strftime("%Y-%m-%d"))
-            end_date_entry.pack(side=tk.LEFT, padx=2)
-            
-            end_time_entry = ttk.Entry(end_frame, width=8)
-            end_time_entry.insert(0, end_dt.strftime("%H:%M"))
-            end_time_entry.pack(side=tk.LEFT, padx=2)
-            
-            form_frame.grid_columnconfigure(1, weight=1)
-            
-            # 按钮区域
+            # 按钮
             button_frame = ttk.Frame(dialog)
-            button_frame.pack(fill=tk.X, padx=20, pady=10)
+            button_frame.pack(fill=tk.X, padx=10, pady=10)
             
             def save_changes():
                 try:
-                    from schedule_manager import SchedulePriority
+                    conn = self.db.get_connection()
+                    cursor = conn.cursor()
                     
-                    title = title_entry.get().strip()
-                    description = description_text.get("1.0", tk.END).strip()
+                    title = title_entry.get()
+                    description = desc_text.get("1.0", tk.END).strip()
+                    priority = int(priority_entry.get())
+                    is_active = 1 if active_var.get() else 0
                     
-                    # 优先级映射
-                    priority_reverse_map = {
-                        '低': SchedulePriority.LOW,
-                        '中': SchedulePriority.MEDIUM,
-                        '高': SchedulePriority.HIGH,
-                        '关键': SchedulePriority.CRITICAL
-                    }
-                    priority = priority_reverse_map[priority_var.get()]
+                    cursor.execute("""
+                        UPDATE schedules
+                        SET title = ?, description = ?, priority = ?, is_active = ?
+                        WHERE schedule_id = ?
+                    """, (title, description, priority, is_active, schedule_id))
                     
-                    # 解析时间
-                    start_date = start_date_entry.get().strip()
-                    start_time = start_time_entry.get().strip()
-                    end_date = end_date_entry.get().strip()
-                    end_time = end_time_entry.get().strip()
+                    conn.commit()
+                    messagebox.showinfo("成功", "日程数据已更新")
+                    dialog.destroy()
+                    self.refresh_schedules()
                     
-                    start_datetime = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
-                    end_datetime = datetime.strptime(f"{end_date} {end_time}", "%Y-%m-%d %H:%M")
-                    
-                    # 更新日程
-                    success = schedule_manager.update_schedule(
-                        schedule_id,
-                        title=title,
-                        description=description,
-                        priority=priority.value,
-                        start_time=start_datetime.isoformat(),
-                        end_time=end_datetime.isoformat()
-                    )
-                    
-                    if success:
-                        messagebox.showinfo("成功", "日程更新成功")
-                        dialog.destroy()
-                        self.refresh_schedules()
-                    else:
-                        messagebox.showerror("错误", "更新日程失败")
-                        
-                except ValueError as e:
-                    messagebox.showerror("错误", f"时间格式不正确:\n{str(e)}")
                 except Exception as e:
-                    messagebox.showerror("错误", f"更新日程失败:\n{str(e)}")
+                    messagebox.showerror("错误", f"更新失败:\n{str(e)}")
             
             ttk.Button(button_frame, text="保存", command=save_changes, width=10).pack(side=tk.LEFT, padx=5)
             ttk.Button(button_frame, text="取消", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
             
         except Exception as e:
-            messagebox.showerror("错误", f"加载日程失败:\n{str(e)}")
+            messagebox.showerror("错误", f"加载日程数据失败:\n{str(e)}")
     
-    def delete_schedule(self):
-        """删除选中的日程"""
+    def delete_schedule_data(self):
+        """删除日程数据（软删除）"""
         selection = self.schedules_tree.selection()
         if not selection:
             messagebox.showwarning("警告", "请选择要删除的日程")
@@ -2017,208 +1726,17 @@ class DatabaseManagerGUI:
         values = self.schedules_tree.item(item)['values']
         schedule_id = self.schedules_tree.item(item)['tags'][0]
         
-        if not messagebox.askyesno("确认", f"确定要删除日程「{values[0]}」吗？"):
+        if not messagebox.askyesno("确认", f"确定要删除日程「{values[1]}」吗？\n\n这是软删除，数据仍保留在数据库中。"):
             return
         
         try:
-            from schedule_manager import ScheduleManager
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE schedules SET is_active = 0 WHERE schedule_id = ?", (schedule_id,))
+            conn.commit()
             
-            # 获取schedule_manager
-            if hasattr(self.db, 'schedule_manager'):
-                schedule_manager = self.db.schedule_manager
-            else:
-                schedule_manager = ScheduleManager(self.db)
+            messagebox.showinfo("成功", "日程已标记为删除")
+            self.refresh_schedules()
             
-            success = schedule_manager.delete_schedule(schedule_id)
-            if success:
-                messagebox.showinfo("成功", "日程已删除")
-                self.refresh_schedules()
-            else:
-                messagebox.showerror("错误", "删除日程失败")
-                
         except Exception as e:
-            messagebox.showerror("错误", f"删除日程失败:\n{str(e)}")
-    
-    def show_schedule_context_menu(self, event):
-        """显示日程右键菜单"""
-        # 选中被右键点击的项
-        item = self.schedules_tree.identify_row(event.y)
-        if item:
-            self.schedules_tree.selection_set(item)
-            self.schedule_context_menu.post(event.x_root, event.y_root)
-    
-    def confirm_schedule_collaboration(self):
-        """确认选中日程的协作"""
-        selection = self.schedules_tree.selection()
-        if not selection:
-            return
-        
-        item = selection[0]
-        schedule_id = self.schedules_tree.item(item)['tags'][0]
-        
-        try:
-            from schedule_manager import ScheduleManager
-            
-            # 获取schedule_manager
-            if hasattr(self.db, 'schedule_manager'):
-                schedule_manager = self.db.schedule_manager
-            else:
-                schedule_manager = ScheduleManager(self.db)
-            
-            success = schedule_manager.confirm_collaboration(schedule_id, True)
-            if success:
-                messagebox.showinfo("成功", "已确认协作日程")
-                self.refresh_schedules()
-            else:
-                messagebox.showerror("错误", "确认失败")
-                
-        except Exception as e:
-            messagebox.showerror("错误", f"确认失败:\n{str(e)}")
-    
-    def reject_schedule_collaboration(self):
-        """拒绝选中日程的协作"""
-        selection = self.schedules_tree.selection()
-        if not selection:
-            return
-        
-        item = selection[0]
-        schedule_id = self.schedules_tree.item(item)['tags'][0]
-        
-        try:
-            from schedule_manager import ScheduleManager
-            
-            # 获取schedule_manager
-            if hasattr(self.db, 'schedule_manager'):
-                schedule_manager = self.db.schedule_manager
-            else:
-                schedule_manager = ScheduleManager(self.db)
-            
-            success = schedule_manager.confirm_collaboration(schedule_id, False)
-            if success:
-                messagebox.showinfo("成功", "已拒绝协作日程")
-                self.refresh_schedules()
-            else:
-                messagebox.showerror("错误", "拒绝失败")
-                
-        except Exception as e:
-            messagebox.showerror("错误", f"拒绝失败:\n{str(e)}")
-
-
-        domain_uuid = self.domain_tree.item(selected[0])['tags'][0]
-        domain = self.db.get_domain(domain_uuid)
-        
-        if not domain:
-            messagebox.showerror("错误", "域不存在！")
-            return
-
-        dialog = tk.Toplevel(self.parent)
-        dialog.title(f"管理域的环境: {domain['name']}")
-        dialog.geometry("700x500")
-
-        # 左侧：域中的环境
-        left_frame = ttk.Frame(dialog)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        ttk.Label(left_frame, text="域中的环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
-        
-        domain_env_frame = ttk.Frame(left_frame)
-        domain_env_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar1 = ttk.Scrollbar(domain_env_frame)
-        domain_env_list = tk.Listbox(domain_env_frame, yscrollcommand=scrollbar1.set, selectmode=tk.SINGLE)
-        scrollbar1.config(command=domain_env_list.yview)
-        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
-        domain_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # 中间：操作按钮
-        middle_frame = ttk.Frame(dialog)
-        middle_frame.pack(side=tk.LEFT, padx=10, pady=5)
-
-        ttk.Button(middle_frame, text="← 添加到域", command=lambda: add_to_domain(), width=15).pack(pady=10)
-        ttk.Button(middle_frame, text="从域移除 →", command=lambda: remove_from_domain(), width=15).pack(pady=10)
-        ttk.Button(middle_frame, text="🔄 刷新", command=lambda: refresh_lists(), width=15).pack(pady=10)
-
-        # 右侧：所有环境
-        right_frame = ttk.Frame(dialog)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        ttk.Label(right_frame, text="所有环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
-        
-        all_env_frame = ttk.Frame(right_frame)
-        all_env_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar2 = ttk.Scrollbar(all_env_frame)
-        all_env_list = tk.Listbox(all_env_frame, yscrollcommand=scrollbar2.set, selectmode=tk.SINGLE)
-        scrollbar2.config(command=all_env_list.yview)
-        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
-        all_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # 存储环境UUID
-        domain_env_data = {}
-        all_env_data = {}
-
-        def refresh_lists():
-            """刷新环境列表"""
-            domain_env_list.delete(0, tk.END)
-            all_env_list.delete(0, tk.END)
-            domain_env_data.clear()
-            all_env_data.clear()
-
-            # 获取域中的环境
-            domain_envs = self.db.get_domain_environments(domain_uuid)
-            for env in domain_envs:
-                domain_env_list.insert(tk.END, env['name'])
-                domain_env_data[env['name']] = env['uuid']
-
-            # 获取所有环境（排除已在域中的）
-            all_envs = self.db.get_all_environments()
-            domain_env_uuids = set(domain_env_data.values())
-            for env in all_envs:
-                if env['uuid'] not in domain_env_uuids:
-                    all_env_list.insert(tk.END, env['name'])
-                    all_env_data[env['name']] = env['uuid']
-
-        def add_to_domain():
-            """添加环境到域"""
-            selection = all_env_list.curselection()
-            if not selection:
-                messagebox.showwarning("警告", "请先选择一个环境！")
-                return
-
-            env_name = all_env_list.get(selection[0])
-            env_uuid = all_env_data[env_name]
-
-            try:
-                self.db.add_environment_to_domain(domain_uuid, env_uuid)
-                refresh_lists()
-                self.refresh_domains()
-                messagebox.showinfo("成功", f"已添加环境 '{env_name}' 到域")
-            except Exception as e:
-                messagebox.showerror("错误", f"添加失败: {str(e)}")
-
-        def remove_from_domain():
-            """从域中移除环境"""
-            selection = domain_env_list.curselection()
-            if not selection:
-                messagebox.showwarning("警告", "请先选择一个环境！")
-                return
-
-            env_name = domain_env_list.get(selection[0])
-            env_uuid = domain_env_data[env_name]
-
-            if messagebox.askyesno("确认", f"确定要从域中移除环境 '{env_name}' 吗？"):
-                try:
-                    self.db.remove_environment_from_domain(domain_uuid, env_uuid)
-                    refresh_lists()
-                    self.refresh_domains()
-                    messagebox.showinfo("成功", f"已从域中移除环境 '{env_name}'")
-                except Exception as e:
-                    messagebox.showerror("错误", f"移除失败: {str(e)}")
-
-        # 初始加载
-        refresh_lists()
-
-        # 底部关闭按钮
-        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
-
-
+            messagebox.showerror("错误", f"删除失败:\n{str(e)}")
