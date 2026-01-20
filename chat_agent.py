@@ -7,7 +7,7 @@
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 import requests
@@ -520,16 +520,54 @@ class ChatAgent:
             
             elif intent_result['schedule_type'] == 'query':
                 # 用户查询日程
-                # 检查今天是否有临时日程
-                today = datetime.now().date().isoformat()
+                # 提取查询日期（从时间表达式中提取，如果没有则默认为今天）
+                query_date = None
+                time_expr = intent_result.get('time_expression', '')
                 
-                if not self.schedule_generator.has_temporary_schedules_today():
+                if time_expr:
+                    # 尝试从start_time提取日期
+                    start_time = intent_result.get('start_time')
+                    if start_time:
+                        try:
+                            query_date = datetime.fromisoformat(start_time).date().isoformat()
+                        except:
+                            pass
+                
+                # 如果没有提取到日期，默认使用今天
+                if not query_date:
+                    query_date = datetime.now().date().isoformat()
+                
+                # 判断日期描述（用于消息提示）
+                today = datetime.now().date().isoformat()
+                tomorrow = (datetime.now() + timedelta(days=1)).date().isoformat()
+                
+                if query_date == today:
+                    date_desc = "今天"
+                elif query_date == tomorrow:
+                    date_desc = "明天"
+                else:
+                    # 解析日期并格式化
+                    try:
+                        query_dt = datetime.fromisoformat(query_date)
+                        date_desc = query_dt.strftime('%m月%d日')
+                    except:
+                        date_desc = query_date
+                
+                # 检查该日期是否有临时日程
+                start_of_day = f"{query_date}T00:00:00"
+                end_of_day = f"{query_date}T23:59:59"
+                existing_schedules = self.schedule_manager.get_schedules_by_time_range(
+                    start_of_day, end_of_day
+                )
+                has_temporary = any(s.schedule_type == ScheduleType.TEMPORARY for s in existing_schedules)
+                
+                if not has_temporary:
                     # 没有临时日程，生成1-3个
-                    debug_logger.log_info('ChatAgent', '触发临时日程生成')
-                    print("\n📅 [日程规划] 正在为你规划今天的日程...")
+                    debug_logger.log_info('ChatAgent', '触发临时日程生成', {'date': query_date})
+                    print(f"\n📅 [日程规划] 正在为你规划{date_desc}的日程...")
                     
                     generated_schedules = self.schedule_generator.generate_temporary_schedules(
-                        date=today,
+                        date=query_date,
                         character_name=self.character.name,
                         character_info=self.character.get_info_dict(),
                         context=self._get_recent_context()
@@ -543,9 +581,7 @@ class ChatAgent:
                         if needs_confirmation:
                             print(f"   其中 {len(needs_confirmation)} 个需要你确认")
                 
-                # 获取今天的所有日程
-                start_of_day = f"{today}T00:00:00"
-                end_of_day = f"{today}T23:59:59"
+                # 获取该日期的所有日程
                 schedules = self.schedule_manager.get_schedules_by_time_range(
                     start_of_day, end_of_day, queryable_only=True
                 )
@@ -555,9 +591,9 @@ class ChatAgent:
                     for s in schedules:
                         start_dt = datetime.fromisoformat(s.start_time)
                         schedule_list.append(f"{start_dt.strftime('%H:%M')} - {s.title}")
-                    schedule_context = f"我今天的日程安排：\n" + "\n".join(schedule_list)
+                    schedule_context = f"我{date_desc}的日程安排：\n" + "\n".join(schedule_list)
                 else:
-                    schedule_context = "我今天没有特别的日程安排，比较空闲"
+                    schedule_context = f"我{date_desc}没有特别的日程安排，比较空闲"
                 
                 debug_logger.log_info('ChatAgent', '日程查询完成', {'count': len(schedules)})
 
