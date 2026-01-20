@@ -1581,42 +1581,42 @@ class DatabaseManagerGUI:
         
         try:
             # 直接从数据库读取
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT schedule_id, title, schedule_type, start_time, end_time, 
-                       priority, is_active, collaboration_status
-                FROM schedules
-                ORDER BY start_time DESC
-                LIMIT 500
-            """)
-            
-            schedules = cursor.fetchall()
-            
-            # 类型映射
-            type_map = {'recurring': '周期', 'appointment': '预约', 'temporary': '临时'}
-            priority_map = {1: '低', 2: '中', 3: '高', 4: '关键'}
-            
-            for schedule in schedules:
-                schedule_id = schedule[0][:8]  # 显示前8位
-                title = schedule[1]
-                stype = type_map.get(schedule[2], schedule[2])
-                start_time = schedule[3][:16] if schedule[3] else ""
-                end_time = schedule[4][:16] if schedule[4] else ""
-                priority = priority_map.get(schedule[5], str(schedule[5]))
-                status = "激活" if schedule[6] else "已删除"
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
                 
-                # 添加到树
-                self.schedules_tree.insert(
-                    "",
-                    tk.END,
-                    values=(schedule_id, title, stype, start_time, end_time, priority, status),
-                    tags=(schedule[0],)  # 完整ID作为tag
-                )
-            
-            # 更新统计
-            self.schedule_stats_label.config(text=f"共 {len(schedules)} 条日程记录")
+                cursor.execute("""
+                    SELECT schedule_id, title, schedule_type, start_time, end_time, 
+                           priority, is_active, collaboration_status
+                    FROM schedules
+                    ORDER BY start_time DESC
+                    LIMIT 500
+                """)
+                
+                schedules = cursor.fetchall()
+                
+                # 类型映射
+                type_map = {'recurring': '周期', 'appointment': '预约', 'temporary': '临时'}
+                priority_map = {1: '低', 2: '中', 3: '高', 4: '关键'}
+                
+                for schedule in schedules:
+                    schedule_id = schedule[0][:8]  # 显示前8位
+                    title = schedule[1]
+                    stype = type_map.get(schedule[2], schedule[2])
+                    start_time = schedule[3][:16] if schedule[3] else ""
+                    end_time = schedule[4][:16] if schedule[4] else ""
+                    priority = priority_map.get(schedule[5], str(schedule[5]))
+                    status = "激活" if schedule[6] else "已删除"
+                    
+                    # 添加到树
+                    self.schedules_tree.insert(
+                        "",
+                        tk.END,
+                        values=(schedule_id, title, stype, start_time, end_time, priority, status),
+                        tags=(schedule[0],)  # 完整ID作为tag
+                    )
+                
+                # 更新统计
+                self.schedule_stats_label.config(text=f"共 {len(schedules)} 条日程记录")
             
         except Exception as e:
             messagebox.showerror("错误", f"刷新日程数据失败:\n{str(e)}")
@@ -1633,14 +1633,14 @@ class DatabaseManagerGUI:
         
         try:
             # 从数据库读取完整数据
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM schedules WHERE schedule_id = ?", (schedule_id,))
-            schedule = cursor.fetchone()
-            
-            if not schedule:
-                messagebox.showerror("错误", "日程不存在")
-                return
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM schedules WHERE schedule_id = ?", (schedule_id,))
+                schedule = cursor.fetchone()
+                
+                if not schedule:
+                    messagebox.showerror("错误", "日程不存在")
+                    return
             
             # 创建编辑对话框
             dialog = tk.Toplevel(self.parent)
@@ -1687,24 +1687,24 @@ class DatabaseManagerGUI:
             
             def save_changes():
                 try:
-                    conn = self.db.get_connection()
-                    cursor = conn.cursor()
-                    
-                    title = title_entry.get()
-                    description = desc_text.get("1.0", tk.END).strip()
-                    priority = int(priority_entry.get())
-                    is_active = 1 if active_var.get() else 0
-                    
-                    cursor.execute("""
-                        UPDATE schedules
-                        SET title = ?, description = ?, priority = ?, is_active = ?
-                        WHERE schedule_id = ?
-                    """, (title, description, priority, is_active, schedule_id))
-                    
-                    conn.commit()
-                    messagebox.showinfo("成功", "日程数据已更新")
-                    dialog.destroy()
-                    self.refresh_schedules()
+                    with self.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        
+                        title = title_entry.get()
+                        description = desc_text.get("1.0", tk.END).strip()
+                        priority = int(priority_entry.get())
+                        is_active = 1 if active_var.get() else 0
+                        
+                        cursor.execute("""
+                            UPDATE schedules
+                            SET title = ?, description = ?, priority = ?, is_active = ?
+                            WHERE schedule_id = ?
+                        """, (title, description, priority, is_active, schedule_id))
+                        
+                        conn.commit()
+                        messagebox.showinfo("成功", "日程数据已更新")
+                        dialog.destroy()
+                        self.refresh_schedules()
                     
                 except Exception as e:
                     messagebox.showerror("错误", f"更新失败:\n{str(e)}")
@@ -1730,10 +1730,10 @@ class DatabaseManagerGUI:
             return
         
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute("UPDATE schedules SET is_active = 0 WHERE schedule_id = ?", (schedule_id,))
-            conn.commit()
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE schedules SET is_active = 0 WHERE schedule_id = ?", (schedule_id,))
+                conn.commit()
             
             messagebox.showinfo("成功", "日程已标记为删除")
             self.refresh_schedules()
