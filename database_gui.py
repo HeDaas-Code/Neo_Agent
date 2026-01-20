@@ -120,6 +120,12 @@ class DatabaseManagerGUI:
 
         # 标签页7：域管理
         self.create_domains_tab()
+        
+        # 标签页8：日程管理
+        self.create_schedules_tab()
+        
+        # 标签页8：日程管理
+        self.create_schedules_tab()
 
     def create_base_knowledge_tab(self):
         """
@@ -633,6 +639,11 @@ class DatabaseManagerGUI:
             self.refresh_emotion()
             self.refresh_environments()
             self.refresh_domains()
+            
+            # 刷新日程（如果方法存在）
+            if hasattr(self, 'refresh_schedules'):
+                self.refresh_schedules()
+            
             self.update_statistics()
 
             # 刷新完成，显示绿色指示器和时间戳
@@ -1476,121 +1487,272 @@ class DatabaseManagerGUI:
             messagebox.showwarning("警告", "请先选择一个域！")
             return
 
-        domain_uuid = self.domain_tree.item(selected[0])['tags'][0]
-        domain = self.db.get_domain(domain_uuid)
+    def create_schedules_tab(self):
+        """
+        创建日程数据管理标签页（简化版，仅用于数据查看和编辑）
+        """
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="📅 日程数据")
         
-        if not domain:
-            messagebox.showerror("错误", "域不存在！")
+        # 说明文本
+        info_frame = ttk.Frame(tab)
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        info_label = ttk.Label(
+            info_frame,
+            text="💡 提示：完整的日程管理功能请使用主界面的「📅 日程管理」标签页\n这里仅提供基础的数据查看和编辑功能",
+            font=("微软雅黑", 9),
+            foreground="#666",
+            justify=tk.LEFT
+        )
+        info_label.pack(side=tk.LEFT, padx=5)
+        
+        # 工具栏
+        toolbar = ttk.Frame(tab)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(toolbar, text="🔄 刷新", command=self.refresh_schedules, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="📝 编辑数据", command=self.edit_schedule_data, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🗑 删除", command=self.delete_schedule_data, width=8).pack(side=tk.LEFT, padx=2)
+        
+        # 创建Treeview显示列表
+        tree_frame = ttk.Frame(tab)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 滚动条
+        scrollbar_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
+        scrollbar_x = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
+        
+        # Treeview
+        self.schedules_tree = ttk.Treeview(
+            tree_frame,
+            columns=("id", "title", "type", "start_time", "end_time", "priority", "status"),
+            show="headings",
+            yscrollcommand=scrollbar_y.set,
+            xscrollcommand=scrollbar_x.set
+        )
+        
+        # 配置列
+        self.schedules_tree.heading("id", text="ID")
+        self.schedules_tree.heading("title", text="标题")
+        self.schedules_tree.heading("type", text="类型")
+        self.schedules_tree.heading("start_time", text="开始时间")
+        self.schedules_tree.heading("end_time", text="结束时间")
+        self.schedules_tree.heading("priority", text="优先级")
+        self.schedules_tree.heading("status", text="状态")
+        
+        self.schedules_tree.column("id", width=80, minwidth=60, stretch=False)
+        self.schedules_tree.column("title", width=150, minwidth=100, stretch=True)
+        self.schedules_tree.column("type", width=80, minwidth=70, stretch=False)
+        self.schedules_tree.column("start_time", width=150, minwidth=120, stretch=False)
+        self.schedules_tree.column("end_time", width=150, minwidth=120, stretch=False)
+        self.schedules_tree.column("priority", width=70, minwidth=60, stretch=False)
+        self.schedules_tree.column("status", width=80, minwidth=70, stretch=False)
+        
+        scrollbar_y.config(command=self.schedules_tree.yview)
+        scrollbar_x.config(command=self.schedules_tree.xview)
+        
+        # 布局
+        self.schedules_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar_y.grid(row=0, column=1, sticky="ns")
+        scrollbar_x.grid(row=1, column=0, sticky="ew")
+        
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        # 双击编辑
+        self.schedules_tree.bind("<Double-1>", lambda e: self.edit_schedule_data())
+        
+        # 统计信息
+        stats_frame = ttk.Frame(tab)
+        stats_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.schedule_stats_label = ttk.Label(stats_frame, text="", font=("微软雅黑", 9))
+        self.schedule_stats_label.pack(side=tk.LEFT, padx=5)
+        
+        # 首次刷新
+        self.refresh_schedules()
+    
+    def refresh_schedules(self):
+        """刷新日程数据列表"""
+        # 清空现有内容
+        for item in self.schedules_tree.get_children():
+            self.schedules_tree.delete(item)
+        
+        try:
+            # 直接从数据库读取
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 首先检查表是否存在
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='schedules'
+                """)
+                
+                if not cursor.fetchone():
+                    # 表不存在，静默跳过（首次启动时会出现这种情况）
+                    self.schedule_stats_label.config(text="日程表尚未初始化（首次使用日程功能时会自动创建）")
+                    return
+                
+                cursor.execute("""
+                    SELECT schedule_id, title, schedule_type, start_time, end_time, 
+                           priority, is_active, collaboration_status
+                    FROM schedules
+                    ORDER BY start_time DESC
+                    LIMIT 500
+                """)
+                
+                schedules = cursor.fetchall()
+                
+                # 类型映射
+                type_map = {'recurring': '周期', 'appointment': '预约', 'temporary': '临时'}
+                priority_map = {1: '低', 2: '中', 3: '高', 4: '关键'}
+                
+                for schedule in schedules:
+                    schedule_id = schedule[0][:8]  # 显示前8位
+                    title = schedule[1]
+                    stype = type_map.get(schedule[2], schedule[2])
+                    start_time = schedule[3][:16] if schedule[3] else ""
+                    end_time = schedule[4][:16] if schedule[4] else ""
+                    priority = priority_map.get(schedule[5], str(schedule[5]))
+                    status = "激活" if schedule[6] else "已删除"
+                    
+                    # 添加到树
+                    self.schedules_tree.insert(
+                        "",
+                        tk.END,
+                        values=(schedule_id, title, stype, start_time, end_time, priority, status),
+                        tags=(schedule[0],)  # 完整ID作为tag
+                    )
+                
+                # 更新统计
+                self.schedule_stats_label.config(text=f"共 {len(schedules)} 条日程记录")
+            
+        except Exception as e:
+            # 如果是"no such table"错误，静默处理
+            error_msg = str(e).lower()
+            if "no such table" in error_msg or "schedules" in error_msg:
+                self.schedule_stats_label.config(text="日程表尚未初始化")
+            else:
+                messagebox.showerror("错误", f"刷新日程数据失败:\n{str(e)}")
+    
+    def edit_schedule_data(self):
+        """编辑日程数据"""
+        selection = self.schedules_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请选择要编辑的日程")
             return
-
-        dialog = tk.Toplevel(self.parent)
-        dialog.title(f"管理域的环境: {domain['name']}")
-        dialog.geometry("700x500")
-
-        # 左侧：域中的环境
-        left_frame = ttk.Frame(dialog)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        ttk.Label(left_frame, text="域中的环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
         
-        domain_env_frame = ttk.Frame(left_frame)
-        domain_env_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar1 = ttk.Scrollbar(domain_env_frame)
-        domain_env_list = tk.Listbox(domain_env_frame, yscrollcommand=scrollbar1.set, selectmode=tk.SINGLE)
-        scrollbar1.config(command=domain_env_list.yview)
-        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
-        domain_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # 中间：操作按钮
-        middle_frame = ttk.Frame(dialog)
-        middle_frame.pack(side=tk.LEFT, padx=10, pady=5)
-
-        ttk.Button(middle_frame, text="← 添加到域", command=lambda: add_to_domain(), width=15).pack(pady=10)
-        ttk.Button(middle_frame, text="从域移除 →", command=lambda: remove_from_domain(), width=15).pack(pady=10)
-        ttk.Button(middle_frame, text="🔄 刷新", command=lambda: refresh_lists(), width=15).pack(pady=10)
-
-        # 右侧：所有环境
-        right_frame = ttk.Frame(dialog)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        ttk.Label(right_frame, text="所有环境:", font=("微软雅黑", 10, "bold")).pack(pady=5)
+        item = selection[0]
+        schedule_id = self.schedules_tree.item(item)['tags'][0]
         
-        all_env_frame = ttk.Frame(right_frame)
-        all_env_frame.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar2 = ttk.Scrollbar(all_env_frame)
-        all_env_list = tk.Listbox(all_env_frame, yscrollcommand=scrollbar2.set, selectmode=tk.SINGLE)
-        scrollbar2.config(command=all_env_list.yview)
-        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
-        all_env_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # 存储环境UUID
-        domain_env_data = {}
-        all_env_data = {}
-
-        def refresh_lists():
-            """刷新环境列表"""
-            domain_env_list.delete(0, tk.END)
-            all_env_list.delete(0, tk.END)
-            domain_env_data.clear()
-            all_env_data.clear()
-
-            # 获取域中的环境
-            domain_envs = self.db.get_domain_environments(domain_uuid)
-            for env in domain_envs:
-                domain_env_list.insert(tk.END, env['name'])
-                domain_env_data[env['name']] = env['uuid']
-
-            # 获取所有环境（排除已在域中的）
-            all_envs = self.db.get_all_environments()
-            domain_env_uuids = set(domain_env_data.values())
-            for env in all_envs:
-                if env['uuid'] not in domain_env_uuids:
-                    all_env_list.insert(tk.END, env['name'])
-                    all_env_data[env['name']] = env['uuid']
-
-        def add_to_domain():
-            """添加环境到域"""
-            selection = all_env_list.curselection()
-            if not selection:
-                messagebox.showwarning("警告", "请先选择一个环境！")
-                return
-
-            env_name = all_env_list.get(selection[0])
-            env_uuid = all_env_data[env_name]
-
-            try:
-                self.db.add_environment_to_domain(domain_uuid, env_uuid)
-                refresh_lists()
-                self.refresh_domains()
-                messagebox.showinfo("成功", f"已添加环境 '{env_name}' 到域")
-            except Exception as e:
-                messagebox.showerror("错误", f"添加失败: {str(e)}")
-
-        def remove_from_domain():
-            """从域中移除环境"""
-            selection = domain_env_list.curselection()
-            if not selection:
-                messagebox.showwarning("警告", "请先选择一个环境！")
-                return
-
-            env_name = domain_env_list.get(selection[0])
-            env_uuid = domain_env_data[env_name]
-
-            if messagebox.askyesno("确认", f"确定要从域中移除环境 '{env_name}' 吗？"):
+        try:
+            # 从数据库读取完整数据
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM schedules WHERE schedule_id = ?", (schedule_id,))
+                schedule = cursor.fetchone()
+                
+                if not schedule:
+                    messagebox.showerror("错误", "日程不存在")
+                    return
+            
+            # 创建编辑对话框
+            dialog = tk.Toplevel(self.parent)
+            dialog.title("编辑日程数据")
+            dialog.geometry("500x400")
+            dialog.transient(self.parent)
+            dialog.grab_set()
+            
+            form_frame = ttk.Frame(dialog, padding=10)
+            form_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # 显示可编辑字段
+            fields = []
+            
+            # 标题
+            ttk.Label(form_frame, text="标题:").grid(row=0, column=0, sticky=tk.W, pady=2)
+            title_entry = ttk.Entry(form_frame, width=40)
+            title_entry.insert(0, schedule[1] or "")
+            title_entry.grid(row=0, column=1, pady=2)
+            fields.append(('title', title_entry))
+            
+            # 描述
+            ttk.Label(form_frame, text="描述:").grid(row=1, column=0, sticky=tk.W, pady=2)
+            desc_text = tk.Text(form_frame, width=40, height=3)
+            desc_text.insert("1.0", schedule[2] or "")
+            desc_text.grid(row=1, column=1, pady=2)
+            fields.append(('description', desc_text))
+            
+            # 优先级
+            ttk.Label(form_frame, text="优先级 (1-4):").grid(row=2, column=0, sticky=tk.W, pady=2)
+            priority_entry = ttk.Entry(form_frame, width=40)
+            priority_entry.insert(0, str(schedule[6]))
+            priority_entry.grid(row=2, column=1, pady=2)
+            fields.append(('priority', priority_entry))
+            
+            # 激活状态
+            ttk.Label(form_frame, text="激活状态:").grid(row=3, column=0, sticky=tk.W, pady=2)
+            active_var = tk.BooleanVar(value=bool(schedule[10]))
+            ttk.Checkbutton(form_frame, variable=active_var).grid(row=3, column=1, sticky=tk.W, pady=2)
+            
+            # 按钮
+            button_frame = ttk.Frame(dialog)
+            button_frame.pack(fill=tk.X, padx=10, pady=10)
+            
+            def save_changes():
                 try:
-                    self.db.remove_environment_from_domain(domain_uuid, env_uuid)
-                    refresh_lists()
-                    self.refresh_domains()
-                    messagebox.showinfo("成功", f"已从域中移除环境 '{env_name}'")
+                    with self.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        
+                        title = title_entry.get()
+                        description = desc_text.get("1.0", tk.END).strip()
+                        priority = int(priority_entry.get())
+                        is_active = 1 if active_var.get() else 0
+                        
+                        cursor.execute("""
+                            UPDATE schedules
+                            SET title = ?, description = ?, priority = ?, is_active = ?
+                            WHERE schedule_id = ?
+                        """, (title, description, priority, is_active, schedule_id))
+                        
+                        conn.commit()
+                        messagebox.showinfo("成功", "日程数据已更新")
+                        dialog.destroy()
+                        self.refresh_schedules()
+                    
                 except Exception as e:
-                    messagebox.showerror("错误", f"移除失败: {str(e)}")
-
-        # 初始加载
-        refresh_lists()
-
-        # 底部关闭按钮
-        ttk.Button(dialog, text="关闭", command=dialog.destroy, width=15).pack(pady=10)
-
-
+                    messagebox.showerror("错误", f"更新失败:\n{str(e)}")
+            
+            ttk.Button(button_frame, text="保存", command=save_changes, width=10).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="取消", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"加载日程数据失败:\n{str(e)}")
+    
+    def delete_schedule_data(self):
+        """删除日程数据（软删除）"""
+        selection = self.schedules_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请选择要删除的日程")
+            return
+        
+        item = selection[0]
+        values = self.schedules_tree.item(item)['values']
+        schedule_id = self.schedules_tree.item(item)['tags'][0]
+        
+        if not messagebox.askyesno("确认", f"确定要删除日程「{values[1]}」吗？\n\n这是软删除，数据仍保留在数据库中。"):
+            return
+        
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE schedules SET is_active = 0 WHERE schedule_id = ?", (schedule_id,))
+                conn.commit()
+            
+            messagebox.showinfo("成功", "日程已标记为删除")
+            self.refresh_schedules()
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"删除失败:\n{str(e)}")

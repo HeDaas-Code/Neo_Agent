@@ -1027,9 +1027,28 @@ class EnhancedChatDebugGUI:
 
         self.create_control_panel(control_tab)
 
-        # 选项卡9: 事件管理
+        # 选项卡9: 日程管理
+        schedule_tab = ttk.Frame(notebook)
+        notebook.add(schedule_tab, text="📅 日程管理")
+        
+        # 创建独立的日程管理GUI
+        try:
+            from schedule_gui import ScheduleManagerGUI
+            # 获取数据库管理器实例
+            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'db'):
+                schedule_db_manager = self.agent.db
+            else:
+                from database_manager import DatabaseManager
+                schedule_db_manager = DatabaseManager()
+            
+            self.schedule_gui = ScheduleManagerGUI(schedule_tab, schedule_db_manager)
+        except Exception as e:
+            ttk.Label(schedule_tab, text=f"日程管理界面加载失败:\n{str(e)}",
+                     font=("微软雅黑", 10), foreground="red").pack(pady=50)
+        
+        # 选项卡10: 事件管理
         event_tab = ttk.Frame(notebook)
-        notebook.add(event_tab, text="📅 事件管理")
+        notebook.add(event_tab, text="📋 事件管理")
 
         self.create_event_management_panel(event_tab)
 
