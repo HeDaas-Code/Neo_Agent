@@ -1584,6 +1584,17 @@ class DatabaseManagerGUI:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # 首先检查表是否存在
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='schedules'
+                """)
+                
+                if not cursor.fetchone():
+                    # 表不存在，静默跳过（首次启动时会出现这种情况）
+                    self.schedule_stats_label.config(text="日程表尚未初始化（首次使用日程功能时会自动创建）")
+                    return
+                
                 cursor.execute("""
                     SELECT schedule_id, title, schedule_type, start_time, end_time, 
                            priority, is_active, collaboration_status
@@ -1619,7 +1630,12 @@ class DatabaseManagerGUI:
                 self.schedule_stats_label.config(text=f"共 {len(schedules)} 条日程记录")
             
         except Exception as e:
-            messagebox.showerror("错误", f"刷新日程数据失败:\n{str(e)}")
+            # 如果是"no such table"错误，静默处理
+            error_msg = str(e).lower()
+            if "no such table" in error_msg or "schedules" in error_msg:
+                self.schedule_stats_label.config(text="日程表尚未初始化")
+            else:
+                messagebox.showerror("错误", f"刷新日程数据失败:\n{str(e)}")
     
     def edit_schedule_data(self):
         """编辑日程数据"""
