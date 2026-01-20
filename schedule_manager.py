@@ -277,6 +277,9 @@ class ScheduleManager:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_time ON schedules(start_time, end_time)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_active ON schedules(is_active)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_schedules_queryable ON schedules(is_queryable)')
+            
+            # 显式提交
+            conn.commit()
         
         debug_logger.log_info('ScheduleManager', '数据库表初始化完成')
 
@@ -289,6 +292,7 @@ class ScheduleManager:
         end_time: str,
         priority: SchedulePriority = None,
         check_conflict: bool = True,
+        check_similarity: bool = True,
         **kwargs
     ) -> Tuple[bool, Optional[Schedule], str]:
         """
@@ -302,6 +306,7 @@ class ScheduleManager:
             end_time: 结束时间（ISO格式）
             priority: 日程优先级（如果未指定，根据类型自动设置）
             check_conflict: 是否检查冲突
+            check_similarity: 是否检查相似日程
             **kwargs: 其他参数
 
         Returns:
@@ -322,6 +327,43 @@ class ScheduleManager:
                 priority = SchedulePriority.MEDIUM
             else:  # TEMPORARY
                 priority = SchedulePriority.LOW
+
+        # 检查当天是否有相似日程
+        if check_similarity:
+            from schedule_similarity_checker import ScheduleSimilarityChecker, get_schedules_on_same_day
+            
+            # 获取当天的所有日程
+            same_day_schedules = get_schedules_on_same_day(self, start_time)
+            
+            if same_day_schedules:
+                # 使用LLM检查相似度
+                checker = ScheduleSimilarityChecker()
+                new_schedule_dict = {
+                    'title': title,
+                    'description': description,
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'schedule_type': schedule_type.value,
+                    'metadata': kwargs.get('metadata', {})
+                }
+                
+                has_similar, schedule_to_delete, result = checker.check_similar_schedules(
+                    new_schedule_dict,
+                    same_day_schedules
+                )
+                
+                if has_similar:
+                    if schedule_to_delete:
+                        # LLM建议保留新日程，删除旧日程
+                        self.delete_schedule(schedule_to_delete)
+                        message = f"检测到相似日程，已删除旧日程并创建新日程。原因：{result.get('reason', '新日程更详细')}"
+                        debug_logger.log_info('ScheduleManager', message)
+                        # 继续创建新日程
+                    else:
+                        # LLM建议保留旧日程，不创建新日程
+                        message = f"检测到相似日程，保留已有日程。原因：{result.get('reason', '已有日程更详细')}"
+                        debug_logger.log_info('ScheduleManager', message)
+                        return False, None, message
 
         # 检查日程冲突
         if check_conflict:
@@ -505,7 +547,8 @@ class ScheduleManager:
         start_time: str,
         end_time: str,
         queryable_only: bool = True,
-        active_only: bool = True
+        active_only: bool = True,
+        include_inactive: bool = False
     ) -> List[Schedule]:
         """
         获取时间范围内的所有日程
@@ -514,7 +557,8 @@ class ScheduleManager:
             start_time: 开始时间（ISO格式）
             end_time: 结束时间（ISO格式）
             queryable_only: 是否只返回可查询的日程
-            active_only: 是否只返回激活的日程
+            active_only: 是否只返回激活的日程（优先级高于include_inactive）
+            include_inactive: 是否包含未激活的日程（当active_only=False时生效）
 
         Returns:
             日程列表
@@ -534,6 +578,8 @@ class ScheduleManager:
             query += ' AND is_queryable = 1'
         
         if active_only:
+            query += ' AND is_active = 1'
+        elif not include_inactive:
             query += ' AND is_active = 1'
         
         query += ' ORDER BY start_time ASC'
