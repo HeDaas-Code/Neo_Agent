@@ -1222,6 +1222,18 @@ class ChatAgent:
             character_context
         )
 
+        # 保存协作日志到事件元数据
+        if 'collaboration_logs' in result:
+            import json
+            event.metadata['collaboration_logs'] = result['collaboration_logs']
+            # 更新数据库中的元数据
+            with self.db.get_connection() as conn:
+                conn.execute('''
+                    UPDATE events 
+                    SET metadata = ?
+                    WHERE event_id = ?
+                ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
+
         # 记录处理结果
         self.event_manager.add_event_log(
             event.event_id,
@@ -1229,19 +1241,13 @@ class ChatAgent:
             f"处理结果: {result.get('message', '未知')}"
         )
 
-        # 更新事件状态
-        if result.get('success'):
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.COMPLETED,
-                '任务已成功完成'
-            )
-        else:
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.FAILED,
-                f"任务失败: {result.get('error', '未知错误')}"
-            )
+        # 任务执行完成后，直接标记为已完成，不进行评价
+        # 将结果提交给用户
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.COMPLETED,
+            '任务执行完成，结果已提交给用户'
+        )
 
         debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
             'event_id': event.event_id,
@@ -1283,10 +1289,17 @@ class ChatAgent:
                 # 处理任务型事件
                 result = self.process_task_event(event)
                 
-                if result.get('success'):
-                    return f"✅ 【任务完成】{event.title}\n\n{result.get('message', '任务已成功完成')}"
+                # 获取最后一次任务执行专家的结果输出
+                if 'execution_results' in result and result['execution_results']:
+                    # 获取最后一个执行步骤的输出
+                    last_result = result['execution_results'][-1]
+                    final_output = last_result.get('output', '')
+                    
+                    # 使用正常的智能体回复模式，直接返回最后的执行结果
+                    return final_output if final_output else result.get('message', '任务已完成')
                 else:
-                    return f"❌ 【任务失败】{event.title}\n\n{result.get('error', '任务执行失败')}"
+                    # 如果没有执行结果，返回基本消息
+                    return result.get('message', '任务已完成')
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"

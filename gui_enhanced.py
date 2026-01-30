@@ -1175,6 +1175,13 @@ class EnhancedChatDebugGUI:
 
         ttk.Button(
             toolbar,
+            text="👥 查看协作详情",
+            command=self.view_collaboration_details,
+            width=18
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            toolbar,
             text="🗑️ 删除事件",
             command=self.delete_selected_event,
             width=15
@@ -1537,7 +1544,7 @@ class EnhancedChatDebugGUI:
 
         # 事件基本信息
         info_frame = ttk.LabelFrame(container, text="基本信息", padding=10)
-        info_frame.pack(fill=tk.X, pady=(0, 10))
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         event_dict = event.to_dict()
         info_text = f"""事件ID: {event_dict['event_id']}
@@ -1560,13 +1567,17 @@ class EnhancedChatDebugGUI:
 完成标准:
 {event_dict['metadata'].get('completion_criteria', '')}"""
 
-        info_label = ttk.Label(
+        info_text_widget = scrolledtext.ScrolledText(
             info_frame,
-            text=info_text,
+            wrap=tk.WORD,
             font=("微软雅黑", 9),
-            justify=tk.LEFT
+            height=10,
+            relief=tk.FLAT,
+            background="#f8f9fa"
         )
-        info_label.pack(anchor=tk.W)
+        info_text_widget.pack(fill=tk.BOTH, expand=True)
+        info_text_widget.insert(tk.END, info_text)
+        info_text_widget.config(state=tk.DISABLED)
 
         # 处理日志
         log_frame = ttk.LabelFrame(container, text="处理日志", padding=10)
@@ -1630,6 +1641,213 @@ class EnhancedChatDebugGUI:
                 self.refresh_event_list()
             else:
                 messagebox.showerror("错误", "删除事件失败！")
+
+    def view_collaboration_details(self):
+        """查看智能体协作详情"""
+        selection = self.event_tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择一个事件！")
+            return
+
+        item_tags = self.event_tree.item(selection[0], 'tags')
+        if not item_tags:
+            messagebox.showerror("错误", "无法获取事件ID！")
+            return
+
+        event_id = item_tags[0]
+        event = self.agent.event_manager.get_event(event_id)
+
+        if not event:
+            messagebox.showerror("错误", "事件不存在！")
+            return
+
+        # 检查是否为任务型事件
+        from event_manager import EventType
+        if event.event_type != EventType.TASK:
+            messagebox.showinfo("提示", "只有任务型事件才有协作详情！")
+            return
+
+        # 获取协作日志
+        collaboration_logs = event.metadata.get('collaboration_logs', [])
+        
+        if not collaboration_logs:
+            messagebox.showinfo("提示", "该事件还没有协作日志。\n请先触发该任务事件。")
+            return
+
+        # 创建对话框显示协作详情
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"智能体协作详情 - {event.title}")
+        dialog.geometry("900x700")
+        
+        # 设置对话框图标（如果主窗口有图标）
+        if self.root.iconbitmap:
+            try:
+                dialog.iconbitmap(default=self.root.iconbitmap)
+            except:
+                pass
+
+        # 主容器
+        main_frame = ttk.Frame(dialog, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 标题
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            title_frame,
+            text=f"📋 任务：{event.title}",
+            font=("微软雅黑", 12, "bold")
+        ).pack(side=tk.LEFT)
+        
+        ttk.Label(
+            title_frame,
+            text=f"共 {len(collaboration_logs)} 条协作记录",
+            font=("微软雅黑", 9),
+            foreground="gray"
+        ).pack(side=tk.RIGHT)
+
+        # 创建文本框显示协作日志（对话形式）
+        text_frame = ttk.Frame(main_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # 创建滚动文本框
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget = tk.Text(
+            text_frame,
+            wrap=tk.WORD,
+            yscrollcommand=scrollbar.set,
+            font=("Microsoft YaHei", 10),
+            padx=10,
+            pady=10,
+            relief=tk.FLAT,
+            background="#f8f9fa"
+        )
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+
+        # 配置文本标签样式
+        text_widget.tag_config("agent_name", foreground="#2c5aa0", font=("微软雅黑", 10, "bold"))
+        text_widget.tag_config("timestamp", foreground="#6c757d", font=("微软雅黑", 8))
+        text_widget.tag_config("action", foreground="#28a745", font=("微软雅黑", 9, "bold"))
+        text_widget.tag_config("content", foreground="#212529", font=("微软雅黑", 10))
+        text_widget.tag_config("separator", foreground="#dee2e6")
+
+        # 插入协作日志内容（对话形式）
+        for i, log in enumerate(collaboration_logs):
+            agent_role = log.get('agent_role', '未知智能体')
+            action = log.get('action', '操作')
+            content = log.get('content', '')
+            timestamp = log.get('timestamp', '')
+            
+            # 格式化时间戳
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(timestamp)
+                time_str = dt.strftime('%H:%M:%S')
+            except:
+                time_str = timestamp[-8:] if len(timestamp) >= 8 else timestamp
+
+            # 插入时间戳
+            text_widget.insert(tk.END, f"[{time_str}] ", "timestamp")
+            
+            # 插入智能体角色
+            text_widget.insert(tk.END, f"{agent_role}", "agent_name")
+            text_widget.insert(tk.END, " ")
+            
+            # 插入动作
+            text_widget.insert(tk.END, f"「{action}」\n", "action")
+            
+            # 插入内容
+            if content:
+                text_widget.insert(tk.END, f"    {content}\n", "content")
+            
+            # 添加分隔线（除了最后一条）
+            if i < len(collaboration_logs) - 1:
+                text_widget.insert(tk.END, "    " + "─" * 80 + "\n\n", "separator")
+            else:
+                text_widget.insert(tk.END, "\n")
+
+        # 禁用编辑
+        text_widget.config(state=tk.DISABLED)
+
+        # 底部按钮
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+
+        ttk.Button(
+            button_frame,
+            text="关闭",
+            command=dialog.destroy,
+            width=15
+        ).pack(side=tk.RIGHT, padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="导出日志",
+            command=lambda: self.export_collaboration_logs(event, collaboration_logs),
+            width=15
+        ).pack(side=tk.RIGHT, padx=5)
+
+    def export_collaboration_logs(self, event, collaboration_logs):
+        """导出协作日志到文件"""
+        from tkinter import filedialog
+        import json
+        from datetime import datetime
+        
+        # 让用户选择保存位置
+        default_filename = f"collaboration_logs_{event.event_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filepath = filedialog.asksaveasfilename(
+            title="导出协作日志",
+            defaultextension=".txt",
+            initialfile=default_filename,
+            filetypes=[
+                ("文本文件", "*.txt"),
+                ("JSON文件", "*.json"),
+                ("所有文件", "*.*")
+            ]
+        )
+        
+        if not filepath:
+            return
+        
+        try:
+            if filepath.endswith('.json'):
+                # 导出为JSON格式
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'event_id': event.event_id,
+                        'event_title': event.title,
+                        'event_description': event.description,
+                        'collaboration_logs': collaboration_logs
+                    }, f, ensure_ascii=False, indent=2)
+            else:
+                # 导出为文本格式
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(f"智能体协作日志\n")
+                    f.write(f"=" * 80 + "\n")
+                    f.write(f"任务ID: {event.event_id}\n")
+                    f.write(f"任务标题: {event.title}\n")
+                    f.write(f"任务描述: {event.description}\n")
+                    f.write(f"=" * 80 + "\n\n")
+                    
+                    for i, log in enumerate(collaboration_logs, 1):
+                        agent_role = log.get('agent_role', '未知智能体')
+                        action = log.get('action', '操作')
+                        content = log.get('content', '')
+                        timestamp = log.get('timestamp', '')
+                        
+                        f.write(f"[{i}] {timestamp}\n")
+                        f.write(f"智能体: {agent_role}\n")
+                        f.write(f"动作: {action}\n")
+                        f.write(f"内容: {content}\n")
+                        f.write("-" * 80 + "\n\n")
+            
+            messagebox.showinfo("成功", f"协作日志已导出到：\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败：{str(e)}")
 
     def initialize_agent(self):
         """

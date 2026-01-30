@@ -6,6 +6,7 @@
 import os
 import time
 import json
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Callable
 from dotenv import load_dotenv
 import requests
@@ -172,7 +173,28 @@ class MultiAgentCoordinator:
         self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
         
+        # 协作日志记录
+        self.collaboration_logs = []
+        
         debug_logger.log_module('MultiAgentCoordinator', '多智能体协调器初始化完成')
+
+    def add_collaboration_log(self, agent_role: str, action: str, content: str):
+        """
+        添加协作日志
+        
+        Args:
+            agent_role: 智能体角色
+            action: 动作类型
+            content: 日志内容
+        """
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'agent_role': agent_role,
+            'action': action,
+            'content': content
+        }
+        self.collaboration_logs.append(log_entry)
+        debug_logger.log_info('MultiAgentCoordinator', '协作日志', log_entry)
 
     def emit_progress(self, message: str):
         """
@@ -188,6 +210,9 @@ class MultiAgentCoordinator:
         
         if self.progress_callback:
             self.progress_callback(narration)
+        
+        # 记录到协作日志
+        self.add_collaboration_log('系统', '进度通知', message)
         
         debug_logger.log_info('MultiAgentCoordinator', '进度更新', {
             'message': message
@@ -213,6 +238,9 @@ class MultiAgentCoordinator:
             'title': task_event.title
         })
 
+        # 清空之前的协作日志
+        self.collaboration_logs = []
+
         self.emit_progress(f"智能体开始分析任务「{task_event.title}」...")
 
         # 第一步：理解任务
@@ -221,7 +249,8 @@ class MultiAgentCoordinator:
         if not task_understanding.get('success'):
             return {
                 'success': False,
-                'error': task_understanding.get('error', '任务理解失败')
+                'error': task_understanding.get('error', '任务理解失败'),
+                'collaboration_logs': self.collaboration_logs
             }
 
         self.emit_progress(f"任务已理解：{task_understanding['summary']}")
@@ -254,35 +283,23 @@ class MultiAgentCoordinator:
                 return {
                     'success': False,
                     'error': f'执行失败于步骤{i}',
-                    'execution_results': execution_results
+                    'execution_results': execution_results,
+                    'collaboration_logs': self.collaboration_logs
                 }
 
             self.emit_progress(f"步骤 {i} 完成")
 
-        # 第四步：验证任务完成
-        self.emit_progress("所有步骤已完成，正在验证任务结果...")
+        # 所有步骤已完成，返回结果给用户
+        self.emit_progress("✅ 所有步骤已完成，任务结果已提交给用户")
         
-        verification_result = self._verify_task_completion(
-            task_event,
-            execution_results
-        )
-
-        if verification_result['is_completed']:
-            self.emit_progress(f"✅ 任务验证通过！{verification_result['message']}")
-            return {
-                'success': True,
-                'message': '任务已成功完成',
-                'execution_results': execution_results,
-                'verification': verification_result
-            }
-        else:
-            self.emit_progress(f"⚠️ 任务验证未通过：{verification_result['message']}")
-            return {
-                'success': False,
-                'error': '任务未达到完成标准',
-                'execution_results': execution_results,
-                'verification': verification_result
-            }
+        return {
+            'success': True,
+            'message': '任务执行完成，请查看执行结果',
+            'execution_results': execution_results,
+            'task_understanding': task_understanding,
+            'execution_plan': execution_plan,
+            'collaboration_logs': self.collaboration_logs
+        }
 
     def _understand_task(
         self,
@@ -323,10 +340,16 @@ class MultiAgentCoordinator:
             'task_id': task_event.event_id
         }
 
+        # 记录协作日志：任务理解开始
+        self.add_collaboration_log('任务分析专家', '开始分析', f'开始分析任务：{task_event.title}')
+
         result = understanding_agent.execute_task(
             '请分析这个任务，总结任务的核心目标、关键要求和预期成果。用简洁的语言概括。',
             context
         )
+
+        # 记录协作日志：任务理解结果
+        self.add_collaboration_log('任务分析专家', '分析结果', result)
 
         return {
             'success': True,
@@ -367,10 +390,16 @@ class MultiAgentCoordinator:
             'completion_criteria': task_event.metadata.get('completion_criteria', '')
         }
 
+        # 记录协作日志：开始规划
+        self.add_collaboration_log('任务规划专家', '开始规划', '基于任务分析结果制定执行计划')
+
         plan_text = planning_agent.execute_task(
             '请将这个任务分解为3-5个具体可执行的步骤。每个步骤用一行描述，格式为：步骤N：具体要做的事情',
             context
         )
+
+        # 记录协作日志：规划结果
+        self.add_collaboration_log('任务规划专家', '规划结果', plan_text)
 
         # 解析计划文本为步骤列表
         steps = []
@@ -453,11 +482,17 @@ class MultiAgentCoordinator:
             'previous_results': [r.get('output', '') for r in previous_results]
         }
 
+        # 记录协作日志：开始执行步骤
+        self.add_collaboration_log('任务执行专家', '开始执行', f'步骤：{step["description"]}')
+
         result_text = execution_agent.execute_task(
             step['description'],
             context,
             tools
         )
+
+        # 记录协作日志：执行结果
+        self.add_collaboration_log('任务执行专家', '执行结果', result_text)
 
         # 检查是否需要用户输入
         # 改进的检测逻辑：检查问号是否在句尾，以及更具体的关键词
