@@ -23,6 +23,7 @@ from expression_style import ExpressionStyleManager
 from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from schedule_intent_tool import ScheduleIntentTool
 from schedule_generator import TemporaryScheduleGenerator
+from mcp_context_manager import MCPContextManager
 
 # 加载环境变量
 load_dotenv()
@@ -379,6 +380,9 @@ class ChatAgent:
         
         # 初始化临时日程生成器
         self.schedule_generator = TemporaryScheduleGenerator(schedule_manager=self.schedule_manager)
+        
+        # 初始化MCP上下文管理器
+        self.mcp_manager = MCPContextManager()
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -403,6 +407,15 @@ class ChatAgent:
               f"临时: {schedule_stats['temporary']})")
         if schedule_stats['pending_collaboration'] > 0:
             print(f"  ⚠️  有 {schedule_stats['pending_collaboration']} 个待确认的协作日程")
+        
+        # 显示MCP统计
+        mcp_info = self.mcp_manager.get_mcp_info()
+        if mcp_info['enabled']:
+            print(f"MCP系统: 已启用 (工具: {mcp_info['tools_count']}, "
+                  f"资源: {mcp_info['resources_count']}, "
+                  f"提示词: {mcp_info['prompts_count']})")
+        else:
+            print("MCP系统: 未启用")
 
     def chat(self, user_input: str) -> str:
         """
@@ -763,6 +776,30 @@ class ChatAgent:
                 'stage': '用户表达习惯上下文'
             })
             debug_logger.log_info('ChatAgent', '已添加用户表达习惯上下文')
+        
+        # 添加MCP上下文（如果启用）
+        if self.mcp_manager.enable_mcp:
+            # 添加当前对话上下文到MCP
+            self.mcp_manager.add_context({
+                'user_input': user_input,
+                'character': self.character.name,
+                'conversation_round': current_rounds
+            })
+            
+            # 获取MCP工具列表上下文
+            available_tools = self.mcp_manager.get_available_tools()
+            if available_tools:
+                tools_desc = "可用的MCP工具：\n" + "\n".join(
+                    f"- {t['name']}: {t['description']}" for t in available_tools
+                )
+                messages.append({'role': 'system', 'content': f"【MCP工具】\n{tools_desc}"})
+                debug_logger.log_prompt('ChatAgent', 'system', tools_desc, {
+                    'stage': 'MCP工具列表',
+                    'tools_count': len(available_tools)
+                })
+                debug_logger.log_info('ChatAgent', '已添加MCP工具上下文', {
+                    'tools_count': len(available_tools)
+                })
 
         # 添加知识库上下文（如果有相关知识）
         all_knowledge = relevant_knowledge.get('all_knowledge', [])
