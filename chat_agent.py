@@ -1222,6 +1222,18 @@ class ChatAgent:
             character_context
         )
 
+        # 保存协作日志到事件元数据
+        if 'collaboration_logs' in result:
+            import json
+            event.metadata['collaboration_logs'] = result['collaboration_logs']
+            # 更新数据库中的元数据
+            with self.db.get_connection() as conn:
+                conn.execute('''
+                    UPDATE events 
+                    SET metadata = ?
+                    WHERE event_id = ?
+                ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
+
         # 记录处理结果
         self.event_manager.add_event_log(
             event.event_id,
@@ -1229,19 +1241,13 @@ class ChatAgent:
             f"处理结果: {result.get('message', '未知')}"
         )
 
-        # 更新事件状态
-        if result.get('success'):
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.COMPLETED,
-                '任务已成功完成'
-            )
-        else:
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.FAILED,
-                f"任务失败: {result.get('error', '未知错误')}"
-            )
+        # 任务执行完成后，直接标记为已完成，不进行评价
+        # 将结果提交给用户
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.COMPLETED,
+            '任务执行完成，结果已提交给用户'
+        )
 
         debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
             'event_id': event.event_id,
@@ -1283,10 +1289,19 @@ class ChatAgent:
                 # 处理任务型事件
                 result = self.process_task_event(event)
                 
-                if result.get('success'):
-                    return f"✅ 【任务完成】{event.title}\n\n{result.get('message', '任务已成功完成')}"
-                else:
-                    return f"❌ 【任务失败】{event.title}\n\n{result.get('error', '任务执行失败')}"
+                # 构建返回消息，包含执行结果概要
+                message = f"✅ 【任务执行完成】{event.title}\n\n"
+                message += f"{result.get('message', '任务已完成')}\n\n"
+                
+                # 添加执行结果摘要
+                if 'execution_results' in result and result['execution_results']:
+                    message += "执行步骤摘要：\n"
+                    for i, step_result in enumerate(result['execution_results'], 1):
+                        step_desc = step_result.get('step', f'步骤{i}')
+                        message += f"{i}. {step_desc}\n"
+                    message += f"\n💡 提示：点击「查看协作详情」按钮可查看完整的智能体协作过程。"
+                
+                return message
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"
