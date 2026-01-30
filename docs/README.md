@@ -7,25 +7,35 @@ This directory contains all documentation for the Neo Agent project.
 
 ```
 docs/
-├── zh-cn/              # 中文文档 / Chinese Documentation
-│   ├── API.md              # API 接口文档
-│   ├── ARCHITECTURE.md     # 系统架构设计文档
+├── zh-cn/                  # 中文文档 / Chinese Documentation
+│   ├── API.md                  # API 接口文档
+│   ├── ARCHITECTURE.md         # 系统架构设计文档
 │   ├── ARCHITECTURE_EVENT_SYSTEM.md  # 事件系统架构图
-│   ├── DEVELOPMENT.md      # 开发指南
-│   ├── EVENT_SYSTEM.md     # 事件系统使用文档
+│   ├── DEVELOPMENT.md          # 开发指南
+│   ├── EVENT_SYSTEM.md         # 事件系统使用文档
 │   ├── IMPLEMENTATION_SUMMARY.md  # 实现总结
 │   ├── KNOWLEDGE_STATUS_SYSTEM.md  # 知识状态系统
-│   └── QUICKSTART.md       # 快速开始指南
+│   ├── DOMAIN_FEATURE.md       # 环境域功能文档
+│   ├── GUI_DOMAIN_FEATURE.md   # GUI域管理功能
+│   └── QUICKSTART.md           # 快速开始指南
 │
-└── en/                 # 英文文档 / English Documentation
-    ├── API.md              # API Documentation
-    ├── ARCHITECTURE.md     # Architecture Design
-    ├── ARCHITECTURE_EVENT_SYSTEM.md  # Event System Architecture
-    ├── DEVELOPMENT.md      # Development Guide
-    ├── EVENT_SYSTEM.md     # Event System Documentation
-    ├── IMPLEMENTATION_SUMMARY.md  # Implementation Summary
-    ├── KNOWLEDGE_STATUS_SYSTEM.md  # Knowledge Status System
-    └── QUICKSTART.md       # Quick Start Guide
+├── en/                     # 英文文档 / English Documentation
+│   ├── API.md                  # API Documentation
+│   ├── ARCHITECTURE.md         # Architecture Design
+│   ├── ARCHITECTURE_EVENT_SYSTEM.md  # Event System Architecture
+│   ├── DEVELOPMENT.md          # Development Guide
+│   ├── EVENT_SYSTEM.md         # Event System Documentation
+│   ├── IMPLEMENTATION_SUMMARY.md  # Implementation Summary
+│   ├── KNOWLEDGE_STATUS_SYSTEM.md  # Knowledge Status System
+│   ├── DOMAIN_FEATURE.md       # Domain Feature Documentation
+│   ├── GUI_DOMAIN_FEATURE.md   # GUI Domain Management
+│   └── QUICKSTART.md           # Quick Start Guide
+│
+├── INDEX.md                # 文档索引 / Documentation Index
+├── README.md               # 本文件
+├── GUI_OPTIMIZATION.md     # GUI优化文档
+├── GUI_OPTIMIZATION_SUMMARY.md  # GUI优化总结
+└── GUI_OPTIMIZATION_COMPARISON.md  # GUI优化对比
 ```
 
 ## 📖 中文文档 / Chinese Documentation
@@ -46,6 +56,8 @@ docs/
 - **[事件系统架构](zh-cn/ARCHITECTURE_EVENT_SYSTEM.md)** - 事件系统架构图和设计
 - **[实现总结](zh-cn/IMPLEMENTATION_SUMMARY.md)** - 事件系统实现总结
 - **[知识状态系统](zh-cn/KNOWLEDGE_STATUS_SYSTEM.md)** - 知识状态管理
+- **[环境域功能](zh-cn/DOMAIN_FEATURE.md)** - 域概念和环境管理
+- **[GUI域管理](zh-cn/GUI_DOMAIN_FEATURE.md)** - 可视化域管理界面
 
 ## 📖 English Documentation
 
@@ -65,6 +77,8 @@ docs/
 - **[Event System Architecture](en/ARCHITECTURE_EVENT_SYSTEM.md)** - Event system architecture diagrams
 - **[Implementation Summary](en/IMPLEMENTATION_SUMMARY.md)** - Event system implementation summary
 - **[Knowledge Status System](en/KNOWLEDGE_STATUS_SYSTEM.md)** - Knowledge status management
+- **[Domain Feature](en/DOMAIN_FEATURE.md)** - Domain concept and environment management
+- **[GUI Domain Management](en/GUI_DOMAIN_FEATURE.md)** - Visual domain management interface
 
 ## 🔗 相关链接 / Related Links
 
@@ -97,4 +111,4 @@ Documentation is licensed under MIT License.
 
 ---
 
-最后更新 / Last Updated: 2025-01-07
+最后更新 / Last Updated: 2026-01-30

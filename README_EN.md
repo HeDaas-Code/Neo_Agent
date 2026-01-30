@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md)
 
-Neo Agent is an intelligent dialogue agent system based on LangChain, featuring role-playing, long-term memory management, and emotional relationship analysis. Through hierarchical memory architecture and knowledge base management, it delivers an intelligent conversation experience with persistent memory capabilities.
+Neo Agent is an intelligent dialogue agent system based on LangChain, featuring role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management. Through hierarchical memory architecture, knowledge base management, and event-driven systems, it delivers an intelligent conversation experience with persistent memory capabilities and multi-modal interaction.
 
 ## ✨ Key Features
 
@@ -10,26 +10,31 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Short-term Memory**: Stores detailed content of the last 20 conversation rounds
 - **Long-term Memory**: Automatically generates summaries of historical conversations
 - **Knowledge Base**: Extracts and persists knowledge from conversations
-- **Base Knowledge**: Preset immutable core knowledge
+- **Base Knowledge**: Preset immutable core knowledge (highest priority)
 
 ### 💭 Intelligent Conversation
-- **Role-playing**: Support for custom character settings and personalities
+- **Role-playing**: Support for custom character settings, personalities, and backgrounds
 - **Continuous Dialogue**: Context-aware multi-turn conversations
 - **Memory Retrieval**: Intelligent recall of relevant historical memories
 - **Emotional Understanding**: Analyzes emotional tendencies in conversations
 
 ### 📊 Emotional Relationship Analysis
 - **Impression Evaluation**: Generate detailed impressions of users based on character settings
-- **Intelligent Scoring**: Provide 0-100 point scores based on positive/negative impression tendencies
+- **Cumulative Scoring**: Maintains an accumulated emotion score (0-100)
+  - Initial Assessment (after 5 rounds): Generates base score of 0-35
+  - Update Assessment (every 15 rounds): Incremental adjustment of -3 to +3
 - **Visual Display**: Score ring for intuitive emotional relationship status visualization
-- **Dynamic Updates**: Real-time emotional impression updates based on the last 15 conversation rounds
+- **Relationship Classification**: Summarizes relationship type and emotional tone
 
 ### 🖥️ Graphical User Interface
 - **Modern Interface**: User-friendly GUI based on Tkinter
 - **Real-time Chat**: Smooth chat experience
 - **Data Visualization**: Emotion radar chart, timeline display
-- **Database Management**: Visual management of all stored data
-- **Debug Tools**: Real-time system logs and API call monitoring
+- **Independent Feature Tabs**:
+  - 📅 Schedule Management: Standalone schedule management function
+  - 📋 Event Management: Event creation, triggering, and management
+  - 💾 Database Management: Visual management of all stored data
+  - 🔧 Debug Logs: Real-time system logs and API call monitoring
 
 ### 🗄️ Data Management
 - **SQLite Storage**: Unified database management
@@ -37,16 +42,49 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Backup & Restore**: Complete data import/export
 - **Query Optimization**: Efficient data retrieval
 
-### 🔧 Extended Features
-- **Intelligent Vision**: Uses LLM to intelligently determine if environmental information is needed, simulating visual perception through environment descriptions
-  - LLM Intelligent Detection: Understands semantics, recognizes questions like "Where are you?" that implicitly require environmental information
-  - Keyword Matching Fallback: Automatically downgrades to keyword matching when LLM is unavailable
-- **Personalized Expression Style**: Manage agent's unique expressions and learn user habits
-  - Agent Expression Management: Define personalized expressions like 'wc', 'hhh' with their meanings
-  - User Habit Learning: Automatically identify and summarize user expression habits
-  - Dynamic Prompt Injection: Integrate expression style into conversation generation
+### 📅 Event-Driven System
+- **Notification Events**: Agent immediately understands and explains external information
+- **Task Events**: Multi-agent collaboration for complex tasks
+  - Understanding Agent: Analyzes task requirements
+  - Planning Agent: Breaks down tasks into steps
+  - Execution Agent: Completes tasks step by step
+  - Verification Agent: Validates task completion
+- **Interrupt Questions**: Ask users for information during task execution
+- **Narrator-style Progress**: Real-time task processing progress display
+- **Visual Management**: GUI interface for managing and triggering events
+
+### 📆 Intelligent Schedule Management
+- **Three Schedule Types**:
+  - Recurring: Repeatable fixed schedules (e.g., weekly class schedule), CRITICAL priority
+  - Appointment: Created by user mention or intent recognition, MEDIUM priority
+  - Temporary: Auto-generated by LLM during free time slots, LOW priority
+- **Smart Conflict Detection**: Auto-detects time conflicts, higher priority overrides lower
+- **Similarity Check**: Uses LLM to detect similar schedules on the same day, intelligently decides which to keep
+- **Collaboration Confirmation**: Temporary schedules involving user participation require confirmation
+- **Natural Language Recognition**: Understands expressions like "meeting at 3pm tomorrow"
+- **Smart Generation**: Auto-generates activities matching character traits when querying schedules
+- **Context Integration**: Schedule info naturally integrates into conversations
+- **Standalone GUI Management**: Complete CRUD interface, filters, collaboration confirmation
+
+### 👁️ Environment Domain System
+- **Environment Description**: Simulates agent's visual perception capability
+- **Domain Concept**: Organizes multiple environments into a whole
+  - Example: "Xiao Ke's Home" = Bedroom + Living Room + Kitchen
+- **Precision Control**:
+  - Low Precision (Domain Level): "Where are you?" → "I'm at Xiao Ke's home"
+  - High Precision (Environment Level): "What's around?" → Detailed environment description
+- **Inter-domain Navigation**: Supports automatic positioning to default environment when switching domains
+- **LLM Smart Detection**: Understands semantics, recognizes implicit environment information needs
+
+### 🎨 Personalized Expression System
+- **Agent Expression Management**: Define personalized expressions like 'wc', 'hhh' with meanings
+- **User Habit Learning**: Automatically identify and summarize user expression habits
+- **Dynamic Prompt Injection**: Integrate expression style into conversation generation
+
+### 🔧 Development Tools
 - **Debug Logging**: Detailed system operation logs
 - **Flexible Configuration**: Easy setup through environment variables
+- **Tooltips**: GUI interface ToolTip hints
 
 ## 📋 System Requirements
 
@@ -113,6 +151,13 @@ python gui_enhanced.py
 - [API Documentation](docs/en/API.md) - Detailed API interface documentation
 - [Architecture Design](docs/en/ARCHITECTURE.md) - System architecture and design principles
 
+### Advanced Features
+
+- [Event System Documentation](docs/en/EVENT_SYSTEM.md) - Event-driven module usage guide
+- [Event System Architecture](docs/en/ARCHITECTURE_EVENT_SYSTEM.md) - Event system architecture diagrams
+- [Domain Feature](docs/en/DOMAIN_FEATURE.md) - Environment domain system guide
+- [GUI Domain Management](docs/en/GUI_DOMAIN_FEATURE.md) - Visual domain management interface
+
 ### More Documentation
 
 All documentation has been organized in the [docs](docs/) folder with bilingual support (Chinese and English).
@@ -121,23 +166,31 @@ All documentation has been organized in the [docs](docs/) folder with bilingual 
 
 ```
 Neo_Agent/
-├── gui_enhanced.py           # Main GUI interface
-├── chat_agent.py            # Dialogue agent core
-├── database_manager.py      # Database management
-├── long_term_memory.py      # Long-term memory management
-├── knowledge_base.py        # Knowledge base management
-├── emotion_analyzer.py      # Emotional analysis
-├── agent_vision.py          # Vision tools
-├── event_manager.py         # Event management
+├── gui_enhanced.py              # Main GUI interface
+├── chat_agent.py               # Dialogue agent core
+├── database_manager.py         # Database management
+├── database_gui.py             # Database GUI management
+├── long_term_memory.py         # Long-term memory management
+├── knowledge_base.py           # Knowledge base management
+├── base_knowledge.py           # Base knowledge (immutable core)
+├── emotion_analyzer.py         # Emotional analysis
+├── agent_vision.py             # Vision tools (environment domain)
+├── event_manager.py            # Event management
 ├── multi_agent_coordinator.py  # Multi-agent collaboration
 ├── interrupt_question_tool.py  # Interrupt question tool
-├── expression_style.py      # Expression style management
-├── debug_logger.py          # Debug logging
-├── database_gui.py          # Database GUI management
-├── base_knowledge.py        # Base knowledge management
-├── requirements.txt         # Project dependencies
-├── example.env             # Environment variable example
-└── README.md               # Project documentation
+├── schedule_manager.py         # Schedule management core
+├── schedule_gui.py             # Schedule management standalone GUI
+├── schedule_intent_tool.py     # Schedule intent recognition
+├── schedule_generator.py       # Temporary schedule generation
+├── schedule_similarity_checker.py  # Schedule similarity check
+├── expression_style.py         # Expression style management
+├── debug_logger.py             # Debug logging
+├── tooltip_utils.py            # Tooltip components
+├── tests/                      # Unit test directory
+├── docs/                       # Documentation (bilingual)
+├── requirements.txt            # Project dependencies
+├── example.env                 # Environment variable example
+└── README.md                   # Project documentation
 ```
 
 ## 🎯 Use Cases
@@ -175,15 +228,29 @@ Configure character basics through the `.env` file:
 - Real-time conversation support
 - Historical message display
 - Automatic conversation logging
+- Role-playing conversations
 
 ### Emotional Analysis
 - Click "Analyze Emotional Relationship" button
 - View impression score and detailed impression description
 - Understand current emotional state and relationship type
+- Cumulative scoring system (0-100)
+
+### Schedule Management
+- Standalone "📅 Schedule Management" tab
+- Add/Edit/Delete schedules
+- Filters (by type/date/status)
+- Collaboration confirmation
+
+### Event Management
+- Create notification/task events
+- Trigger events and view processing results
+- Multi-agent collaboration for complex tasks
 
 ### Database Management
 - View all memory data
 - Manage knowledge base content
+- Environment domain management
 - Import/export data
 
 ## 🛠️ Development
@@ -197,9 +264,9 @@ DEBUG_LOG_FILE=debug.log
 ```
 
 ### Extension Development
-1. Check [Development Guide](DEVELOPMENT_EN.md) for project structure
-2. Refer to [API Documentation](API_EN.md) for interface definitions
-3. Read [Architecture Design](ARCHITECTURE_EN.md) for system design
+1. Check [Development Guide](docs/en/DEVELOPMENT.md) for project structure
+2. Refer to [API Documentation](docs/en/API.md) for interface definitions
+3. Read [Architecture Design](docs/en/ARCHITECTURE.md) for system design
 
 ## 🤝 Contributing
 
