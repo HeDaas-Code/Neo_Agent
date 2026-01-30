@@ -1289,19 +1289,17 @@ class ChatAgent:
                 # 处理任务型事件
                 result = self.process_task_event(event)
                 
-                # 构建返回消息，包含执行结果概要
-                message = f"✅ 【任务执行完成】{event.title}\n\n"
-                message += f"{result.get('message', '任务已完成')}\n\n"
-                
-                # 添加执行结果摘要
+                # 获取最后一次任务执行专家的结果输出
                 if 'execution_results' in result and result['execution_results']:
-                    message += "执行步骤摘要：\n"
-                    for i, step_result in enumerate(result['execution_results'], 1):
-                        step_desc = step_result.get('step', f'步骤{i}')
-                        message += f"{i}. {step_desc}\n"
-                    message += f"\n💡 提示：点击「查看协作详情」按钮可查看完整的智能体协作过程。"
-                
-                return message
+                    # 获取最后一个执行步骤的输出
+                    last_result = result['execution_results'][-1]
+                    final_output = last_result.get('output', '')
+                    
+                    # 使用正常的智能体回复模式，直接返回最后的执行结果
+                    return final_output if final_output else result.get('message', '任务已完成')
+                else:
+                    # 如果没有执行结果，返回基本消息
+                    return result.get('message', '任务已完成')
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"
