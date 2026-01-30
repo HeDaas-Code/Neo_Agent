@@ -1544,7 +1544,7 @@ class EnhancedChatDebugGUI:
 
         # 事件基本信息
         info_frame = ttk.LabelFrame(container, text="基本信息", padding=10)
-        info_frame.pack(fill=tk.X, pady=(0, 10))
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         event_dict = event.to_dict()
         info_text = f"""事件ID: {event_dict['event_id']}
@@ -1567,13 +1567,17 @@ class EnhancedChatDebugGUI:
 完成标准:
 {event_dict['metadata'].get('completion_criteria', '')}"""
 
-        info_label = ttk.Label(
+        info_text_widget = scrolledtext.ScrolledText(
             info_frame,
-            text=info_text,
+            wrap=tk.WORD,
             font=("微软雅黑", 9),
-            justify=tk.LEFT
+            height=10,
+            relief=tk.FLAT,
+            background="#f8f9fa"
         )
-        info_label.pack(anchor=tk.W)
+        info_text_widget.pack(fill=tk.BOTH, expand=True)
+        info_text_widget.insert(tk.END, info_text)
+        info_text_widget.config(state=tk.DISABLED)
 
         # 处理日志
         log_frame = ttk.LabelFrame(container, text="处理日志", padding=10)
