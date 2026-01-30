@@ -86,6 +86,13 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Flexible Configuration**: Easy setup through environment variables
 - **Tooltips**: GUI interface ToolTip hints
 
+### 🔌 MCP Support (Experimental Feature)
+- **Tool Integration**: Register and call custom tools
+- **Resource Management**: Unified resource access interface
+- **Prompt Templates**: Reusable prompt template system
+- **Context Management**: Automatically maintains conversation context
+- **Detailed Documentation**: See [MCP Support Documentation](docs/en/MCP_SUPPORT.md)
+
 ## 📋 System Requirements
 
 - Python 3.8 or higher
