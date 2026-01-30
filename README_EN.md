@@ -36,6 +36,11 @@ Neo Agent is an intelligent dialogue agent system based on LangChain, featuring 
 - **Data Migration**: Automatic migration from JSON to database
 - **Backup & Restore**: Complete data import/export
 - **Query Optimization**: Efficient data retrieval
+- **Settings Migration**: Quick export and import of agent settings, supporting cross-environment migration
+  - Export .env configuration and database data to a single JSON file
+  - Support selective export (customizable data categories)
+  - Automatically backup existing configuration during import
+  - Visual preview of import content
 
 ### 🔧 Extended Features
 - **Intelligent Vision**: Uses LLM to intelligently determine if environmental information is needed, simulating visual perception through environment descriptions
@@ -124,6 +129,8 @@ Neo_Agent/
 ├── gui_enhanced.py           # Main GUI interface
 ├── chat_agent.py            # Dialogue agent core
 ├── database_manager.py      # Database management
+├── settings_migration.py    # Settings migration management
+├── settings_migration_gui.py # Settings migration GUI
 ├── long_term_memory.py      # Long-term memory management
 ├── knowledge_base.py        # Knowledge base management
 ├── emotion_analyzer.py      # Emotional analysis
@@ -185,6 +192,23 @@ Configure character basics through the `.env` file:
 - View all memory data
 - Manage knowledge base content
 - Import/export data
+
+### Settings Migration and Restore
+1. **Export Settings**: Select the "📦 Settings Migration" tab in the main interface
+   - Choose data categories to export (base knowledge, entities, memories, emotion history, etc.)
+   - Optionally include .env configuration
+   - Click "Export Settings" to save as a JSON file
+2. **Import Settings**:
+   - Select the exported JSON file in the import tab
+   - Click "Preview Import Content" to view file details
+   - Choose data categories to import
+   - Optionally overwrite existing data (use with caution)
+   - Click "Execute Import" to complete the import
+3. **Use Cases**:
+   - Migrate agent settings between different devices
+   - Backup the complete state of the current agent
+   - Quickly initialize new agent instances
+   - Share pre-configured agent settings
 
 ## 🛠️ Development
 
