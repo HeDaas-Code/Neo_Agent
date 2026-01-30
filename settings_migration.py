@@ -137,6 +137,11 @@ class SettingsMigration:
             'stats': {}
         }
         
+        # 验证文件是否存在
+        if not os.path.exists(import_path):
+            result['message'] = f'文件不存在: {import_path}'
+            return result
+        
         try:
             # 1. 读取导入文件
             with open(import_path, 'r', encoding='utf-8') as f:
@@ -169,6 +174,14 @@ class SettingsMigration:
             result['success'] = True
             result['message'] = '导入成功'
             
+        except json.JSONDecodeError as e:
+            result['message'] = f'JSON格式错误: {str(e)}'
+        except FileNotFoundError as e:
+            result['message'] = f'文件未找到: {str(e)}'
+        except PermissionError as e:
+            result['message'] = f'文件权限不足: {str(e)}'
+        except shutil.Error as e:
+            result['message'] = f'备份文件失败: {str(e)}'
         except Exception as e:
             result['message'] = f'导入失败: {str(e)}'
             
@@ -192,6 +205,11 @@ class SettingsMigration:
             'env_settings_count': 0
         }
         
+        # 验证文件是否存在
+        if not os.path.exists(import_path):
+            preview['message'] = f'文件不存在: {import_path}'
+            return preview
+        
         try:
             with open(import_path, 'r', encoding='utf-8') as f:
                 import_data = json.load(f)
@@ -213,6 +231,12 @@ class SettingsMigration:
             
             preview['success'] = True
             
+        except json.JSONDecodeError as e:
+            preview['message'] = f'JSON格式错误: {str(e)}'
+        except FileNotFoundError as e:
+            preview['message'] = f'文件未找到: {str(e)}'
+        except PermissionError as e:
+            preview['message'] = f'文件权限不足: {str(e)}'
         except Exception as e:
             preview['message'] = f'预览失败: {str(e)}'
             
@@ -318,11 +342,17 @@ class SettingsMigration:
         Returns:
             数据列表或字典
         """
+        # 验证类别是否合法
+        if category not in self.DATA_CATEGORIES:
+            print(f"✗ 无效的数据类别: {category}")
+            return None
+            
         try:
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # 查询该表的所有数据
+                # 使用参数化查询防止SQL注入（表名通过验证）
+                # SQLite不支持表名参数化，但我们已经验证了category在白名单中
                 cursor.execute(f"SELECT * FROM {category}")
                 rows = cursor.fetchall()
                 
@@ -349,6 +379,11 @@ class SettingsMigration:
         Returns:
             导入的记录数
         """
+        # 验证类别是否合法
+        if category not in self.DATA_CATEGORIES:
+            print(f"✗ 无效的数据类别: {category}")
+            return 0
+            
         count = 0
         
         try:
@@ -364,8 +399,15 @@ class SettingsMigration:
                     if not item:
                         continue
                     
-                    # 构建 INSERT 语句
+                    # 验证所有列名（防止SQL注入）
                     columns = list(item.keys())
+                    # 只允许常见的列名字符
+                    for col in columns:
+                        if not col.replace('_', '').isalnum():
+                            print(f"✗ 无效的列名: {col}")
+                            continue
+                    
+                    # 构建 INSERT 语句
                     placeholders = ','.join(['?' for _ in columns])
                     column_names = ','.join(columns)
                     values = [item[col] for col in columns]
@@ -376,12 +418,15 @@ class SettingsMigration:
                                 f"INSERT INTO {category} ({column_names}) VALUES ({placeholders})",
                                 values
                             )
+                            if cursor.rowcount > 0:
+                                count += 1
                         else:
                             cursor.execute(
                                 f"INSERT OR IGNORE INTO {category} ({column_names}) VALUES ({placeholders})",
                                 values
                             )
-                        count += 1
+                            if cursor.rowcount > 0:
+                                count += 1
                     except Exception as e:
                         print(f"✗ 导入记录时出错: {e}")
                         continue

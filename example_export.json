@@ -1,0 +1,39 @@
+{
+  "export_info": {
+    "version": "1.0",
+    "exported_at": "2026-01-30T12:34:56.789012",
+    "agent_name": "小可"
+  },
+  "env_settings": {
+    "CHARACTER_NAME": "小可",
+    "CHARACTER_GENDER": "女",
+    "CHARACTER_AGE": "18",
+    "CHARACTER_ROLE": "学生",
+    "MODEL_NAME": "deepseek-ai/DeepSeek-V3",
+    "TEMPERATURE": "0.8"
+  },
+  "database_data": {
+    "base_knowledge": [
+      {
+        "id": 1,
+        "entity_name": "Python",
+        "content": "Python是一种高级编程语言",
+        "category": "技术"
+      }
+    ],
+    "short_term_memory": [
+      {
+        "id": 1,
+        "role": "user",
+        "content": "你好",
+        "timestamp": "2026-01-30T12:00:00"
+      },
+      {
+        "id": 2,
+        "role": "assistant",
+        "content": "你好！很高兴见到你！",
+        "timestamp": "2026-01-30T12:00:01"
+      }
+    ]
+  }
+}
