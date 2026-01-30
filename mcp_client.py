@@ -17,7 +17,12 @@ class MCPClient:
     """
     MCP客户端
     实现基于Model Context Protocol的上下文管理和工具调用
+    
+    警告：这是一个实验性功能，API可能会在未来版本中发生变化。
     """
+    
+    # 上下文最大数量限制
+    MAX_CONTEXTS = 100
     
     def __init__(self):
         """
@@ -35,7 +40,7 @@ class MCPClient:
         self,
         name: str,
         description: str,
-        handler: Callable,
+        handler: Callable[[Dict[str, Any]], Any],
         parameters: Optional[Dict[str, Any]] = None
     ):
         """
@@ -122,7 +127,7 @@ class MCPClient:
         """
         if tool_name not in self.tools:
             error_msg = f"工具未找到: {tool_name}"
-            debug_logger.log_info("MCPClient", error_msg, {"available_tools": list(self.tools.keys())})
+            debug_logger.log_error("MCPClient", error_msg, None)
             return {
                 "success": False,
                 "error": error_msg
@@ -143,11 +148,8 @@ class MCPClient:
                 "result": result
             }
         except Exception as e:
-            error_msg = f"工具执行失败: {str(e)}"
-            debug_logger.log_info("MCPClient", error_msg, {
-                "tool_name": tool_name,
-                "error": str(e)
-            })
+            error_msg = "工具执行失败，请稍后重试"
+            debug_logger.log_error("MCPClient", f"工具执行失败: {tool_name}", e)
             return {
                 "success": False,
                 "error": error_msg
@@ -165,7 +167,7 @@ class MCPClient:
         """
         if uri not in self.resources:
             error_msg = f"资源未找到: {uri}"
-            debug_logger.log_info("MCPClient", error_msg, {"available_resources": list(self.resources.keys())})
+            debug_logger.log_error("MCPClient", error_msg, None)
             return {
                 "success": False,
                 "error": error_msg
@@ -193,7 +195,7 @@ class MCPClient:
         """
         if name not in self.prompts:
             error_msg = f"提示词未找到: {name}"
-            debug_logger.log_info("MCPClient", error_msg, {"available_prompts": list(self.prompts.keys())})
+            debug_logger.log_error("MCPClient", error_msg, None)
             return {
                 "success": False,
                 "error": error_msg
@@ -207,11 +209,8 @@ class MCPClient:
             try:
                 rendered = template.format(**arguments)
             except Exception as e:
-                error_msg = f"提示词渲染失败: {str(e)}"
-                debug_logger.log_info("MCPClient", error_msg, {
-                    "prompt_name": name,
-                    "error": str(e)
-                })
+                error_msg = "提示词渲染失败，请检查参数"
+                debug_logger.log_error("MCPClient", f"提示词渲染失败: {name}", e)
                 return {
                     "success": False,
                     "error": error_msg
@@ -230,6 +229,8 @@ class MCPClient:
         """
         添加上下文信息到MCP会话
         
+        自动维护上下文数量在MAX_CONTEXTS限制内，超过时移除最早的上下文
+        
         Args:
             context: 上下文信息字典
         """
@@ -240,6 +241,14 @@ class MCPClient:
         }
         
         self.contexts.append(context_with_meta)
+        
+        # 自动清理旧上下文，保持数量在限制内
+        if len(self.contexts) > self.MAX_CONTEXTS:
+            removed = self.contexts.pop(0)
+            debug_logger.log_info("MCPClient", "移除旧上下文", {
+                "removed_id": removed["context_id"],
+                "current_count": len(self.contexts)
+            })
         
         debug_logger.log_info("MCPClient", "MCP上下文已添加", {"context_id": context_with_meta["context_id"]})
     

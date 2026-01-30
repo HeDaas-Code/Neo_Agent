@@ -66,8 +66,40 @@ class MCPContextManager:
         def calculate(args: Dict[str, Any]) -> float:
             expression = args.get("expression", "")
             try:
-                # 安全的表达式求值
-                result = eval(expression, {"__builtins__": {}}, {})
+                # 安全的表达式求值 - 仅允许数字、运算符和括号
+                import re
+                # 验证表达式只包含安全字符
+                if not re.match(r'^[\d\s\+\-\*\/\(\)\.\,]+$', expression):
+                    raise ValueError("表达式包含不允许的字符")
+                
+                # 使用ast.literal_eval的安全替代方案
+                # 这里我们使用一个简单的数学计算器
+                import ast
+                import operator
+                
+                # 支持的运算符
+                operators = {
+                    ast.Add: operator.add,
+                    ast.Sub: operator.sub,
+                    ast.Mult: operator.mul,
+                    ast.Div: operator.truediv,
+                    ast.USub: operator.neg,
+                    ast.UAdd: operator.pos,
+                }
+                
+                def eval_expr(node):
+                    if isinstance(node, ast.Num):  # 数字
+                        return node.n
+                    elif isinstance(node, ast.BinOp):  # 二元运算
+                        return operators[type(node.op)](eval_expr(node.left), eval_expr(node.right))
+                    elif isinstance(node, ast.UnaryOp):  # 一元运算
+                        return operators[type(node.op)](eval_expr(node.operand))
+                    else:
+                        raise ValueError("不支持的表达式类型")
+                
+                # 解析并计算表达式
+                node = ast.parse(expression, mode='eval')
+                result = eval_expr(node.body)
                 return float(result)
             except Exception as e:
                 raise ValueError(f"计算错误: {str(e)}")
