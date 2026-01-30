@@ -6,10 +6,12 @@
 
 ```
 tests/
-├── __init__.py              # 测试包初始化文件
-├── README.md                # 本文件
-├── test_debug_logger.py     # DebugLogger 模块的单元测试
-└── test_event_manager.py    # EventManager 模块的单元测试
+├── __init__.py                  # 测试包初始化文件
+├── README.md                    # 本文件
+├── test_debug_logger.py         # DebugLogger 模块的单元测试
+├── test_event_manager.py        # EventManager 模块的单元测试
+├── test_schedule_manager.py     # ScheduleManager 模块的单元测试
+└── test_schedule_similarity.py  # 日程相似度检查的单元测试
 ```
 
 ## 测试覆盖的模块
@@ -17,6 +19,8 @@ tests/
 ### 已有测试
 - **DebugLogger** - 调试日志记录器
 - **EventManager** - 事件管理器
+- **ScheduleManager** - 日程管理器
+- **ScheduleSimilarityChecker** - 日程相似度检查器
 
 ### 需要添加测试的模块
 - **ExpressionStyleManager** - 表达风格管理器
@@ -26,6 +30,7 @@ tests/
 - **KnowledgeBase** - 知识库管理
 - **EmotionAnalyzer** - 情感分析
 - **MultiAgentCoordinator** - 多智能体协调器
+- **AgentVisionTool** - 视觉工具（环境域系统）
 
 ## 运行测试
 

@@ -36,6 +36,7 @@ Welcome to Neo Agent project documentation!
    - InterruptQuestionTool API
    - ExpressionStyleManager API
    - BaseKnowledge API
+   - ScheduleManager API
    - DebugLogger API
 
 #### 开发者指南 / Developer Guide
@@ -63,6 +64,7 @@ Welcome to Neo Agent project documentation!
    - 事件类型（通知型、任务型）
    - 事件处理流程
    - 中断性提问工具
+   - 多智能体协作
    - GUI使用指南
    - API参考
    - 最佳实践
@@ -86,6 +88,8 @@ Welcome to Neo Agent project documentation!
    - 域概念和架构
    - 数据库设计
    - 核心API使用
+   - 精度控制
+   - 域间导航
    - 实际使用场景
    - 最佳实践
 
@@ -94,6 +98,11 @@ Welcome to Neo Agent project documentation!
    - 域管理界面
    - 操作流程指南
    - 使用示例
+
+10. **[知识状态系统](zh-cn/KNOWLEDGE_STATUS_SYSTEM.md)** 📚
+    - 知识状态管理
+    - 状态转换
+    - API参考
 
 ### English Documentation
 
@@ -110,6 +119,7 @@ Welcome to Neo Agent project documentation!
    - Data Models
    - ExpressionStyleManager API
    - BaseKnowledge API
+   - ScheduleManager API
 
 #### Developer Guide
 3. **[Development Guide](en/DEVELOPMENT.md)** 🔧
@@ -132,6 +142,7 @@ Welcome to Neo Agent project documentation!
    - Event Types (Notification, Task)
    - Event Processing Flow
    - Interrupt Question Tool
+   - Multi-Agent Collaboration
    - GUI Usage Guide
    - API Reference
    - Best Practices
@@ -155,6 +166,8 @@ Welcome to Neo Agent project documentation!
    - Domain Concept and Architecture
    - Database Design
    - Core API Usage
+   - Precision Control
+   - Inter-domain Navigation
    - Use Cases
    - Best Practices
 
@@ -163,6 +176,11 @@ Welcome to Neo Agent project documentation!
    - Domain Management Interface
    - Operation Guide
    - Usage Examples
+
+10. **[Knowledge Status System](en/KNOWLEDGE_STATUS_SYSTEM.md)** 📚
+    - Knowledge Status Management
+    - Status Transitions
+    - API Reference
 
 ## 📖 按主题浏览 / Browse by Topic
 
@@ -179,6 +197,10 @@ Welcome to Neo Agent project documentation!
 ### 情感分析 / Emotion Analysis
 - [架构设计 - 情感分析层](zh-cn/ARCHITECTURE.md#5-情感分析层)
 - [API - EmotionRelationshipAnalyzer](zh-cn/API.md#emotionrelationshipanalyzer)
+
+### 日程管理系统 / Schedule Management System
+- [README - 日程管理功能](../README.md#-智能日程管理)
+- [API - ScheduleManager](zh-cn/API.md#schedulemanager)
 
 ### 事件驱动系统 / Event-Driven System
 - [事件系统文档](zh-cn/EVENT_SYSTEM.md) - 完整使用指南
@@ -197,6 +219,10 @@ Welcome to Neo Agent project documentation!
 - [API - DatabaseManager](zh-cn/API.md#databasemanager)
 - [开发指南 - DatabaseManager](zh-cn/DEVELOPMENT.md#databasemanager)
 
+### 表达风格 / Expression Style
+- [API - ExpressionStyleManager](zh-cn/API.md#expressionstylemanager)
+- [开发指南 - ExpressionStyleManager](zh-cn/DEVELOPMENT.md#expressionstylemanager)
+
 ### GUI开发 / GUI Development
 - [开发指南 - GUI开发](zh-cn/DEVELOPMENT.md#gui-开发)
 - [架构设计 - UI架构](zh-cn/ARCHITECTURE.md#ui-架构)
@@ -210,6 +236,7 @@ Welcome to Neo Agent project documentation!
 ### 调试与测试 / Debugging & Testing
 - [开发指南 - 调试技巧](zh-cn/DEVELOPMENT.md#调试技巧)
 - [开发指南 - 测试](zh-cn/DEVELOPMENT.md#测试)
+- [测试目录说明](../tests/README.md)
 
 ### 性能优化 / Performance Optimization
 - [开发指南 - 性能优化](zh-cn/DEVELOPMENT.md#性能优化)
@@ -241,4 +268,4 @@ Contributions welcome! See [Contributing Guide](en/DEVELOPMENT.md)
 - 支持中英文双语切换
 - 所有代码示例均可直接运行
 
-最后更新 / Last Updated: 2025-01-07
+最后更新 / Last Updated: 2026-01-30
