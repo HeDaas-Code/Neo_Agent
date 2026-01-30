@@ -6,12 +6,12 @@
 
 ```
 tests/
-├── __init__.py                  # 测试包初始化文件
-├── README.md                    # 本文件
-├── test_debug_logger.py         # DebugLogger 模块的单元测试
-├── test_event_manager.py        # EventManager 模块的单元测试
-├── test_schedule_manager.py     # ScheduleManager 模块的单元测试
-└── test_schedule_similarity.py  # 日程相似度检查的单元测试
+├── __init__.py                 # 测试包初始化文件
+├── README.md                   # 本文件
+├── test_debug_logger.py        # DebugLogger 模块的单元测试
+├── test_event_manager.py       # EventManager 模块的单元测试
+├── test_schedule_manager.py    # ScheduleManager 模块的单元测试
+└── test_schedule_similarity.py # 日程相似度检查的单元测试
 ```
 
 ## 测试覆盖的模块
