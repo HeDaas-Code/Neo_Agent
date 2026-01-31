@@ -23,6 +23,7 @@ from expression_style import ExpressionStyleManager
 from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from schedule_intent_tool import ScheduleIntentTool
 from schedule_generator import TemporaryScheduleGenerator
+from NPS import NPSRegistry, NPSInvoker
 
 # 加载环境变量
 load_dotenv()
@@ -190,30 +191,32 @@ class CharacterProfile:
         Returns:
             用于初始化AI的系统提示词
         """
-        prompt = f"""你现在要扮演一个角色，请严格按照以下人设进行对话：
+        prompt = f"""你是{self.name}，正在和用户通过即时通信软件（如QQ、微信）聊天。
 
-【基本信息】
+【你的人设】
 - 姓名：{self.name}
 - 性别：{self.gender}
 - 身份：{self.role}
 - 年龄：{self.age}岁
 - 身高：{self.height}
 - 体重：{self.weight}
+- 性格：{self.personality}
+- 爱好：{self.hobby}
+- 背景：{self.background}
 
-【性格特点】
-{self.personality}
+【聊天风格要求】
+你正在即时通信软件里和用户聊天，请给出日常且口语化的回复：
+1. 完全融入{self.name}这个角色，用第一人称"我"说话
+2. 回复要简短自然，像真人发消息一样
+3. 回复时不要太有条理，避免在回复中使用列表、序号等格式化内容
+4. 一次只聊一个话题，不要啰嗦或内容太乱
+5. 说话风格要符合你的性格特点，适当展现情感
+6. 记住之前聊过的内容，保持对话连贯
 
-【背景描述】
-{self.background}
+【输出限制】
+请注意不要输出多余内容（包括不必要的前后缀、冒号、括号、表情包说明、at或@等），只输出发言内容就好。
 
-【对话要求】
-1. 请完全融入{self.name}这个角色，用第一人称"我"来回答
-2. 说话风格要符合角色的性格特点
-3. 可以在对话中自然地提到你对{self.hobby}的喜爱和了解
-4. 保持连贯的对话记忆，记住之前聊过的内容
-5. 遇到问题时，可以适当展现你的情感和个性
-
-现在开始，你就是{self.name}！"""
+现在，你说："""
 
         return prompt
 
@@ -379,6 +382,11 @@ class ChatAgent:
         
         # 初始化临时日程生成器
         self.schedule_generator = TemporaryScheduleGenerator(schedule_manager=self.schedule_manager)
+        
+        # 初始化NPS工具系统
+        self.nps_registry = NPSRegistry()
+        self.nps_invoker = NPSInvoker(registry=self.nps_registry)
+        registered_tools = self.nps_registry.scan_and_register()
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -403,6 +411,13 @@ class ChatAgent:
               f"临时: {schedule_stats['temporary']})")
         if schedule_stats['pending_collaboration'] > 0:
             print(f"  ⚠️  有 {schedule_stats['pending_collaboration']} 个待确认的协作日程")
+        
+        # 显示NPS工具系统统计
+        nps_stats = self.nps_registry.get_statistics()
+        print(f"NPS工具系统: {nps_stats['total_tools']} 个工具 "
+              f"(已启用: {nps_stats['enabled_tools']})")
+        if registered_tools:
+            print(f"  已加载工具: {', '.join(registered_tools)}")
 
     def chat(self, user_input: str) -> str:
         """
@@ -597,17 +612,33 @@ class ChatAgent:
                 
                 debug_logger.log_info('ChatAgent', '日程查询完成', {'count': len(schedules)})
 
+        # 5. 调用NPS工具系统获取额外上下文
+        nps_context = None
+        nps_result = self.nps_invoker.invoke_relevant_tools(user_input)
+        if nps_result['has_context']:
+            nps_context = nps_result['context_info']
+            # 显示NPS工具调用提示
+            invoked_tools = [r['tool_name'] for r in nps_result['tools_invoked'] if r['success']]
+            if invoked_tools:
+                print(f"\n🔧 [NPS工具] 已调用: {', '.join(invoked_tools)}")
+            debug_logger.log_info('ChatAgent', 'NPS工具已调用', {
+                'tools_count': len(nps_result['tools_invoked']),
+                'context_length': len(nps_context)
+            })
+
         # 记录理解阶段的结果（用于调试）
         self._last_understanding = relevant_knowledge
         self._last_vision_context = vision_context
         self._last_schedule_context = schedule_context
         self._last_schedule_action = schedule_action_message
+        self._last_nps_context = nps_context
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
             'knowledge_count': len(relevant_knowledge.get('knowledge_items', [])),
             'vision_used': vision_context is not None,
-            'schedule_intent': intent_result.get('has_schedule_intent', False) if 'intent_result' in locals() else False
+            'schedule_intent': intent_result.get('has_schedule_intent', False) if 'intent_result' in locals() else False,
+            'nps_used': nps_context is not None
         })
 
         # 添加用户消息到记忆
@@ -799,6 +830,15 @@ class ChatAgent:
             messages.append({'role': 'system', 'content': f"【日程操作】{schedule_action_message}"})
             print(f"\n{schedule_action_message}\n")
             debug_logger.log_info('ChatAgent', '日程操作已执行', {'message': schedule_action_message})
+        
+        # 添加NPS工具上下文（如果有工具被调用）
+        if nps_context:
+            nps_prompt = self.nps_invoker.format_nps_prompt(nps_context)
+            messages.append({'role': 'system', 'content': nps_prompt})
+            debug_logger.log_prompt('ChatAgent', 'system', nps_prompt, {
+                'stage': 'NPS工具上下文',
+                'context_length': len(nps_context)
+            })
 
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
@@ -1222,6 +1262,18 @@ class ChatAgent:
             character_context
         )
 
+        # 保存协作日志到事件元数据
+        if 'collaboration_logs' in result:
+            import json
+            event.metadata['collaboration_logs'] = result['collaboration_logs']
+            # 更新数据库中的元数据
+            with self.db.get_connection() as conn:
+                conn.execute('''
+                    UPDATE events 
+                    SET metadata = ?
+                    WHERE event_id = ?
+                ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
+
         # 记录处理结果
         self.event_manager.add_event_log(
             event.event_id,
@@ -1229,19 +1281,13 @@ class ChatAgent:
             f"处理结果: {result.get('message', '未知')}"
         )
 
-        # 更新事件状态
-        if result.get('success'):
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.COMPLETED,
-                '任务已成功完成'
-            )
-        else:
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.FAILED,
-                f"任务失败: {result.get('error', '未知错误')}"
-            )
+        # 任务执行完成后，直接标记为已完成，不进行评价
+        # 将结果提交给用户
+        self.event_manager.update_event_status(
+            event.event_id,
+            EventStatus.COMPLETED,
+            '任务执行完成，结果已提交给用户'
+        )
 
         debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
             'event_id': event.event_id,
@@ -1283,10 +1329,17 @@ class ChatAgent:
                 # 处理任务型事件
                 result = self.process_task_event(event)
                 
-                if result.get('success'):
-                    return f"✅ 【任务完成】{event.title}\n\n{result.get('message', '任务已成功完成')}"
+                # 获取最后一次任务执行专家的结果输出
+                if 'execution_results' in result and result['execution_results']:
+                    # 获取最后一个执行步骤的输出
+                    last_result = result['execution_results'][-1]
+                    final_output = last_result.get('output', '')
+                    
+                    # 使用正常的智能体回复模式，直接返回最后的执行结果
+                    return final_output if final_output else result.get('message', '任务已完成')
                 else:
-                    return f"❌ 【任务失败】{event.title}\n\n{result.get('error', '任务执行失败')}"
+                    # 如果没有执行结果，返回基本消息
+                    return result.get('message', '任务已完成')
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"

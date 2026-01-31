@@ -1,0 +1,15 @@
+{
+    "tool_id": "systime",
+    "name": "系统时间",
+    "description": "获取当前系统时间，用于回答用户关于时间、日期、星期、时段的问题",
+    "module": "systime",
+    "function": "get_system_time",
+    "version": "1.0.0",
+    "author": "Neo Agent",
+    "keywords": [
+        "时间", "几点", "现在", "日期", "今天", "星期", "什么时候",
+        "时候", "早上", "中午", "下午", "晚上", "深夜", "凌晨",
+        "点钟", "点了", "多少点"
+    ],
+    "enabled": true
+}
