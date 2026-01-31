@@ -73,10 +73,28 @@ class AgentVisionTool:
         })
         
         try:
-            # 对用户输入进行简单清理，防止基本注入攻击
-            # 注意：这不能防止所有类型的prompt注入，仅作为基本防护
+            # 对用户输入进行清理和验证，防止prompt注入攻击
+            # 1. 移除可疑模式（系统提示、角色扮演等）
+            suspicious_patterns = [
+                'system:', 'assistant:', 'user:', 
+                'ignore previous', 'ignore all previous',
+                'new instructions', 'forget everything',
+                '###', '---', '```'
+            ]
+            
+            # 检查是否包含可疑模式
+            query_lower = user_query.lower()
+            for pattern in suspicious_patterns:
+                if pattern in query_lower:
+                    debug_logger.log_error('AgentVisionTool', f"检测到可疑输入模式: {pattern}", None)
+                    # 对于可疑输入，使用关键词匹配而非LLM
+                    return self._check_vision_keywords(user_query)
+            
+            # 2. 基本清理
             cleaned_query = user_query.replace('"', '\\"').replace('\n', ' ').strip()
-            if len(cleaned_query) > 500:  # 限制查询长度
+            
+            # 3. 限制查询长度
+            if len(cleaned_query) > 500:
                 cleaned_query = cleaned_query[:500]
             
             # 构建判断提示词

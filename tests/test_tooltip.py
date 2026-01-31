@@ -8,7 +8,7 @@ import sys
 import os
 
 # 使用相对路径导入
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from src.tools.tooltip_utils import ToolTip
 
 def main():
