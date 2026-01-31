@@ -66,17 +66,38 @@ class SettingsMigrationGUI:
         
     def _setup_export_ui(self):
         """设置导出界面"""
+        # 创建主滚动容器
+        main_canvas = tk.Canvas(self.export_frame, highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(self.export_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_main_frame = ttk.Frame(main_canvas)
+        
+        scrollable_main_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        main_canvas.create_window((0, 0), window=scrollable_main_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+        
+        # 绑定鼠标滚轮事件
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+        main_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10, padx=(0, 10))
+        
         # 说明文本
-        info_frame = ttk.LabelFrame(self.export_frame, text="说明", padding=10)
+        info_frame = ttk.LabelFrame(scrollable_main_frame, text="说明", padding=10)
         info_frame.pack(fill=tk.X, padx=10, pady=5)
         
         info_text = """导出功能可以将当前智能体的配置和数据保存到文件中，便于备份或迁移到其他环境。
 导出的文件包含 .env 配置和选定的数据库数据。"""
-        ttk.Label(info_frame, text=info_text, wraplength=750, justify=tk.LEFT).pack()
+        ttk.Label(info_frame, text=info_text, wraplength=700, justify=tk.LEFT).pack()
         
         # 导出选项
-        options_frame = ttk.LabelFrame(self.export_frame, text="导出选项", padding=10)
-        options_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        options_frame = ttk.LabelFrame(scrollable_main_frame, text="导出选项", padding=10)
+        options_frame.pack(fill=tk.X, padx=10, pady=5)
         
         # .env 配置选项
         self.export_env_var = tk.BooleanVar(value=True)
@@ -143,7 +164,7 @@ class SettingsMigrationGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # 导出按钮
-        button_frame = ttk.Frame(self.export_frame)
+        button_frame = ttk.Frame(scrollable_main_frame)
         button_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Button(
@@ -154,8 +175,8 @@ class SettingsMigrationGUI:
         ).pack(side=tk.RIGHT, padx=5)
         
         # 结果显示
-        result_frame = ttk.LabelFrame(self.export_frame, text="导出结果", padding=10)
-        result_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        result_frame = ttk.LabelFrame(scrollable_main_frame, text="导出结果", padding=10)
+        result_frame.pack(fill=tk.X, padx=10, pady=5)
         
         self.export_result_text = scrolledtext.ScrolledText(
             result_frame,
@@ -167,17 +188,38 @@ class SettingsMigrationGUI:
         
     def _setup_import_ui(self):
         """设置导入界面"""
+        # 创建主滚动容器
+        main_canvas = tk.Canvas(self.import_frame, highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(self.import_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_main_frame = ttk.Frame(main_canvas)
+        
+        scrollable_main_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        main_canvas.create_window((0, 0), window=scrollable_main_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+        
+        # 绑定鼠标滚轮事件
+        def _on_mousewheel(event):
+            main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        main_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+        main_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10, padx=(0, 10))
+        
         # 说明文本
-        info_frame = ttk.LabelFrame(self.import_frame, text="说明", padding=10)
+        info_frame = ttk.LabelFrame(scrollable_main_frame, text="说明", padding=10)
         info_frame.pack(fill=tk.X, padx=10, pady=5)
         
         info_text = """导入功能可以从导出的配置文件中恢复智能体设定。
 您可以选择是否导入 .env 配置和选择要导入的数据类别。
 建议先预览导入内容，确认无误后再执行导入。"""
-        ttk.Label(info_frame, text=info_text, wraplength=750, justify=tk.LEFT).pack()
+        ttk.Label(info_frame, text=info_text, wraplength=700, justify=tk.LEFT).pack()
         
         # 文件选择
-        file_frame = ttk.LabelFrame(self.import_frame, text="选择导入文件", padding=10)
+        file_frame = ttk.LabelFrame(scrollable_main_frame, text="选择导入文件", padding=10)
         file_frame.pack(fill=tk.X, padx=10, pady=5)
         
         file_select_frame = ttk.Frame(file_frame)
@@ -203,8 +245,8 @@ class SettingsMigrationGUI:
         ).pack(pady=(10, 0))
         
         # 导入选项
-        options_frame = ttk.LabelFrame(self.import_frame, text="导入选项", padding=10)
-        options_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        options_frame = ttk.LabelFrame(scrollable_main_frame, text="导入选项", padding=10)
+        options_frame.pack(fill=tk.X, padx=10, pady=5)
         
         # .env 配置选项
         self.import_env_var = tk.BooleanVar(value=True)
@@ -257,7 +299,7 @@ class SettingsMigrationGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # 导入按钮
-        button_frame = ttk.Frame(self.import_frame)
+        button_frame = ttk.Frame(scrollable_main_frame)
         button_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Button(
@@ -268,8 +310,8 @@ class SettingsMigrationGUI:
         ).pack(side=tk.RIGHT, padx=5)
         
         # 结果显示
-        result_frame = ttk.LabelFrame(self.import_frame, text="导入结果", padding=10)
-        result_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        result_frame = ttk.LabelFrame(scrollable_main_frame, text="导入结果", padding=10)
+        result_frame.pack(fill=tk.X, padx=10, pady=5)
         
         self.import_result_text = scrolledtext.ScrolledText(
             result_frame,
