@@ -35,10 +35,24 @@ class NPSInvoker:
         self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
         
-        # NPS LLM 判断配置
-        self.llm_temperature = float(os.getenv('NPS_LLM_TEMPERATURE', '0.3'))
-        self.llm_max_tokens = int(os.getenv('NPS_LLM_MAX_TOKENS', '100'))
-        self.llm_timeout = int(os.getenv('NPS_LLM_TIMEOUT', '10'))
+        # NPS LLM 判断配置（带错误处理）
+        try:
+            self.llm_temperature = float(os.getenv('NPS_LLM_TEMPERATURE', '0.3'))
+        except ValueError:
+            debug_logger.log_info('NPSInvoker', '无效的NPS_LLM_TEMPERATURE，使用默认值0.3')
+            self.llm_temperature = 0.3
+        
+        try:
+            self.llm_max_tokens = int(os.getenv('NPS_LLM_MAX_TOKENS', '100'))
+        except ValueError:
+            debug_logger.log_info('NPSInvoker', '无效的NPS_LLM_MAX_TOKENS，使用默认值100')
+            self.llm_max_tokens = 100
+        
+        try:
+            self.llm_timeout = int(os.getenv('NPS_LLM_TIMEOUT', '10'))
+        except ValueError:
+            debug_logger.log_info('NPSInvoker', '无效的NPS_LLM_TIMEOUT，使用默认值10')
+            self.llm_timeout = 10
         
         # 工具注册表
         self.registry = registry or NPSRegistry()
