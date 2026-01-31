@@ -8,7 +8,7 @@ import os
 import json
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from database_manager import DatabaseManager
@@ -789,10 +789,24 @@ class ChatAgent:
             # 获取MCP工具列表上下文
             available_tools = self.mcp_manager.get_available_tools()
             if available_tools:
-                tools_desc = "可用的MCP工具：\n" + "\n".join(
-                    f"- {t['name']}: {t['description']}" for t in available_tools
-                )
-                messages.append({'role': 'system', 'content': f"【MCP工具】\n{tools_desc}"})
+                # 构建工具描述和使用说明
+                tools_desc = "【MCP工具】\n你可以使用以下工具来获取信息或执行操作：\n\n"
+                for tool in available_tools:
+                    tools_desc += f"- **{tool['name']}**: {tool['description']}\n"
+                    if tool['parameters'].get('properties'):
+                        props = tool['parameters']['properties']
+                        if props:
+                            tools_desc += f"  参数: {', '.join(props.keys())}\n"
+                
+                tools_desc += "\n**工具使用方法**：\n"
+                tools_desc += "如果需要使用工具，请在回复中使用以下格式：\n"
+                tools_desc += "```tool\n"
+                tools_desc += "工具名称: tool_name\n"
+                tools_desc += "参数: {\"param1\": \"value1\"}\n"
+                tools_desc += "```\n"
+                tools_desc += "工具执行后，你会收到结果，然后请基于结果给用户友好的回复。\n"
+                
+                messages.append({'role': 'system', 'content': tools_desc})
                 debug_logger.log_prompt('ChatAgent', 'system', tools_desc, {
                     'stage': 'MCP工具列表',
                     'tools_count': len(available_tools)
@@ -860,12 +874,91 @@ class ChatAgent:
             'response_length': len(response)
         })
 
+        # ===== 检查并执行MCP工具调用 =====
+        if self.mcp_manager.enable_mcp:
+            tool_call_result = self._check_and_execute_mcp_tools(response, messages)
+            if tool_call_result:
+                # 如果执行了工具，使用工具执行后的最终回复
+                response = tool_call_result
+                debug_logger.log_info('ChatAgent', 'MCP工具执行后获得最终回复', {
+                    'response_length': len(response)
+                })
+
         # 添加助手回复到记忆（自动保存到数据库）
         self.memory_manager.add_message('assistant', response)
 
         debug_logger.log_module('ChatAgent', '对话处理完成', '已自动保存到数据库')
 
         return response
+    
+    def _check_and_execute_mcp_tools(self, response: str, messages: List[Dict[str, str]]) -> Optional[str]:
+        """
+        检查LLM回复中是否包含工具调用请求，如果有则执行工具并获取最终回复
+        
+        Args:
+            response: LLM的初始回复
+            messages: 当前的消息列表
+            
+        Returns:
+            如果执行了工具，返回基于工具结果的最终回复；否则返回None
+        """
+        import re
+        
+        # 检查是否包含工具调用标记
+        tool_pattern = r'```tool\s*\n工具名称:\s*(\w+)\s*\n参数:\s*(\{[^}]*\})\s*\n```'
+        match = re.search(tool_pattern, response)
+        
+        if not match:
+            # 没有工具调用
+            return None
+        
+        tool_name = match.group(1).strip()
+        try:
+            import json
+            tool_args = json.loads(match.group(2).strip())
+        except:
+            tool_args = {}
+        
+        debug_logger.log_info('ChatAgent', '检测到MCP工具调用请求', {
+            'tool_name': tool_name,
+            'arguments': tool_args
+        })
+        
+        # 执行工具
+        result = self.mcp_manager.call_tool(tool_name, tool_args)
+        
+        if not result['success']:
+            debug_logger.log_error('ChatAgent', f'MCP工具执行失败: {tool_name}', None)
+            # 工具执行失败，返回原始回复
+            return None
+        
+        tool_result = result['result']
+        debug_logger.log_info('ChatAgent', 'MCP工具执行成功', {
+            'tool_name': tool_name,
+            'result': str(tool_result)[:100]  # 只记录前100个字符
+        })
+        
+        # 将工具执行结果添加到消息列表，让LLM基于结果生成最终回复
+        messages_with_tool = messages.copy()
+        messages_with_tool.append({
+            'role': 'assistant',
+            'content': response
+        })
+        messages_with_tool.append({
+            'role': 'system',
+            'content': f"【工具执行结果】\n工具: {tool_name}\n结果: {tool_result}\n\n请基于以上工具执行结果，用符合你角色的方式回复用户。不要重复工具调用标记。"
+        })
+        
+        debug_logger.log_module('ChatAgent', '使用工具结果重新生成回复', f'工具: {tool_name}')
+        
+        # 重新调用LLM生成基于工具结果的回复
+        final_response = self.llm.chat(messages_with_tool)
+        
+        debug_logger.log_info('ChatAgent', '基于工具结果的最终回复生成完成', {
+            'response_length': len(final_response)
+        })
+        
+        return final_response
 
     def _build_knowledge_context(self, relevant_knowledge: Dict[str, Any]) -> str:
         """
