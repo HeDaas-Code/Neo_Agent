@@ -10,7 +10,7 @@ import tempfile
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from debug_logger import DebugLogger
+from src.tools.debug_logger import DebugLogger
 
 
 class TestDebugLogger(unittest.TestCase):

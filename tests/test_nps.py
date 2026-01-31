@@ -12,8 +12,8 @@ import shutil
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from NPS.nps_registry import NPSRegistry, NPSTool
-from NPS.nps_invoker import NPSInvoker
+from src.nps.nps_registry import NPSRegistry, NPSTool
+from src.nps.nps_invoker import NPSInvoker
 
 
 class TestNPSTool(unittest.TestCase):
