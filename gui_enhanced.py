@@ -1022,13 +1022,33 @@ class EnhancedChatDebugGUI:
             ttk.Label(db_tab, text=f"数据库管理界面加载失败:\n{str(e)}",
                      font=("微软雅黑", 10), foreground="red").pack(pady=50)
 
-        # 选项卡8: 控制面板
+        # 选项卡8: 设定迁移
+        migration_tab = ttk.Frame(notebook)
+        notebook.add(migration_tab, text="📦 设定迁移")
+        
+        # 导入并创建设定迁移GUI
+        try:
+            from settings_migration_gui import SettingsMigrationGUI
+            # 获取数据库管理器实例
+            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'db'):
+                migration_db_manager = self.agent.db
+            else:
+                from database_manager import DatabaseManager
+                migration_db_manager = DatabaseManager()
+            
+            # 创建设定迁移GUI（直接嵌入到tab中）
+            self.migration_gui = SettingsMigrationGUI(migration_tab, migration_db_manager)
+        except Exception as e:
+            ttk.Label(migration_tab, text=f"设定迁移界面加载失败:\n{str(e)}",
+                     font=("微软雅黑", 10), foreground="red").pack(pady=50)
+
+        # 选项卡9: 控制面板
         control_tab = ttk.Frame(notebook)
         notebook.add(control_tab, text="⚙️ 控制面板")
 
         self.create_control_panel(control_tab)
 
-        # 选项卡9: 日程管理
+        # 选项卡10: 日程管理
         schedule_tab = ttk.Frame(notebook)
         notebook.add(schedule_tab, text="📅 日程管理")
         
@@ -1047,7 +1067,7 @@ class EnhancedChatDebugGUI:
             ttk.Label(schedule_tab, text=f"日程管理界面加载失败:\n{str(e)}",
                      font=("微软雅黑", 10), foreground="red").pack(pady=50)
         
-        # 选项卡10: 事件管理
+        # 选项卡11: 事件管理
         event_tab = ttk.Frame(notebook)
         notebook.add(event_tab, text="📋 事件管理")
 
