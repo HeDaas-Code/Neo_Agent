@@ -1051,6 +1051,280 @@ class EnhancedChatDebugGUI:
         notebook.add(event_tab, text="📋 事件管理")
 
         self.create_event_management_panel(event_tab)
+        
+        # 选项卡11: MCP配置
+        mcp_tab = ttk.Frame(notebook)
+        notebook.add(mcp_tab, text="🔌 MCP配置")
+        
+        self.create_mcp_config_panel(mcp_tab)
+
+    def create_mcp_config_panel(self, parent):
+        """
+        创建MCP配置面板
+        
+        Args:
+            parent: 父容器
+        """
+        from mcp_config import MCPConfig
+        
+        # 加载MCP配置
+        try:
+            self.mcp_config = MCPConfig()
+        except Exception as e:
+            ttk.Label(parent, text=f"MCP配置加载失败:\n{str(e)}",
+                     font=("微软雅黑", 10), foreground="red").pack(pady=50)
+            return
+        
+        # 主容器
+        main_frame = ttk.Frame(parent, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(title_frame, text="MCP配置管理", 
+                 font=("微软雅黑", 14, "bold")).pack(side=tk.LEFT)
+        
+        # 创建笔记本（分标签页）
+        config_notebook = ttk.Notebook(main_frame)
+        config_notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # 标签页1: 基本设置
+        basic_tab = ttk.Frame(config_notebook, padding=10)
+        config_notebook.add(basic_tab, text="基本设置")
+        
+        self._create_mcp_basic_settings(basic_tab)
+        
+        # 标签页2: 工具管理
+        tools_tab = ttk.Frame(config_notebook, padding=10)
+        config_notebook.add(tools_tab, text="工具管理")
+        
+        self._create_mcp_tools_settings(tools_tab)
+        
+        # 标签页3: 资源管理
+        resources_tab = ttk.Frame(config_notebook, padding=10)
+        config_notebook.add(resources_tab, text="资源管理")
+        
+        self._create_mcp_resources_settings(resources_tab)
+        
+        # 标签页4: 提示词管理
+        prompts_tab = ttk.Frame(config_notebook, padding=10)
+        config_notebook.add(prompts_tab, text="提示词管理")
+        
+        self._create_mcp_prompts_settings(prompts_tab)
+        
+        # 底部按钮栏
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="💾 保存配置", 
+                  command=self._save_mcp_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="🔄 重置为默认", 
+                  command=self._reset_mcp_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="♻️ 重新加载Agent", 
+                  command=self._reload_agent_with_mcp).pack(side=tk.LEFT, padx=5)
+    
+    def _create_mcp_basic_settings(self, parent):
+        """创建MCP基本设置界面"""
+        # MCP启用状态
+        status_frame = ttk.LabelFrame(parent, text="MCP状态", padding=10)
+        status_frame.pack(fill=tk.X, pady=5)
+        
+        self.mcp_enabled_var = tk.BooleanVar(value=self.mcp_config.is_enabled())
+        
+        ttk.Checkbutton(status_frame, text="启用MCP功能", 
+                       variable=self.mcp_enabled_var,
+                       command=self._on_mcp_enabled_changed).pack(anchor=tk.W)
+        
+        ttk.Label(status_frame, 
+                 text="提示: 启用MCP后需要重新加载Agent才能生效",
+                 font=("微软雅黑", 9),
+                 foreground="gray").pack(anchor=tk.W, pady=(5, 0))
+        
+        # 上下文设置
+        context_frame = ttk.LabelFrame(parent, text="上下文设置", padding=10)
+        context_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(context_frame, text="最大上下文数量:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        
+        self.max_contexts_var = tk.IntVar(value=self.mcp_config.get_max_contexts())
+        max_contexts_spinbox = ttk.Spinbox(context_frame, from_=10, to=1000, 
+                                          textvariable=self.max_contexts_var,
+                                          width=10)
+        max_contexts_spinbox.grid(row=0, column=1, sticky=tk.W, padx=5)
+        
+        ttk.Label(context_frame, 
+                 text="(默认: 100, 范围: 10-1000)",
+                 font=("微软雅黑", 9),
+                 foreground="gray").grid(row=0, column=2, sticky=tk.W, padx=5)
+        
+        # 配置信息
+        info_frame = ttk.LabelFrame(parent, text="配置信息", padding=10)
+        info_frame.pack(fill=tk.X, pady=5)
+        
+        config = self.mcp_config.get_config()
+        created_at = config.get("created_at", "未知")
+        updated_at = config.get("updated_at", "未知")
+        
+        info_text = f"配置文件: {self.mcp_config.config_file}\n"
+        info_text += f"创建时间: {created_at}\n"
+        info_text += f"更新时间: {updated_at}"
+        
+        ttk.Label(info_frame, text=info_text, 
+                 font=("微软雅黑", 9),
+                 foreground="gray").pack(anchor=tk.W)
+    
+    def _create_mcp_tools_settings(self, parent):
+        """创建MCP工具设置界面"""
+        ttk.Label(parent, text="默认工具启用状态:", 
+                 font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 工具列表
+        tools = [
+            ("get_current_time", "获取当前时间"),
+            ("calculate", "数学计算器")
+        ]
+        
+        self.tool_vars = {}
+        
+        for tool_name, tool_desc in tools:
+            tool_frame = ttk.Frame(parent)
+            tool_frame.pack(fill=tk.X, pady=2)
+            
+            var = tk.BooleanVar(value=self.mcp_config.is_tool_enabled(tool_name))
+            self.tool_vars[tool_name] = var
+            
+            ttk.Checkbutton(tool_frame, text=f"{tool_name} - {tool_desc}", 
+                           variable=var).pack(side=tk.LEFT)
+        
+        # 说明
+        ttk.Label(parent, 
+                 text="\n注意: 禁用工具后，该工具将不会在对话中可用",
+                 font=("微软雅黑", 9),
+                 foreground="gray").pack(anchor=tk.W, pady=(10, 0))
+    
+    def _create_mcp_resources_settings(self, parent):
+        """创建MCP资源设置界面"""
+        ttk.Label(parent, text="默认资源启用状态:", 
+                 font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 资源列表
+        resources = [
+            ("system://info", "系统信息"),
+            ("character://profile", "角色档案")
+        ]
+        
+        self.resource_vars = {}
+        
+        for uri, res_desc in resources:
+            resource_frame = ttk.Frame(parent)
+            resource_frame.pack(fill=tk.X, pady=2)
+            
+            var = tk.BooleanVar(value=self.mcp_config.is_resource_enabled(uri))
+            self.resource_vars[uri] = var
+            
+            ttk.Checkbutton(resource_frame, text=f"{uri} - {res_desc}", 
+                           variable=var).pack(side=tk.LEFT)
+        
+        # 说明
+        ttk.Label(parent, 
+                 text="\n注意: 禁用资源后，该资源将不会在MCP中注册",
+                 font=("微软雅黑", 9),
+                 foreground="gray").pack(anchor=tk.W, pady=(10, 0))
+    
+    def _create_mcp_prompts_settings(self, parent):
+        """创建MCP提示词设置界面"""
+        ttk.Label(parent, text="默认提示词启用状态:", 
+                 font=("微软雅黑", 10, "bold")).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 提示词列表
+        prompts = [
+            ("emotion_analysis", "情感分析"),
+            ("task_planning", "任务规划")
+        ]
+        
+        self.prompt_vars = {}
+        
+        for prompt_name, prompt_desc in prompts:
+            prompt_frame = ttk.Frame(parent)
+            prompt_frame.pack(fill=tk.X, pady=2)
+            
+            var = tk.BooleanVar(value=self.mcp_config.is_prompt_enabled(prompt_name))
+            self.prompt_vars[prompt_name] = var
+            
+            ttk.Checkbutton(prompt_frame, text=f"{prompt_name} - {prompt_desc}", 
+                           variable=var).pack(side=tk.LEFT)
+        
+        # 说明
+        ttk.Label(parent, 
+                 text="\n注意: 禁用提示词后，该提示词模板将不会在MCP中注册",
+                 font=("微软雅黑", 9),
+                 foreground="gray").pack(anchor=tk.W, pady=(10, 0))
+    
+    def _on_mcp_enabled_changed(self):
+        """MCP启用状态改变时的回调"""
+        pass  # 暂时不做处理，等待保存
+    
+    def _save_mcp_config(self):
+        """保存MCP配置"""
+        try:
+            # 保存基本设置
+            self.mcp_config.set_enabled(self.mcp_enabled_var.get())
+            self.mcp_config.set_max_contexts(self.max_contexts_var.get())
+            
+            # 保存工具设置
+            for tool_name, var in self.tool_vars.items():
+                self.mcp_config.set_tool_enabled(tool_name, var.get())
+            
+            # 保存资源设置
+            for uri, var in self.resource_vars.items():
+                self.mcp_config.set_resource_enabled(uri, var.get())
+            
+            # 保存提示词设置
+            for prompt_name, var in self.prompt_vars.items():
+                self.mcp_config.set_prompt_enabled(prompt_name, var.get())
+            
+            messagebox.showinfo("成功", "MCP配置已保存!\n\n请点击「重新加载Agent」按钮使配置生效。")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存配置失败:\n{str(e)}")
+    
+    def _reset_mcp_config(self):
+        """重置MCP配置为默认值"""
+        if messagebox.askyesno("确认", "确定要重置MCP配置为默认值吗？\n\n此操作不可撤销。"):
+            try:
+                self.mcp_config.reset_to_default()
+                
+                # 更新UI
+                self.mcp_enabled_var.set(self.mcp_config.is_enabled())
+                self.max_contexts_var.set(self.mcp_config.get_max_contexts())
+                
+                for tool_name, var in self.tool_vars.items():
+                    var.set(self.mcp_config.is_tool_enabled(tool_name))
+                
+                for uri, var in self.resource_vars.items():
+                    var.set(self.mcp_config.is_resource_enabled(uri))
+                
+                for prompt_name, var in self.prompt_vars.items():
+                    var.set(self.mcp_config.is_prompt_enabled(prompt_name))
+                
+                messagebox.showinfo("成功", "MCP配置已重置为默认值")
+            except Exception as e:
+                messagebox.showerror("错误", f"重置配置失败:\n{str(e)}")
+    
+    def _reload_agent_with_mcp(self):
+        """使用新的MCP配置重新加载Agent"""
+        if messagebox.askyesno("确认", "重新加载Agent将清空当前会话的短期记忆。\n\n确定要继续吗？"):
+            try:
+                # 重新初始化Agent
+                self.initialize_agent()
+                
+                # 刷新所有界面
+                self.refresh_all()
+                
+                messagebox.showinfo("成功", "Agent已使用新的MCP配置重新加载！")
+            except Exception as e:
+                messagebox.showerror("错误", f"重新加载Agent失败:\n{str(e)}")
 
     def create_control_panel(self, parent):
         """

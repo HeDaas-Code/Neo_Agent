@@ -7,6 +7,7 @@ import os
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 from mcp_client import MCPClient
+from mcp_config import MCPConfig
 from debug_logger import get_debug_logger
 
 load_dotenv()
@@ -21,19 +22,29 @@ class MCPContextManager:
     为智能体提供MCP协议支持，管理工具、资源和提示词
     """
     
-    def __init__(self, enable_mcp: bool = None):
+    def __init__(self, enable_mcp: bool = None, config_file: str = "mcp_config.json"):
         """
         初始化MCP上下文管理器
         
         Args:
-            enable_mcp: 是否启用MCP，如果为None则从环境变量读取
+            enable_mcp: 是否启用MCP，如果为None则从配置文件读取
+            config_file: MCP配置文件路径
         """
-        # 从环境变量读取MCP配置
+        # 加载MCP配置
+        self.mcp_config = MCPConfig(config_file)
+        
+        # 确定是否启用MCP
         if enable_mcp is None:
-            enable_mcp = os.getenv('ENABLE_MCP', 'False').lower() == 'true'
+            enable_mcp = self.mcp_config.is_enabled()
         
         self.enable_mcp = enable_mcp
-        self.mcp_client = MCPClient() if enable_mcp else None
+        
+        # 创建MCP客户端时传入max_contexts配置
+        if enable_mcp:
+            max_contexts = self.mcp_config.get_max_contexts()
+            self.mcp_client = MCPClient(max_contexts=max_contexts)
+        else:
+            self.mcp_client = None
         
         if self.enable_mcp:
             debug_logger.log_info("MCPContextManager", "MCP上下文管理器已启用", {})
@@ -45,74 +56,76 @@ class MCPContextManager:
     
     def _register_default_tools(self):
         """
-        注册默认MCP工具
+        注册默认MCP工具（仅注册启用的工具）
         """
         # 获取当前时间工具
-        def get_current_time(args: Dict[str, Any]) -> str:
-            from datetime import datetime
-            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        self.mcp_client.register_tool(
-            name="get_current_time",
-            description="获取当前时间",
-            handler=get_current_time,
-            parameters={
-                "type": "object",
-                "properties": {}
-            }
-        )
+        if self.mcp_config.is_tool_enabled("get_current_time"):
+            def get_current_time(args: Dict[str, Any]) -> str:
+                from datetime import datetime
+                return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            self.mcp_client.register_tool(
+                name="get_current_time",
+                description="获取当前时间",
+                handler=get_current_time,
+                parameters={
+                    "type": "object",
+                    "properties": {}
+                }
+            )
         
         # 计算器工具
-        def calculate(args: Dict[str, Any]) -> float:
-            expression = args.get("expression", "")
-            try:
-                # 安全的表达式求值 - 仅允许数字、运算符和括号
-                import re
-                # 验证表达式只包含安全字符
-                if not re.match(r'^[\d\s\+\-\*\/\(\)\.\,]+$', expression):
-                    raise ValueError("表达式包含不允许的字符")
-                
-                # 使用ast.literal_eval的安全替代方案
-                # 这里我们使用一个简单的数学计算器
-                import ast
-                import operator
-                
-                # 支持的运算符
-                operators = {
-                    ast.Add: operator.add,
-                    ast.Sub: operator.sub,
-                    ast.Mult: operator.mul,
-                    ast.Div: operator.truediv,
-                    ast.USub: operator.neg,
-                    ast.UAdd: operator.pos,
-                }
-                
-                def eval_expr(node):
-                    if isinstance(node, ast.Num):  # 数字
-                        return node.n
-                    elif isinstance(node, ast.BinOp):  # 二元运算
-                        return operators[type(node.op)](eval_expr(node.left), eval_expr(node.right))
-                    elif isinstance(node, ast.UnaryOp):  # 一元运算
-                        return operators[type(node.op)](eval_expr(node.operand))
-                    else:
-                        raise ValueError("不支持的表达式类型")
-                
-                # 解析并计算表达式
-                node = ast.parse(expression, mode='eval')
-                result = eval_expr(node.body)
-                return float(result)
-            except Exception as e:
-                raise ValueError(f"计算错误: {str(e)}")
-        
-        self.mcp_client.register_tool(
-            name="calculate",
-            description="执行数学计算",
-            handler=calculate,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
+        if self.mcp_config.is_tool_enabled("calculate"):
+            def calculate(args: Dict[str, Any]) -> float:
+                expression = args.get("expression", "")
+                try:
+                    # 安全的表达式求值 - 仅允许数字、运算符和括号
+                    import re
+                    # 验证表达式只包含安全字符
+                    if not re.match(r'^[\d\s\+\-\*\/\(\)\.\,]+$', expression):
+                        raise ValueError("表达式包含不允许的字符")
+                    
+                    # 使用ast.literal_eval的安全替代方案
+                    # 这里我们使用一个简单的数学计算器
+                    import ast
+                    import operator
+                    
+                    # 支持的运算符
+                    operators = {
+                        ast.Add: operator.add,
+                        ast.Sub: operator.sub,
+                        ast.Mult: operator.mul,
+                        ast.Div: operator.truediv,
+                        ast.USub: operator.neg,
+                        ast.UAdd: operator.pos,
+                    }
+                    
+                    def eval_expr(node):
+                        if isinstance(node, ast.Num):  # 数字
+                            return node.n
+                        elif isinstance(node, ast.BinOp):  # 二元运算
+                            return operators[type(node.op)](eval_expr(node.left), eval_expr(node.right))
+                        elif isinstance(node, ast.UnaryOp):  # 一元运算
+                            return operators[type(node.op)](eval_expr(node.operand))
+                        else:
+                            raise ValueError("不支持的表达式类型")
+                    
+                    # 解析并计算表达式
+                    node = ast.parse(expression, mode='eval')
+                    result = eval_expr(node.body)
+                    return float(result)
+                except Exception as e:
+                    raise ValueError(f"计算错误: {str(e)}")
+            
+            self.mcp_client.register_tool(
+                name="calculate",
+                description="执行数学计算",
+                handler=calculate,
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "expression": {
+                            "type": "string",
                         "description": "要计算的数学表达式"
                     }
                 },
@@ -120,63 +133,82 @@ class MCPContextManager:
             }
         )
         
-        debug_logger.log_info("MCPContextManager", "默认MCP工具已注册", {"count": 2})
+        # 统计实际注册的工具数量
+        registered_count = 0
+        if self.mcp_config.is_tool_enabled("get_current_time"):
+            registered_count += 1
+        if self.mcp_config.is_tool_enabled("calculate"):
+            registered_count += 1
+        
+        debug_logger.log_info("MCPContextManager", "默认MCP工具已注册", {"count": registered_count})
     
     def _register_default_resources(self):
         """
-        注册默认MCP资源
+        注册默认MCP资源（仅注册启用的资源）
         """
+        registered_count = 0
+        
         # 系统信息资源
-        self.mcp_client.register_resource(
-            uri="system://info",
-            name="系统信息",
-            description="Neo Agent系统基本信息",
-            mime_type="application/json"
-        )
+        if self.mcp_config.is_resource_enabled("system://info"):
+            self.mcp_client.register_resource(
+                uri="system://info",
+                name="系统信息",
+                description="Neo Agent系统基本信息",
+                mime_type="application/json"
+            )
+            registered_count += 1
         
         # 角色信息资源
-        self.mcp_client.register_resource(
-            uri="character://profile",
-            name="角色档案",
-            description="智能体角色设定信息",
-            mime_type="application/json"
-        )
+        if self.mcp_config.is_resource_enabled("character://profile"):
+            self.mcp_client.register_resource(
+                uri="character://profile",
+                name="角色档案",
+                description="智能体角色设定信息",
+                mime_type="application/json"
+            )
+            registered_count += 1
         
-        debug_logger.log_info("MCPContextManager", "默认MCP资源已注册", {"count": 2})
+        debug_logger.log_info("MCPContextManager", "默认MCP资源已注册", {"count": registered_count})
     
     def _register_default_prompts(self):
         """
-        注册默认MCP提示词模板
+        注册默认MCP提示词模板（仅注册启用的提示词）
         """
+        registered_count = 0
+        
         # 情感分析提示词
-        self.mcp_client.register_prompt(
-            name="emotion_analysis",
-            description="情感分析提示词模板",
-            template="请分析以下对话的情感倾向：\n{conversation}\n\n请提供详细的情感分析。",
-            arguments=[
-                {
-                    "name": "conversation",
-                    "description": "要分析的对话内容",
-                    "required": True
-                }
-            ]
-        )
+        if self.mcp_config.is_prompt_enabled("emotion_analysis"):
+            self.mcp_client.register_prompt(
+                name="emotion_analysis",
+                description="情感分析提示词模板",
+                template="请分析以下对话的情感倾向：\n{conversation}\n\n请提供详细的情感分析。",
+                arguments=[
+                    {
+                        "name": "conversation",
+                        "description": "要分析的对话内容",
+                        "required": True
+                    }
+                ]
+            )
+            registered_count += 1
         
         # 任务规划提示词
-        self.mcp_client.register_prompt(
-            name="task_planning",
-            description="任务规划提示词模板",
-            template="请为以下任务制定详细的执行计划：\n任务：{task}\n\n请列出具体的步骤。",
-            arguments=[
-                {
-                    "name": "task",
-                    "description": "要规划的任务描述",
-                    "required": True
-                }
-            ]
-        )
+        if self.mcp_config.is_prompt_enabled("task_planning"):
+            self.mcp_client.register_prompt(
+                name="task_planning",
+                description="任务规划提示词模板",
+                template="请为以下任务制定详细的执行计划：\n任务：{task}\n\n请列出具体的步骤。",
+                arguments=[
+                    {
+                        "name": "task",
+                        "description": "要规划的任务描述",
+                        "required": True
+                    }
+                ]
+            )
+            registered_count += 1
         
-        debug_logger.log_info("MCPContextManager", "默认MCP提示词已注册", {"count": 2})
+        debug_logger.log_info("MCPContextManager", "默认MCP提示词已注册", {"count": registered_count})
     
     def register_tool(self, name: str, description: str, handler, parameters: Optional[Dict[str, Any]] = None):
         """

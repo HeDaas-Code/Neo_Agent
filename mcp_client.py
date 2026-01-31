@@ -21,20 +21,24 @@ class MCPClient:
     警告：这是一个实验性功能，API可能会在未来版本中发生变化。
     """
     
-    # 上下文最大数量限制
-    MAX_CONTEXTS = 100
-    
-    def __init__(self):
+    def __init__(self, max_contexts: int = 100):
         """
         初始化MCP客户端
+        
+        Args:
+            max_contexts: 最大上下文数量限制
         """
         self.tools: Dict[str, Dict[str, Any]] = {}
         self.resources: Dict[str, Dict[str, Any]] = {}
         self.prompts: Dict[str, Dict[str, Any]] = {}
         self.session_id = str(uuid.uuid4())
         self.contexts: List[Dict[str, Any]] = []
+        self.max_contexts = max_contexts
         
-        debug_logger.log_info("MCPClient", "MCP客户端已初始化", {"session_id": self.session_id})
+        debug_logger.log_info("MCPClient", "MCP客户端已初始化", {
+            "session_id": self.session_id,
+            "max_contexts": max_contexts
+        })
     
     def register_tool(
         self,
@@ -243,7 +247,7 @@ class MCPClient:
         self.contexts.append(context_with_meta)
         
         # 自动清理旧上下文，保持数量在限制内
-        if len(self.contexts) > self.MAX_CONTEXTS:
+        if len(self.contexts) > self.max_contexts:
             removed = self.contexts.pop(0)
             debug_logger.log_info("MCPClient", "移除旧上下文", {
                 "removed_id": removed["context_id"],

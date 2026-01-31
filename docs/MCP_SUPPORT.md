@@ -9,29 +9,102 @@ Neo Agent现在支持Model Context Protocol (MCP)，这是一个用于智能体�
 - 使用提示词模板
 - 维护对话上下文
 
+**重要更新**: MCP配置现已独立于`.env`文件，使用专门的`mcp_config.json`配置文件，并提供图形界面进行配置管理。
+
 ## 快速开始
 
-### 启用MCP
+### 方式一: 使用GUI配置（推荐）
 
-在`.env`文件中设置：
-
-```env
-ENABLE_MCP=True
+1. 运行GUI界面：
+```bash
+python gui_enhanced.py
 ```
 
-### 基本使用
+2. 点击「🔌 MCP配置」标签页
 
-MCP已自动集成到ChatAgent中，启用后会自动初始化：
+3. 在「基本设置」中勾选「启用MCP功能」
+
+4. 根据需要配置工具、资源和提示词
+
+5. 点击「💾 保存配置」
+
+6. 点击「♻️ 重新加载Agent」使配置生效
+
+### 方式二: 代码配置
 
 ```python
+from mcp_config import MCPConfig
+
+# 创建配置
+config = MCPConfig()
+
+# 启用MCP
+config.set_enabled(True)
+
+# 设置最大上下文数
+config.set_max_contexts(100)
+
+# 配置工具启用状态
+config.set_tool_enabled("calculate", True)
+
+# 使用新配置创建Agent
 from chat_agent import ChatAgent
-
-# MCP会在ChatAgent初始化时自动启用（如果在.env中配置）
 agent = ChatAgent()
+```
 
-# 查看MCP状态
-mcp_info = agent.mcp_manager.get_mcp_info()
-print(mcp_info)
+### 配置文件位置
+
+MCP配置保存在项目根目录的`mcp_config.json`文件中，该文件已添加到`.gitignore`，不会被版本控制系统追踪。
+
+## MCP配置管理
+
+### GUI配置界面
+
+MCP配置GUI提供四个配置标签页：
+
+#### 1. 基本设置
+- **MCP启用状态**: 开启或关闭MCP功能
+- **最大上下文数量**: 设置上下文存储上限（默认100）
+- **配置信息**: 显示配置文件路径和更新时间
+
+#### 2. 工具管理
+- 启用/禁用默认工具（get_current_time、calculate）
+- 已禁用的工具不会在对话中注册和使用
+
+#### 3. 资源管理
+- 启用/禁用默认资源（system://info、character://profile）
+- 控制哪些资源在MCP中可用
+
+#### 4. 提示词管理
+- 启用/禁用默认提示词模板（emotion_analysis、task_planning）
+- 灵活控制可用的提示词模板
+
+### 配置文件格式
+
+`mcp_config.json`使用以下格式：
+
+```json
+{
+  "enabled": true,
+  "tools": {
+    "get_current_time": {"enabled": true},
+    "calculate": {"enabled": true}
+  },
+  "resources": {
+    "system://info": {"enabled": true},
+    "character://profile": {"enabled": true}
+  },
+  "prompts": {
+    "emotion_analysis": {"enabled": true},
+    "task_planning": {"enabled": true}
+  },
+  "context": {
+    "max_contexts": 100,
+    "auto_cleanup": true
+  },
+  "created_at": "2026-01-31T00:00:00",
+  "updated_at": "2026-01-31T00:00:00"
+}
 ```
 
 ## MCP功能
@@ -42,10 +115,10 @@ MCP支持注册和调用自定义工具。
 
 #### 默认工具
 
-系统已预置两个工具：
+系统已预置两个工具（可在配置中启用/禁用）：
 
 - **get_current_time**: 获取当前时间
-- **calculate**: 执行数学计算
+- **calculate**: 执行数学计算（使用安全的AST解析）
 
 #### 注册自定义工具
 
