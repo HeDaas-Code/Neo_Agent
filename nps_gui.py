@@ -11,6 +11,9 @@ from typing import Dict, Any, List
 from datetime import datetime
 from NPS.nps_registry import NPSRegistry, NPSTool
 
+# 配置常量
+DEFAULT_REFRESH_INTERVAL = 3000  # 默认自动刷新间隔（毫秒）
+
 
 class NPSManagerGUI:
     """
@@ -35,7 +38,7 @@ class NPSManagerGUI:
         
         # 自动刷新相关
         self.auto_refresh_enabled = True
-        self.refresh_interval = 3000  # 3秒刷新一次
+        self.refresh_interval = DEFAULT_REFRESH_INTERVAL
         self.refresh_job = None
         
         # 创建界面
@@ -499,7 +502,15 @@ class NPSManagerGUI:
         ttk.Label(input_frame, text="模拟用户输入:").pack(anchor=tk.W)
         test_input = ttk.Entry(input_frame, width=60)
         test_input.pack(fill=tk.X, pady=5)
-        test_input.insert(0, f"现在几点了？")  # 默认测试输入
+        
+        # 根据工具的关键词生成默认测试输入
+        default_test = ""
+        if tool.keywords:
+            # 使用第一个关键词构建测试输入
+            default_test = f"请告诉我关于{tool.keywords[0]}的信息"
+        else:
+            default_test = f"测试{tool.name}"
+        test_input.insert(0, default_test)
         
         # 结果区域
         result_frame = ttk.LabelFrame(dialog, text="执行结果", padding=10)
