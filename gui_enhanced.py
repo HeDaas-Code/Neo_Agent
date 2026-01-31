@@ -15,6 +15,7 @@ from database_manager import DatabaseManager
 from debug_logger import get_debug_logger
 from emotion_analyzer import format_emotion_summary
 from tooltip_utils import ToolTip, create_treeview_tooltip
+from nps_gui import NPSManagerGUI
 
 
 class EmotionImpressionDisplay(Canvas):
@@ -1051,6 +1052,25 @@ class EnhancedChatDebugGUI:
         notebook.add(event_tab, text="📋 事件管理")
 
         self.create_event_management_panel(event_tab)
+        
+        # 选项卡11: NPS工具管理
+        nps_tab = ttk.Frame(notebook)
+        notebook.add(nps_tab, text="🔧 NPS工具")
+        
+        # 创建NPS工具管理GUI
+        try:
+            # 获取NPS注册表实例
+            if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'nps_registry'):
+                nps_registry = self.agent.nps_registry
+            else:
+                from NPS.nps_registry import NPSRegistry
+                nps_registry = NPSRegistry()
+                nps_registry.scan_and_register()
+            
+            self.nps_gui = NPSManagerGUI(nps_tab, nps_registry)
+        except Exception as e:
+            ttk.Label(nps_tab, text=f"NPS工具管理界面加载失败:\n{str(e)}",
+                     font=("微软雅黑", 10), foreground="red").pack(pady=50)
 
     def create_control_panel(self, parent):
         """

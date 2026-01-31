@@ -23,6 +23,7 @@ from expression_style import ExpressionStyleManager
 from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from schedule_intent_tool import ScheduleIntentTool
 from schedule_generator import TemporaryScheduleGenerator
+from NPS import NPSRegistry, NPSInvoker
 
 # 加载环境变量
 load_dotenv()
@@ -381,6 +382,11 @@ class ChatAgent:
         
         # 初始化临时日程生成器
         self.schedule_generator = TemporaryScheduleGenerator(schedule_manager=self.schedule_manager)
+        
+        # 初始化NPS工具系统
+        self.nps_registry = NPSRegistry()
+        self.nps_invoker = NPSInvoker(registry=self.nps_registry)
+        registered_tools = self.nps_registry.scan_and_register()
 
         print(f"聊天代理初始化完成，当前角色: {self.character.name}")
         stats = self.memory_manager.get_statistics()
@@ -405,6 +411,13 @@ class ChatAgent:
               f"临时: {schedule_stats['temporary']})")
         if schedule_stats['pending_collaboration'] > 0:
             print(f"  ⚠️  有 {schedule_stats['pending_collaboration']} 个待确认的协作日程")
+        
+        # 显示NPS工具系统统计
+        nps_stats = self.nps_registry.get_statistics()
+        print(f"NPS工具系统: {nps_stats['total_tools']} 个工具 "
+              f"(已启用: {nps_stats['enabled_tools']})")
+        if registered_tools:
+            print(f"  已加载工具: {', '.join(registered_tools)}")
 
     def chat(self, user_input: str) -> str:
         """
@@ -599,17 +612,33 @@ class ChatAgent:
                 
                 debug_logger.log_info('ChatAgent', '日程查询完成', {'count': len(schedules)})
 
+        # 5. 调用NPS工具系统获取额外上下文
+        nps_context = None
+        nps_result = self.nps_invoker.invoke_relevant_tools(user_input)
+        if nps_result['has_context']:
+            nps_context = nps_result['context_info']
+            # 显示NPS工具调用提示
+            invoked_tools = [r['tool_name'] for r in nps_result['tools_invoked'] if r['success']]
+            if invoked_tools:
+                print(f"\n🔧 [NPS工具] 已调用: {', '.join(invoked_tools)}")
+            debug_logger.log_info('ChatAgent', 'NPS工具已调用', {
+                'tools_count': len(nps_result['tools_invoked']),
+                'context_length': len(nps_context)
+            })
+
         # 记录理解阶段的结果（用于调试）
         self._last_understanding = relevant_knowledge
         self._last_vision_context = vision_context
         self._last_schedule_context = schedule_context
         self._last_schedule_action = schedule_action_message
+        self._last_nps_context = nps_context
 
         debug_logger.log_info('ChatAgent', '理解阶段完成', {
             'entities_found': relevant_knowledge['entities_found'],
             'knowledge_count': len(relevant_knowledge.get('knowledge_items', [])),
             'vision_used': vision_context is not None,
-            'schedule_intent': intent_result.get('has_schedule_intent', False) if 'intent_result' in locals() else False
+            'schedule_intent': intent_result.get('has_schedule_intent', False) if 'intent_result' in locals() else False,
+            'nps_used': nps_context is not None
         })
 
         # 添加用户消息到记忆
@@ -801,6 +830,15 @@ class ChatAgent:
             messages.append({'role': 'system', 'content': f"【日程操作】{schedule_action_message}"})
             print(f"\n{schedule_action_message}\n")
             debug_logger.log_info('ChatAgent', '日程操作已执行', {'message': schedule_action_message})
+        
+        # 添加NPS工具上下文（如果有工具被调用）
+        if nps_context:
+            nps_prompt = self.nps_invoker.format_nps_prompt(nps_context)
+            messages.append({'role': 'system', 'content': nps_prompt})
+            debug_logger.log_prompt('ChatAgent', 'system', nps_prompt, {
+                'stage': 'NPS工具上下文',
+                'context_length': len(nps_context)
+            })
 
         # 添加长期记忆上下文
         long_context = self.memory_manager.get_context_for_chat()
