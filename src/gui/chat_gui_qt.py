@@ -23,25 +23,33 @@ class MessageBubble(QFrame):
     """
     聊天消息气泡组件
     """
-    def __init__(self, message: str, is_user: bool, parent=None):
+    def __init__(self, message: str, is_user: bool, timestamp: str = None, parent=None):
         super().__init__(parent)
         self.is_user = is_user
+        self.timestamp = timestamp or datetime.now().strftime("%H:%M")
         self.setup_ui(message)
         
     def setup_ui(self, message: str):
         """设置消息气泡UI"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(3)
+        
+        # 创建时间标签（小字体，灰色）
+        time_label = QLabel(self.timestamp)
+        time_label.setFont(QFont("微软雅黑", 8))
+        time_label.setStyleSheet("QLabel { color: #999999; }")
         
         # 创建消息标签
         msg_label = QLabel(message)
         msg_label.setWordWrap(True)
         msg_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         msg_label.setFont(QFont("微软雅黑", 10))
+        msg_label.setTextFormat(Qt.PlainText)  # 防止HTML注入
         
         # 设置样式
         if self.is_user:
-            # 用户消息 - 蓝色气泡，右对齐
+            # 用户消息 - 绿色气泡，右对齐
             msg_label.setStyleSheet("""
                 QLabel {
                     background-color: #95EC69;
@@ -51,6 +59,7 @@ class MessageBubble(QFrame):
                     max-width: 500px;
                 }
             """)
+            layout.addWidget(time_label, 0, Qt.AlignRight)
             layout.addWidget(msg_label, 0, Qt.AlignRight)
         else:
             # AI消息 - 白色气泡，左对齐
@@ -64,6 +73,7 @@ class MessageBubble(QFrame):
                     border: 1px solid #E0E0E0;
                 }
             """)
+            layout.addWidget(time_label, 0, Qt.AlignLeft)
             layout.addWidget(msg_label, 0, Qt.AlignLeft)
 
 
@@ -288,7 +298,7 @@ class ChatGUIQt(QMainWindow):
         
         # 输入区域
         input_container = QFrame()
-        input_container.setFixedHeight(150)
+        input_container.setFixedHeight(180)
         input_container.setStyleSheet("""
             QFrame {
                 background-color: #FFFFFF;
@@ -297,6 +307,28 @@ class ChatGUIQt(QMainWindow):
         """)
         input_layout = QVBoxLayout(input_container)
         input_layout.setContentsMargins(20, 10, 20, 10)
+        
+        # 工具栏（表情按钮等）
+        toolbar_layout = QHBoxLayout()
+        
+        emoji_btn = QPushButton("😊")
+        emoji_btn.setFixedSize(30, 30)
+        emoji_btn.setToolTip("插入表情")
+        emoji_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background-color: transparent;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #F0F0F0;
+                border-radius: 5px;
+            }
+        """)
+        emoji_btn.clicked.connect(self.show_emoji_menu)
+        
+        toolbar_layout.addWidget(emoji_btn)
+        toolbar_layout.addStretch()
         
         # 输入框
         self.input_text = QTextEdit()
@@ -344,6 +376,7 @@ class ChatGUIQt(QMainWindow):
         
         button_layout.addWidget(self.send_button)
         
+        input_layout.addLayout(toolbar_layout)
         input_layout.addWidget(self.input_text)
         input_layout.addLayout(button_layout)
         
@@ -399,7 +432,9 @@ class ChatGUIQt(QMainWindow):
         """初始化聊天代理"""
         try:
             self.agent = ChatAgent()
-            self.add_system_message("系统初始化成功，可以开始对话了！")
+            character_name = os.getenv('CHARACTER_NAME', 'Neo Agent')
+            welcome_msg = f"你好！我是{character_name}，很高兴与你交流！有什么我可以帮助你的吗？😊"
+            self.add_message(welcome_msg, is_user=False)
             self.log_debug("ChatAgent initialized successfully")
         except Exception as e:
             error_msg = f"初始化失败: {str(e)}"
@@ -507,6 +542,47 @@ class ChatGUIQt(QMainWindow):
         
         QMessageBox.critical(self, "错误", error_msg)
         
+    def show_emoji_menu(self):
+        """显示表情选择菜单"""
+        emojis = [
+            "😊", "😂", "😍", "🥰", "😘", "😜", "😎", "🤔",
+            "😭", "😱", "😴", "🤗", "👍", "👎", "✌️", "🙏",
+            "❤️", "💯", "🎉", "🌟", "🔥", "💪", "👏", "🤝"
+        ]
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 1px solid #E0E0E0;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 10px;
+                font-size: 20px;
+            }
+            QMenu::item:selected {
+                background-color: #F0F0F0;
+                border-radius: 3px;
+            }
+        """)
+        
+        for emoji in emojis:
+            action = QAction(emoji, self)
+            action.triggered.connect(lambda checked, e=emoji: self.insert_emoji(e))
+            menu.addAction(action)
+        
+        # 显示在表情按钮下方
+        cursor_pos = self.mapToGlobal(self.input_text.pos())
+        menu.exec_(cursor_pos)
+    
+    def insert_emoji(self, emoji: str):
+        """插入表情到输入框"""
+        cursor = self.input_text.textCursor()
+        cursor.insertText(emoji)
+        self.input_text.setFocus()
+    
     def log_debug(self, message: str):
         """记录调试信息"""
         timestamp = datetime.now().strftime("%H:%M:%S")
