@@ -118,7 +118,7 @@ class NPSInvoker:
 {tools_list}
 
 请分析用户消息的意图，判断需要调用哪些工具来获取有助于回答的信息。
-如果需要调用工具，请只输出工具的ID（多个用逗号分隔），不需要解释。
+如果需要调用工具，请输出工具的编号（如：1）或ID（如：systime），多个用逗号分隔。
 如果不需要任何工具，请输出"无"。
 
 注意：
@@ -169,13 +169,21 @@ class NPSInvoker:
                 # 提取工具ID
                 relevant_ids = []
                 tool_ids = {t.tool_id.lower(): t.tool_id for t in tools}
+                # 创建索引到工具ID的映射（1-based）
+                tool_by_index = {str(i): t.tool_id for i, t in enumerate(tools, 1)}
                 
                 # 尝试分割多个ID
                 parts = reply.replace('，', ',').split(',')
                 for part in parts:
-                    part = part.strip().lower()
-                    if part in tool_ids:
-                        relevant_ids.append(tool_ids[part])
+                    part = part.strip()
+                    part_lower = part.lower()
+                    
+                    # 尝试匹配工具ID
+                    if part_lower in tool_ids:
+                        relevant_ids.append(tool_ids[part_lower])
+                    # 尝试匹配数字索引
+                    elif part in tool_by_index:
+                        relevant_ids.append(tool_by_index[part])
                 
                 return relevant_ids
             
