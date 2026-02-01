@@ -13,10 +13,51 @@ from PyQt5.QtWidgets import (
     QFrame, QMessageBox, QMenu, QAction, QListWidget, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QIcon
+from PyQt5.QtGui import QFont, QFontDatabase, QTextCursor, QColor, QPalette, QIcon
 
 from src.core.chat_agent import ChatAgent
 from src.tools.debug_logger import get_debug_logger
+
+
+def get_chinese_font(size: int = 10, weight: int = QFont.Normal) -> QFont:
+    """
+    获取跨平台中文字体
+    优先使用微软雅黑，如果不可用则使用系统默认中文字体
+    
+    Args:
+        size: 字体大小
+        weight: 字体粗细
+        
+    Returns:
+        QFont对象
+    """
+    # 中文字体列表，按优先级排序
+    chinese_fonts = [
+        "微软雅黑",           # Windows
+        "Microsoft YaHei",   # Windows (英文名)
+        "PingFang SC",       # macOS
+        "Hiragino Sans GB",  # macOS
+        "Noto Sans CJK SC",  # Linux
+        "Noto Sans SC",      # Linux
+        "WenQuanYi Micro Hei", # Linux
+        "Droid Sans Fallback", # Android/Linux
+        "SimHei",            # Windows fallback
+        "Arial Unicode MS",  # Fallback
+    ]
+    
+    # 检查可用字体
+    available_fonts = QFontDatabase().families()
+    
+    for font_name in chinese_fonts:
+        if font_name in available_fonts:
+            font = QFont(font_name, size, weight)
+            return font
+    
+    # 如果没有找到，使用系统默认字体
+    font = QFont()
+    font.setPointSize(size)
+    font.setWeight(weight)
+    return font
 
 
 class DebugWindow(QMainWindow):
@@ -38,7 +79,7 @@ class DebugWindow(QMainWindow):
         
         # 标题
         title = QLabel("🐛 调试信息")
-        title.setFont(QFont("微软雅黑", 12, QFont.Bold))
+        title.setFont(get_chinese_font(12, QFont.Bold))
         
         # Debug信息显示
         self.debug_text = QTextEdit()
@@ -96,14 +137,14 @@ class MessageBubble(QFrame):
         
         # 创建时间标签（小字体，灰色）
         time_label = QLabel(self.timestamp)
-        time_label.setFont(QFont("微软雅黑", 8))
+        time_label.setFont(get_chinese_font(8))
         time_label.setStyleSheet("QLabel { color: #999999; }")
         
         # 创建消息标签
         msg_label = QLabel(message)
         msg_label.setWordWrap(True)
         msg_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        msg_label.setFont(QFont("微软雅黑", 10))
+        msg_label.setFont(get_chinese_font(10))
         msg_label.setTextFormat(Qt.PlainText)  # 防止HTML注入
         
         # 设置样式
@@ -307,7 +348,7 @@ class ChatGUIQt(QMainWindow):
         # 添加当前对话项
         character_name = os.getenv('CHARACTER_NAME', 'Neo Agent')
         item = QListWidgetItem(f"🤖 {character_name}")
-        item.setFont(QFont("微软雅黑", 11))
+        item.setFont(get_chinese_font(11))
         self.contact_list.addItem(item)
         self.contact_list.setCurrentRow(0)
         
@@ -348,7 +389,7 @@ class ChatGUIQt(QMainWindow):
         # 名称
         name_label = QLabel(os.getenv('CHARACTER_NAME', 'Neo Agent'))
         name_label.setAlignment(Qt.AlignCenter)
-        name_label.setFont(QFont("微软雅黑", 13, QFont.Bold))
+        name_label.setFont(get_chinese_font(13, QFont.Bold))
         name_label.setStyleSheet("QLabel { color: #333333; }")
         
         # 分隔线
@@ -358,7 +399,7 @@ class ChatGUIQt(QMainWindow):
         
         # 信息标题
         info_title = QLabel("📋 个人信息")
-        info_title.setFont(QFont("微软雅黑", 11, QFont.Bold))
+        info_title.setFont(get_chinese_font(11, QFont.Bold))
         info_title.setStyleSheet("QLabel { color: #333333; }")
         
         # 详细信息
@@ -426,7 +467,7 @@ class ChatGUIQt(QMainWindow):
         header_layout.setContentsMargins(20, 0, 20, 0)
         
         title_label = QLabel(f"与{os.getenv('CHARACTER_NAME', 'Neo Agent')}对话")
-        title_label.setFont(QFont("微软雅黑", 13, QFont.Bold))
+        title_label.setFont(get_chinese_font(13, QFont.Bold))
         title_label.setStyleSheet("QLabel { color: #333333; }")
         
         header_layout.addWidget(title_label)
@@ -487,7 +528,7 @@ class ChatGUIQt(QMainWindow):
         # 输入框
         self.input_text = QTextEdit()
         self.input_text.setPlaceholderText("输入消息... (Ctrl+Enter 发送)")
-        self.input_text.setFont(QFont("微软雅黑", 10))
+        self.input_text.setFont(get_chinese_font(10))
         self.input_text.setMaximumHeight(80)
         self.input_text.setStyleSheet("""
             QTextEdit {
@@ -507,7 +548,7 @@ class ChatGUIQt(QMainWindow):
         
         self.send_button = QPushButton("发送")
         self.send_button.setFixedSize(100, 35)
-        self.send_button.setFont(QFont("微软雅黑", 10))
+        self.send_button.setFont(get_chinese_font(10))
         self.send_button.setStyleSheet("""
             QPushButton {
                 background-color: #409EFF;
@@ -582,7 +623,7 @@ class ChatGUIQt(QMainWindow):
         sys_label = QLabel(message)
         sys_label.setAlignment(Qt.AlignCenter)
         sys_label.setWordWrap(True)
-        sys_label.setFont(QFont("微软雅黑", 9))
+        sys_label.setFont(get_chinese_font(9))
         sys_label.setStyleSheet("""
             QLabel {
                 color: #999999;
