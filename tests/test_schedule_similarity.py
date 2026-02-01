@@ -10,9 +10,9 @@ from datetime import datetime, timedelta
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
-from schedule_similarity_checker import ScheduleSimilarityChecker, get_schedules_on_same_day
-from database_manager import DatabaseManager
+from src.core.schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
+from src.core.schedule_similarity_checker import ScheduleSimilarityChecker, get_schedules_on_same_day
+from src.core.database_manager import DatabaseManager
 
 
 class TestScheduleSimilarity(unittest.TestCase):

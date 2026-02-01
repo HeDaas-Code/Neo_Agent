@@ -5,11 +5,11 @@
 import unittest
 import os
 from datetime import datetime, timedelta
-from schedule_manager import (
+from src.core.schedule_manager import (
     ScheduleManager, Schedule, RecurringSchedule, AppointmentSchedule, TemporarySchedule,
     ScheduleType, SchedulePriority, CollaborationStatus
 )
-from database_manager import DatabaseManager
+from src.core.database_manager import DatabaseManager
 
 
 class TestScheduleManager(unittest.TestCase):

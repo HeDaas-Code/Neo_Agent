@@ -9,7 +9,7 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from event_manager import EventType, EventPriority, EventStatus, Event
+from src.core.event_manager import EventType, EventPriority, EventStatus, Event
 
 
 class TestEventEnums(unittest.TestCase):
