@@ -572,18 +572,35 @@ class EnhancedChatDebugGUI:
         )
         self.status_label.pack(side=tk.RIGHT, padx=10)
 
-        # 角色信息栏（固定高度，添加滚动条）
-        self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5, height=60)
+        # 角色信息栏（自适应高度，支持滚动）
+        self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5)
         self.character_frame.pack(fill=tk.X, padx=5, pady=3, side=tk.TOP)
-        self.character_frame.pack_propagate(False)
 
+        # 使用Canvas和Scrollbar实现可滚动的角色信息
+        character_canvas = Canvas(self.character_frame, height=50, bg='#f9f9f9', highlightthickness=0)
+        character_scrollbar = ttk.Scrollbar(self.character_frame, orient=tk.HORIZONTAL, command=character_canvas.xview)
+        character_canvas.configure(xscrollcommand=character_scrollbar.set)
+        
+        character_canvas.pack(side=tk.TOP, fill=tk.X, expand=False)
+        character_scrollbar.pack(side=tk.TOP, fill=tk.X)
+        
+        # 创建内部frame用于放置标签
+        character_inner_frame = ttk.Frame(character_canvas)
+        character_canvas.create_window((0, 0), window=character_inner_frame, anchor=tk.NW)
+        
         self.character_label = ttk.Label(
-            self.character_frame,
+            character_inner_frame,
             text="加载中...",
-            font=("微软雅黑", 9),
-            wraplength=1300  # 设置换行宽度
+            font=("微软雅黑", 9)
         )
-        self.character_label.pack(fill=tk.BOTH, expand=True)
+        self.character_label.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # 更新canvas的滚动区域
+        def update_character_scroll(event=None):
+            character_canvas.configure(scrollregion=character_canvas.bbox("all"))
+        
+        character_inner_frame.bind("<Configure>", update_character_scroll)
+        self.character_canvas = character_canvas  # 保存引用以便后续更新
         
         # 添加工具提示支持
         self.character_tooltip = None
@@ -608,21 +625,20 @@ class EnhancedChatDebugGUI:
             command=self.refresh_all
         ).pack(side=tk.RIGHT, padx=2)
 
-        # 输入区域（固定在底部，固定高度）
-        input_frame = ttk.LabelFrame(parent, text="✏️ 输入消息", padding=5, height=140)
+        # 输入区域（固定在底部，自适应高度）
+        input_frame = ttk.LabelFrame(parent, text="✏️ 输入消息", padding=5)
         input_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.BOTTOM)
-        input_frame.pack_propagate(False)  # 防止被压缩
 
-        # 输入文本框
-        self.input_text = tk.Text(
+        # 输入文本框（使用合理的高度，支持滚动）
+        self.input_text = scrolledtext.ScrolledText(
             input_frame,
-            height=3,
+            height=4,
             wrap=tk.WORD,
             font=("微软雅黑", 10),
             relief=tk.SOLID,
             borderwidth=1
         )
-        self.input_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=(5, 2))
+        self.input_text.pack(fill=tk.X, expand=False, padx=5, pady=(5, 2))
 
         # 按钮区域
         button_frame = ttk.Frame(input_frame)
@@ -1986,6 +2002,10 @@ class EnhancedChatDebugGUI:
             full_info += f"爱好: {char_info.get('hobbies', '未设置')}"
 
             self.character_label.config(text=info_text)
+            
+            # 更新canvas滚动区域
+            if hasattr(self, 'character_canvas'):
+                self.character_canvas.configure(scrollregion=self.character_canvas.bbox("all"))
             
             # 更新工具提示
             if self.character_tooltip:
