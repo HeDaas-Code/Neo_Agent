@@ -375,22 +375,26 @@ class ScheduleManager:
 
         # 创建对应类型的日程对象
         if schedule_type == ScheduleType.RECURRING:
+            # 过滤掉 TEMPORARY 专用参数
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['involves_user', 'generated_reason']}
             schedule = RecurringSchedule(
                 title=title,
                 description=description,
                 start_time=start_time,
                 end_time=end_time,
                 priority=priority,
-                **kwargs
+                **filtered_kwargs
             )
         elif schedule_type == ScheduleType.APPOINTMENT:
+            # 过滤掉 TEMPORARY 专用参数
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['involves_user', 'generated_reason']}
             schedule = AppointmentSchedule(
                 title=title,
                 description=description,
                 start_time=start_time,
                 end_time=end_time,
                 priority=priority,
-                **kwargs
+                **filtered_kwargs
             )
         else:  # TEMPORARY
             schedule = TemporarySchedule(
