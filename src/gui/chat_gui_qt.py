@@ -10,13 +10,72 @@ from typing import Optional
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QPushButton, QLabel, QSplitter, QScrollArea,
-    QFrame, QMessageBox, QMenu, QAction
+    QFrame, QMessageBox, QMenu, QAction, QListWidget, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
 from PyQt5.QtGui import QFont, QTextCursor, QColor, QPalette, QIcon
 
 from src.core.chat_agent import ChatAgent
 from src.tools.debug_logger import get_debug_logger
+
+
+class DebugWindow(QMainWindow):
+    """
+    独立的调试窗口
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🐛 调试窗口")
+        self.setGeometry(150, 150, 600, 400)
+        self.setMinimumSize(400, 300)
+        
+        # 创建中心组件
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 标题
+        title = QLabel("🐛 调试信息")
+        title.setFont(QFont("微软雅黑", 12, QFont.Bold))
+        
+        # Debug信息显示
+        self.debug_text = QTextEdit()
+        self.debug_text.setReadOnly(True)
+        self.debug_text.setFont(QFont("Consolas", 9))
+        self.debug_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #2E2E2E;
+                color: #00FF00;
+                border: 1px solid #3E3E3E;
+                border-radius: 5px;
+            }
+        """)
+        
+        # 清空按钮
+        clear_btn = QPushButton("清空日志")
+        clear_btn.clicked.connect(self.debug_text.clear)
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #409EFF;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 15px;
+            }
+            QPushButton:hover {
+                background-color: #66B1FF;
+            }
+        """)
+        
+        layout.addWidget(title)
+        layout.addWidget(self.debug_text)
+        layout.addWidget(clear_btn, 0, Qt.AlignRight)
+        
+    def append_log(self, message: str):
+        """添加日志"""
+        self.debug_text.append(message)
 
 
 class MessageBubble(QFrame):
@@ -108,6 +167,7 @@ class ChatGUIQt(QMainWindow):
         self.chat_thread: Optional[ChatThread] = None
         self.debug_logger = get_debug_logger()
         self.debug_mode = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
+        self.debug_window: Optional[DebugWindow] = None
         
         self.init_ui()
         self.init_agent()
@@ -115,8 +175,8 @@ class ChatGUIQt(QMainWindow):
     def init_ui(self):
         """初始化UI"""
         self.setWindowTitle("Neo Agent - 智能对话助手")
-        self.setGeometry(100, 100, 1000, 700)
-        self.setMinimumSize(800, 600)
+        self.setGeometry(100, 100, 1200, 700)
+        self.setMinimumSize(900, 600)
         
         # 设置应用样式
         self.setStyleSheet("""
@@ -137,25 +197,27 @@ class ChatGUIQt(QMainWindow):
         # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
         
-        # 左侧：侧边栏
-        self.create_sidebar(splitter)
+        # 左侧：联系人列表
+        self.create_contact_list(splitter)
         
         # 中间：聊天区域
         self.create_chat_area(splitter)
         
-        # 右侧：Debug面板（可选）
-        if self.debug_mode:
-            self.create_debug_panel(splitter)
+        # 右侧：信息面板
+        self.create_info_panel(splitter)
         
-        splitter.setStretchFactor(0, 0)  # 侧边栏固定宽度
+        splitter.setStretchFactor(0, 0)  # 联系人列表固定宽度
         splitter.setStretchFactor(1, 1)  # 聊天区域可伸缩
-        if self.debug_mode:
-            splitter.setStretchFactor(2, 0)  # Debug面板固定宽度
+        splitter.setStretchFactor(2, 0)  # 信息面板固定宽度
         
         main_layout.addWidget(splitter)
         
         # 创建菜单栏
         self.create_menu_bar()
+        
+        # 如果开启了debug模式，显示debug窗口
+        if self.debug_mode:
+            self.show_debug_window()
         
     def create_menu_bar(self):
         """创建菜单栏"""
@@ -172,9 +234,9 @@ class ChatGUIQt(QMainWindow):
         # 设置菜单
         settings_menu = menubar.addMenu("设置")
         
-        debug_action = QAction("调试模式", self, checkable=True)
+        debug_action = QAction("调试窗口", self, checkable=True)
         debug_action.setChecked(self.debug_mode)
-        debug_action.triggered.connect(self.toggle_debug_mode)
+        debug_action.triggered.connect(self.toggle_debug_window)
         settings_menu.addAction(debug_action)
         
         clear_action = QAction("清空对话", self)
@@ -188,58 +250,148 @@ class ChatGUIQt(QMainWindow):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
         
-    def create_sidebar(self, parent):
-        """创建侧边栏"""
-        sidebar = QFrame()
-        sidebar.setFixedWidth(250)
-        sidebar.setStyleSheet("""
+    def create_contact_list(self, parent):
+        """创建联系人列表（QQ风格左侧栏）"""
+        contact_frame = QFrame()
+        contact_frame.setFixedWidth(260)
+        contact_frame.setStyleSheet("""
             QFrame {
-                background-color: #2E2E2E;
-                border-right: 1px solid #1E1E1E;
+                background-color: #FFFFFF;
+                border-right: 1px solid #E0E0E0;
             }
         """)
         
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(10, 20, 10, 10)
+        layout = QVBoxLayout(contact_frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 搜索栏
+        search_container = QFrame()
+        search_container.setStyleSheet("QFrame { background-color: #F5F5F5; padding: 10px; }")
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(10, 10, 10, 10)
+        
+        search_label = QLabel("🔍 搜索")
+        search_label.setStyleSheet("""
+            QLabel {
+                color: #999999;
+                font-size: 12px;
+                padding: 5px 10px;
+                background-color: #FFFFFF;
+                border-radius: 5px;
+                border: 1px solid #E0E0E0;
+            }
+        """)
+        search_layout.addWidget(search_label)
+        
+        # 联系人列表
+        self.contact_list = QListWidget()
+        self.contact_list.setStyleSheet("""
+            QListWidget {
+                background-color: #FFFFFF;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 15px;
+                border-bottom: 1px solid #F0F0F0;
+            }
+            QListWidget::item:selected {
+                background-color: #E6E6E6;
+            }
+            QListWidget::item:hover {
+                background-color: #F5F5F5;
+            }
+        """)
+        
+        # 添加当前对话项
+        character_name = os.getenv('CHARACTER_NAME', 'Neo Agent')
+        item = QListWidgetItem(f"🤖 {character_name}")
+        item.setFont(QFont("微软雅黑", 11))
+        self.contact_list.addItem(item)
+        self.contact_list.setCurrentRow(0)
+        
+        layout.addWidget(search_container)
+        layout.addWidget(self.contact_list)
+        
+        parent.addWidget(contact_frame)
+    
+    def create_info_panel(self, parent):
+        """创建右侧信息面板"""
+        info_panel = QFrame()
+        info_panel.setFixedWidth(280)
+        info_panel.setStyleSheet("""
+            QFrame {
+                background-color: #FAFAFA;
+                border-left: 1px solid #E0E0E0;
+            }
+        """)
+        
+        layout = QVBoxLayout(info_panel)
+        layout.setContentsMargins(15, 20, 15, 15)
         layout.setSpacing(15)
         
-        # 头像区域
+        # 头像
         avatar_label = QLabel("🤖")
         avatar_label.setAlignment(Qt.AlignCenter)
         avatar_label.setStyleSheet("""
             QLabel {
-                font-size: 60px;
-                background-color: #3E3E3E;
-                border-radius: 50px;
-                padding: 20px;
+                font-size: 50px;
+                background-color: #FFFFFF;
+                border-radius: 45px;
+                padding: 15px;
+                border: 2px solid #E0E0E0;
             }
         """)
-        avatar_label.setFixedSize(100, 100)
+        avatar_label.setFixedSize(90, 90)
         
         # 名称
         name_label = QLabel(os.getenv('CHARACTER_NAME', 'Neo Agent'))
         name_label.setAlignment(Qt.AlignCenter)
-        name_label.setFont(QFont("微软雅黑", 14, QFont.Bold))
-        name_label.setStyleSheet("QLabel { color: #FFFFFF; }")
+        name_label.setFont(QFont("微软雅黑", 13, QFont.Bold))
+        name_label.setStyleSheet("QLabel { color: #333333; }")
+        
+        # 分隔线
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.HLine)
+        separator1.setStyleSheet("QFrame { background-color: #E0E0E0; max-height: 1px; }")
+        
+        # 信息标题
+        info_title = QLabel("📋 个人信息")
+        info_title.setFont(QFont("微软雅黑", 11, QFont.Bold))
+        info_title.setStyleSheet("QLabel { color: #333333; }")
+        
+        # 详细信息
+        info_details = QLabel(
+            f"角色：{os.getenv('CHARACTER_ROLE', '助手')}\n"
+            f"年龄：{os.getenv('CHARACTER_AGE', '未知')}\n"
+            f"性格：{os.getenv('CHARACTER_PERSONALITY', '友好')}\n"
+            f"爱好：{os.getenv('CHARACTER_HOBBY', '聊天')}"
+        )
+        info_details.setWordWrap(True)
+        info_details.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 11px;
+                line-height: 1.6;
+                background-color: #FFFFFF;
+                padding: 12px;
+                border-radius: 8px;
+                border: 1px solid #E8E8E8;
+            }
+        """)
         
         # 状态
         self.status_label = QLabel("● 在线")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("QLabel { color: #95EC69; font-size: 12px; }")
-        
-        # 角色信息
-        role_info = QLabel(f"角色: {os.getenv('CHARACTER_ROLE', '助手')}\n"
-                          f"年龄: {os.getenv('CHARACTER_AGE', '未知')}\n"
-                          f"性格: {os.getenv('CHARACTER_PERSONALITY', '友好')}")
-        role_info.setAlignment(Qt.AlignCenter)
-        role_info.setWordWrap(True)
-        role_info.setStyleSheet("""
-            QLabel {
-                color: #CCCCCC;
+        self.status_label.setStyleSheet("""
+            QLabel { 
+                color: #95EC69; 
                 font-size: 11px;
-                padding: 10px;
-                background-color: #3E3E3E;
+                padding: 5px;
+                background-color: #FFFFFF;
                 border-radius: 5px;
+                border: 1px solid #E0E0E0;
             }
         """)
         
@@ -247,10 +399,12 @@ class ChatGUIQt(QMainWindow):
         layout.addWidget(avatar_label, 0, Qt.AlignHCenter)
         layout.addWidget(name_label)
         layout.addWidget(self.status_label)
-        layout.addWidget(role_info)
+        layout.addWidget(separator1)
+        layout.addWidget(info_title)
+        layout.addWidget(info_details)
         layout.addStretch()
         
-        parent.addWidget(sidebar)
+        parent.addWidget(info_panel)
         
     def create_chat_area(self, parent):
         """创建聊天区域"""
@@ -272,7 +426,7 @@ class ChatGUIQt(QMainWindow):
         header_layout.setContentsMargins(20, 0, 20, 0)
         
         title_label = QLabel(f"与{os.getenv('CHARACTER_NAME', 'Neo Agent')}对话")
-        title_label.setFont(QFont("微软雅黑", 14, QFont.Bold))
+        title_label.setFont(QFont("微软雅黑", 13, QFont.Bold))
         title_label.setStyleSheet("QLabel { color: #333333; }")
         
         header_layout.addWidget(title_label)
@@ -389,44 +543,6 @@ class ChatGUIQt(QMainWindow):
         
         # 绑定快捷键
         self.input_text.installEventFilter(self)
-        
-    def create_debug_panel(self, parent):
-        """创建Debug面板"""
-        debug_panel = QFrame()
-        debug_panel.setFixedWidth(300)
-        debug_panel.setStyleSheet("""
-            QFrame {
-                background-color: #1E1E1E;
-                border-left: 1px solid #2E2E2E;
-            }
-        """)
-        
-        layout = QVBoxLayout(debug_panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # 标题
-        title = QLabel("🐛 调试信息")
-        title.setFont(QFont("微软雅黑", 12, QFont.Bold))
-        title.setStyleSheet("QLabel { color: #FFFFFF; }")
-        
-        # Debug信息显示
-        self.debug_text = QTextEdit()
-        self.debug_text.setReadOnly(True)
-        self.debug_text.setFont(QFont("Consolas", 9))
-        self.debug_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #2E2E2E;
-                color: #00FF00;
-                border: 1px solid #3E3E3E;
-                border-radius: 5px;
-            }
-        """)
-        
-        layout.addWidget(title)
-        layout.addWidget(self.debug_text)
-        
-        parent.addWidget(debug_panel)
-        self.debug_panel = debug_panel
         
     def init_agent(self):
         """初始化聊天代理"""
@@ -586,21 +702,32 @@ class ChatGUIQt(QMainWindow):
     def log_debug(self, message: str):
         """记录调试信息"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
+        log_entry = f"[{timestamp}] {message}"
         
-        if self.debug_mode and hasattr(self, 'debug_text'):
-            self.debug_text.append(log_entry)
+        if self.debug_window and self.debug_window.isVisible():
+            self.debug_window.append_log(log_entry)
             
         self.debug_logger.log_info("ChatGUIQt", message)
-        
-    def toggle_debug_mode(self, checked: bool):
-        """切换调试模式"""
+    
+    def show_debug_window(self):
+        """显示调试窗口"""
+        if not self.debug_window:
+            self.debug_window = DebugWindow(self)
+        self.debug_window.show()
+        self.debug_window.raise_()
+        self.debug_window.activateWindow()
+        self.log_debug("Debug window opened")
+    
+    def toggle_debug_window(self, checked: bool):
+        """切换调试窗口"""
         self.debug_mode = checked
         
-        if hasattr(self, 'debug_panel'):
-            self.debug_panel.setVisible(checked)
-            
-        self.log_debug(f"Debug mode: {'ON' if checked else 'OFF'}")
+        if checked:
+            self.show_debug_window()
+        else:
+            if self.debug_window:
+                self.debug_window.close()
+            self.log_debug("Debug window closed")
         
     def clear_chat(self):
         """清空对话"""
@@ -641,6 +768,8 @@ class ChatGUIQt(QMainWindow):
         
     def closeEvent(self, event):
         """关闭事件处理"""
+        if self.debug_window:
+            self.debug_window.close()
         self.log_debug("Application closing")
         event.accept()
 
