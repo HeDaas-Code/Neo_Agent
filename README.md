@@ -37,8 +37,20 @@ cp example.env .env
 #### 运行应用
 
 ```bash
+# 方式1: 使用主入口（推荐）
 python main.py
+
+# 方式2: 使用简化启动器（如果遇到导入问题）
+python run.py
+
+# 方式3: 如果已安装包
+neo-agent
 ```
+
+**常见问题 / Troubleshooting:**
+- 如果遇到导入错误，请确保在项目根目录运行
+- 确保已安装所有依赖: `pip install -r requirements.txt`
+- Windows用户可能需要使用 `python` 而不是 `python3`
 
 ### 项目结构
 
@@ -51,7 +63,8 @@ Neo_Agent/
 │   └── nps/               # NPS工具系统
 ├── tests/                 # 测试文件
 ├── examples/              # 示例代码
-├── main.py               # 主入口
+├── main.py               # 主入口（推荐）
+├── run.py                # 简化启动器
 ├── requirements.txt      # 依赖列表
 ├── example.env          # 环境变量示例
 └── LICENSE              # 许可证
@@ -106,8 +119,20 @@ cp example.env .env
 #### Run Application
 
 ```bash
+# Method 1: Use main entry point (recommended)
 python main.py
+
+# Method 2: Use simplified launcher (if import issues occur)
+python run.py
+
+# Method 3: If package is installed
+neo-agent
 ```
+
+**Troubleshooting:**
+- If you encounter import errors, ensure you're running from the project root directory
+- Make sure all dependencies are installed: `pip install -r requirements.txt`
+- Windows users may need to use `python` instead of `python3`
 
 ### Project Structure
 
@@ -120,7 +145,8 @@ Neo_Agent/
 │   └── nps/               # NPS tool system
 ├── tests/                 # Test files
 ├── examples/              # Example code
-├── main.py               # Main entry point
+├── main.py               # Main entry point (recommended)
+├── run.py                # Simplified launcher
 ├── requirements.txt      # Dependencies
 ├── example.env          # Environment variables template
 └── LICENSE              # License file
