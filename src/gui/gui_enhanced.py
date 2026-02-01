@@ -572,17 +572,17 @@ class EnhancedChatDebugGUI:
         )
         self.status_label.pack(side=tk.RIGHT, padx=10)
 
-        # 角色信息栏（自适应高度，支持滚动）
+        # 角色信息栏（支持垂直滚动，150px高度）
         self.character_frame = ttk.LabelFrame(parent, text="📋 当前角色", padding=5)
         self.character_frame.pack(fill=tk.X, padx=5, pady=3, side=tk.TOP)
 
-        # 使用Canvas和Scrollbar实现可滚动的角色信息
-        character_canvas = Canvas(self.character_frame, height=50, bg='#f9f9f9', highlightthickness=0)
-        character_scrollbar = ttk.Scrollbar(self.character_frame, orient=tk.HORIZONTAL, command=character_canvas.xview)
-        character_canvas.configure(xscrollcommand=character_scrollbar.set)
+        # 使用Canvas和Scrollbar实现垂直滚动
+        character_canvas = Canvas(self.character_frame, height=150, bg='#f9f9f9', highlightthickness=0)
+        character_scrollbar = ttk.Scrollbar(self.character_frame, orient=tk.VERTICAL, command=character_canvas.yview)
+        character_canvas.configure(yscrollcommand=character_scrollbar.set)
         
-        character_canvas.pack(side=tk.TOP, fill=tk.X, expand=False)
-        character_scrollbar.pack(side=tk.TOP, fill=tk.X)
+        character_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        character_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # 创建内部frame用于放置标签
         character_inner_frame = ttk.Frame(character_canvas)
@@ -591,15 +591,20 @@ class EnhancedChatDebugGUI:
         self.character_label = ttk.Label(
             character_inner_frame,
             text="加载中...",
-            font=("微软雅黑", 9)
+            font=("微软雅黑", 9),
+            wraplength=1200,  # 设置换行宽度
+            justify=tk.LEFT
         )
-        self.character_label.pack(side=tk.LEFT, padx=5, pady=5)
+        self.character_label.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # 更新canvas的滚动区域
         def update_character_scroll(event=None):
             character_canvas.configure(scrollregion=character_canvas.bbox("all"))
+            # 设置canvas宽度以匹配窗口
+            character_canvas.itemconfig(character_canvas.find_all()[0], width=character_canvas.winfo_width())
         
         character_inner_frame.bind("<Configure>", update_character_scroll)
+        character_canvas.bind("<Configure>", lambda e: update_character_scroll())
         self.character_canvas = character_canvas  # 保存引用以便后续更新
         
         # 添加工具提示支持
