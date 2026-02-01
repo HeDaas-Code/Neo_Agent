@@ -444,8 +444,8 @@ class ChatGUIQt(QMainWindow):
             
     def add_message(self, message: str, is_user: bool):
         """添加消息到聊天区域"""
-        # 移除stretch
-        item = self.messages_layout.takeAt(self.messages_layout.count() - 1)
+        # 移除stretch（用于在添加新消息后重新添加）
+        _ = self.messages_layout.takeAt(self.messages_layout.count() - 1)
         
         # 添加消息气泡
         bubble = MessageBubble(message, is_user)
@@ -459,8 +459,8 @@ class ChatGUIQt(QMainWindow):
         
     def add_system_message(self, message: str):
         """添加系统消息"""
-        # 移除stretch
-        item = self.messages_layout.takeAt(self.messages_layout.count() - 1)
+        # 移除stretch（用于在添加新消息后重新添加）
+        _ = self.messages_layout.takeAt(self.messages_layout.count() - 1)
         
         # 创建系统消息标签
         sys_label = QLabel(message)

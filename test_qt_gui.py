@@ -6,6 +6,7 @@
 
 import sys
 import os
+import tempfile
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QTimer
 
@@ -21,11 +22,14 @@ def capture_screenshot():
     window = ChatGUIQt()
     window.show()
     
+    # 使用系统临时目录以支持跨平台
+    screenshot_path = os.path.join(tempfile.gettempdir(), 'qt_gui_screenshot.png')
+    
     # 等待窗口完全渲染
     def take_screenshot():
         screenshot = window.grab()
-        screenshot.save('/tmp/qt_gui_screenshot.png')
-        print("截图已保存到: /tmp/qt_gui_screenshot.png")
+        screenshot.save(screenshot_path)
+        print(f"截图已保存到: {screenshot_path}")
         app.quit()
     
     # 延迟截图以确保界面完全加载
