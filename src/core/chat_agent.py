@@ -23,7 +23,8 @@ from src.tools.expression_style import ExpressionStyleManager
 from src.core.schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from src.tools.schedule_intent_tool import ScheduleIntentTool
 from src.core.schedule_generator import TemporaryScheduleGenerator
-from NPS import NPSRegistry, NPSInvoker
+from src.nps.nps_registry import NPSRegistry
+from src.nps.nps_invoker import NPSInvoker
 
 # 加载环境变量
 load_dotenv()

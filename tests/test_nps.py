@@ -311,7 +311,7 @@ class TestSysTimeModule(unittest.TestCase):
 
     def test_systime_execution(self):
         """测试系统时间模块执行"""
-        from NPS.tool.systime import get_system_time
+        from src.nps.tool.systime import get_system_time
         
         result = get_system_time()
         
