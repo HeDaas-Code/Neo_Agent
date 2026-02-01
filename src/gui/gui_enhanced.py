@@ -433,13 +433,49 @@ class EnhancedChatDebugGUI:
     def create_widgets(self):
         """
         创建所有UI组件
+        优化后的布局：将对话和调试分为两个独立的顶级标签页
         """
         # 主容器
         main_container = ttk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # 上部：可视化区域（时间线和雷达图的标签页，固定高度）
-        visualization_frame = ttk.LabelFrame(main_container, text="📊 数据可视化", padding=5, height=280)
+        # 创建顶级标签页，分离对话和调试功能
+        self.main_notebook = ttk.Notebook(main_container)
+        self.main_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ========== 标签页1：对话页面 ==========
+        chat_page = ttk.Frame(self.main_notebook)
+        self.main_notebook.add(chat_page, text="💬 对话")
+
+        # 创建对话页面的内容
+        self.create_chat_page(chat_page)
+
+        # ========== 标签页2：调试页面 ==========
+        debug_page = ttk.Frame(self.main_notebook)
+        self.main_notebook.add(debug_page, text="🔧 调试")
+
+        # 创建调试页面的内容
+        self.create_debug_page(debug_page)
+
+    def create_chat_page(self, parent):
+        """
+        创建对话页面
+        
+        Args:
+            parent: 父容器
+        """
+        # 对话页面使用简洁布局，专注于聊天功能
+        self.create_chat_area(parent)
+
+    def create_debug_page(self, parent):
+        """
+        创建调试页面
+        
+        Args:
+            parent: 父容器
+        """
+        # 上部：可视化区域（时间线和情感分析的标签页，固定高度）
+        visualization_frame = ttk.LabelFrame(parent, text="📊 数据可视化", padding=5, height=280)
         visualization_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
         visualization_frame.pack_propagate(False)  # 固定高度
 
@@ -458,15 +494,15 @@ class EnhancedChatDebugGUI:
         )
         self.timeline_canvas.pack(fill=tk.BOTH, expand=True)
 
-        # 标签页2：情感关系雷达图
+        # 标签页2：情感关系分析
         emotion_tab = ttk.Frame(viz_notebook)
         viz_notebook.add(emotion_tab, text="💖 情感关系")
 
-        # 创建一个水平容器用于雷达图和详细信息
+        # 创建一个水平容器用于情感分析显示和详细信息
         emotion_container = ttk.Frame(emotion_tab)
         emotion_container.pack(fill=tk.BOTH, expand=True)
 
-        # 左侧：雷达图
+        # 左侧：情感印象显示
         radar_frame = ttk.Frame(emotion_container)
         radar_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -502,23 +538,12 @@ class EnhancedChatDebugGUI:
         self.emotion_info_text.pack(fill=tk.BOTH, expand=True, pady=5)
         self.emotion_info_text.config(state=tk.DISABLED)
 
-        # 主分割窗格
-        main_paned = ttk.PanedWindow(main_container, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # 左侧面板 - 聊天区域
-        left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=3)
-
-        # 右侧面板 - 调试信息
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=1)
-
-        # ========== 左侧聊天区域 ==========
-        self.create_chat_area(left_frame)
-
-        # ========== 右侧调试区域 ==========
-        self.create_debug_area(right_frame)
+        # 下部：调试信息区域（填充剩余空间）
+        debug_info_frame = ttk.Frame(parent)
+        debug_info_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 创建调试区域
+        self.create_debug_area(debug_info_frame)
 
     def create_chat_area(self, parent):
         """
@@ -1003,7 +1028,7 @@ class EnhancedChatDebugGUI:
             self.debug_logger = get_debug_logger()
             self.debug_logger.add_listener(self.on_debug_log_added)
 
-        # 选项卡7: 数据库管理
+        # 选项卡8: 数据库管理
         db_tab = ttk.Frame(notebook)
         notebook.add(db_tab, text="💾 数据库管理")
 
@@ -1022,7 +1047,7 @@ class EnhancedChatDebugGUI:
             ttk.Label(db_tab, text=f"数据库管理界面加载失败:\n{str(e)}",
                      font=("微软雅黑", 10), foreground="red").pack(pady=50)
 
-        # 选项卡8: 设定迁移
+        # 选项卡9: 设定迁移
         migration_tab = ttk.Frame(notebook)
         notebook.add(migration_tab, text="📦 设定迁移")
         
@@ -1042,13 +1067,13 @@ class EnhancedChatDebugGUI:
             ttk.Label(migration_tab, text=f"设定迁移界面加载失败:\n{str(e)}",
                      font=("微软雅黑", 10), foreground="red").pack(pady=50)
 
-        # 选项卡9: 控制面板
+        # 选项卡10: 控制面板
         control_tab = ttk.Frame(notebook)
         notebook.add(control_tab, text="⚙️ 控制面板")
 
         self.create_control_panel(control_tab)
 
-        # 选项卡10: 日程管理
+        # 选项卡11: 日程管理
         schedule_tab = ttk.Frame(notebook)
         notebook.add(schedule_tab, text="📅 日程管理")
         
@@ -1067,13 +1092,13 @@ class EnhancedChatDebugGUI:
             ttk.Label(schedule_tab, text=f"日程管理界面加载失败:\n{str(e)}",
                      font=("微软雅黑", 10), foreground="red").pack(pady=50)
         
-        # 选项卡11: 事件管理
+        # 选项卡12: 事件管理
         event_tab = ttk.Frame(notebook)
         notebook.add(event_tab, text="📋 事件管理")
 
         self.create_event_management_panel(event_tab)
         
-        # 选项卡11: NPS工具管理
+        # 选项卡13: NPS工具管理
         nps_tab = ttk.Frame(notebook)
         notebook.add(nps_tab, text="🔧 NPS工具")
         
