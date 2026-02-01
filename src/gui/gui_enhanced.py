@@ -1028,7 +1028,7 @@ class EnhancedChatDebugGUI:
             self.debug_logger = get_debug_logger()
             self.debug_logger.add_listener(self.on_debug_log_added)
 
-        # 选项卡8: 数据库管理
+        # 选项卡8: 数据库管理（注：选项卡7是条件性的Debug日志，仅在DEBUG_MODE=True时显示）
         db_tab = ttk.Frame(notebook)
         notebook.add(db_tab, text="💾 数据库管理")
 

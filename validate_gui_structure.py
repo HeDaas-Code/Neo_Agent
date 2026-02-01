@@ -13,10 +13,17 @@ from pathlib import Path
 
 def validate_gui_structure():
     """验证GUI结构"""
-    gui_file = Path(__file__).parent / 'src' / 'gui' / 'gui_enhanced.py'
+    # 支持从不同目录运行脚本
+    script_dir = Path(__file__).parent
+    gui_file = script_dir / 'src' / 'gui' / 'gui_enhanced.py'
+    
+    # 如果从项目根目录找不到，尝试从当前工作目录查找
+    if not gui_file.exists():
+        gui_file = Path('src/gui/gui_enhanced.py')
     
     if not gui_file.exists():
         print(f"❌ GUI文件不存在: {gui_file}")
+        print(f"   请从项目根目录运行此脚本")
         return False
     
     print(f"✓ GUI文件存在: {gui_file}")
