@@ -39,7 +39,7 @@ class LangChainLLM:
         
         # 获取API配置
         api_config = self.config.get_api_config()
-        self.api_key = api_config['api_key']
+        self.api_key = api_config['api_key'] or 'placeholder-key'  # 如果没有密钥，使用占位符
         self.api_url = api_config['api_url']
         
         # 获取模型配置
@@ -50,12 +50,17 @@ class LangChainLLM:
         
         # 创建ChatOpenAI实例（兼容SiliconFlow API）
         # SiliconFlow使用OpenAI兼容接口
+        # 注意：base_url参数需要指向API根路径，不包括/chat/completions
+        base_url = self.api_url
+        if '/chat/completions' in base_url:
+            base_url = base_url.replace('/chat/completions', '')
+        
         self.llm = ChatOpenAI(
             model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            openai_api_key=self.api_key,
-            openai_api_base=self.api_url.replace('/chat/completions', ''),  # 移除末尾的路径
+            api_key=self.api_key,  # 使用api_key参数而不是openai_api_key
+            base_url=base_url,  # 使用base_url参数而不是openai_api_base
             timeout=30
         )
         

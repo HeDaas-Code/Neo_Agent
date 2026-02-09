@@ -8,7 +8,17 @@
 
 ### 简介
 
-Neo Agent 是一个基于 LangChain 的智能对话代理系统，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
+Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，采用多层模型架构，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
+
+### 架构特性
+
+#### 🏗️ 复合框架架构
+- **LangChain**: 核心框架，提供LLM抽象和链式调用
+- **LangGraph**: 状态图管理，实现复杂对话流程编排
+- **多层模型架构**: 根据任务类型智能选择模型
+  - 主模型 (DeepSeek-V3.2): 处理主要对话和复杂推理
+  - 工具模型 (GLM-4.6V): 处理工具调用、意图识别等轻量级任务
+  - 多模态模型 (Qwen3-VL-32B): 处理多模态识别和推理
 
 ### 主要特性
 
@@ -72,13 +82,18 @@ Neo_Agent/
 
 ### 核心模块
 
+- **model_config**: 多层模型配置管理
+- **langchain_llm**: LangChain LLM封装，支持模型路由
+- **llm_helper**: LLM辅助工具，简化工具级任务调用
+- **conversation_graph**: LangGraph对话流程管理（基础框架）
 - **chat_agent**: 对话代理核心
 - **database_manager**: 统一数据库管理
-- **emotion_analyzer**: 情感关系分析
+- **emotion_analyzer**: 情感关系分析（使用工具模型）
 - **event_manager**: 事件驱动系统
-- **knowledge_base**: 知识库管理
+- **knowledge_base**: 知识库管理（使用工具模型）
 - **long_term_memory**: 长期记忆系统
 - **schedule_manager**: 日程管理
+- **multi_agent_coordinator**: 多智能体协作（使用工具模型）
 
 ### 许可证
 
@@ -90,7 +105,17 @@ Neo_Agent/
 
 ### Introduction
 
-Neo Agent is a LangChain-based intelligent conversation agent system with role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management capabilities.
+Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system with multi-tier model architecture, featuring role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management capabilities.
+
+### Architecture Features
+
+#### 🏗️ Composite Framework Architecture
+- **LangChain**: Core framework providing LLM abstraction and chain invocation
+- **LangGraph**: State graph management for complex conversation flow orchestration
+- **Multi-tier Model Architecture**: Intelligent model selection based on task type
+  - Main Model (DeepSeek-V3.2): Handles primary conversations and complex reasoning
+  - Tool Model (GLM-4.6V): Handles tool invocations, intent recognition, and lightweight tasks
+  - Multimodal Model (Qwen3-VL-32B): Handles multimodal recognition and reasoning
 
 ### Key Features
 
