@@ -1,6 +1,18 @@
-langchain>=0.1.0
-langchain-community>=0.0.10
-langchain-core>=0.1.0
+# LangChain核心框架
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+
+# LangGraph - 用于状态图和多智能体协作
+langgraph>=0.2.0
+
+# LangChain集成
+langchain-openai>=0.2.0
+
+# 基础依赖
 python-dotenv>=1.0.0
 requests>=2.31.0
+
+# 异步支持
+aiohttp>=3.9.0
 
