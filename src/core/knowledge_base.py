@@ -35,26 +35,15 @@ class KnowledgeBase:
     """
 
     def __init__(self,
-                 db_manager: DatabaseManager = None,
-                 api_key: str = None,
-                 api_url: str = None,
-                 model_name: str = None):
+                 db_manager: DatabaseManager = None):
         """
-        初始化知识库管理器
+        初始化知识库管理器（使用LangChain架构）
 
         Args:
             db_manager: 数据库管理器实例（如果为None则创建新实例）
-            api_key: API密钥
-            api_url: API地址
-            model_name: 模型名称
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
-
-        # API配置（用于提取知识）
-        self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-        self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
         # 初始化基础知识库（共享数据库管理器）
         self.base_knowledge = BaseKnowledge(db_manager=self.db)
@@ -66,7 +55,7 @@ class KnowledgeBase:
             os.rename('knowledge_base.json', 'knowledge_base.json.bak')
             print("✓ JSON文件已备份为 knowledge_base.json.bak")
 
-        print(f"✓ 知识库已初始化（使用数据库存储）")
+        print(f"✓ 知识库已初始化（使用数据库存储，基于LangChain）")
 
 
 
@@ -475,56 +464,38 @@ class KnowledgeBase:
 
 请提取知识点（只返回JSON数组）："""
 
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'model': self.model_name,
-                'messages': [
-                    {'role': 'system', 'content': '你是一个专业的知识提取助手，擅长从用户的陈述中识别主体、定义和相关信息。你只从用户明确说出的内容中提取信息，不进行推断。你只返回JSON格式的数据，不添加任何解释。'},
-                    {'role': 'user', 'content': extraction_prompt}
-                ],
-                'temperature': 0.3,
-                'max_tokens': 1500,
-                'stream': False
-            }
-
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=30
+            from src.core.llm_helper import LLMHelper
+            
+            system_prompt = '你是一个专业的知识提取助手，擅长从用户的陈述中识别主体、定义和相关信息。你只从用户明确说出的内容中提取信息，不进行推断。你只返回JSON格式的数据，不添加任何解释。'
+            
+            # 使用工具模型进行知识提取
+            content = LLMHelper.call_tool_model(
+                system_prompt=system_prompt,
+                user_message=extraction_prompt,
+                temperature=0.3,
+                max_tokens=1500
             )
+            
+            content = content.strip()
 
-            response.raise_for_status()
-            result = response.json()
+            # 尝试解析JSON
+            # 清理可能的markdown代码块标记
+            if content.startswith('```'):
+                content = content.split('```')[1]
+                if content.startswith('json'):
+                    content = content[4:]
+            content = content.strip()
 
-            if 'choices' in result and len(result['choices']) > 0:
-                content = result['choices'][0]['message']['content'].strip()
-
-                # 尝试解析JSON
-                # 清理可能的markdown代码块标记
-                if content.startswith('```'):
-                    content = content.split('```')[1]
-                    if content.startswith('json'):
-                        content = content[4:]
-                content = content.strip()
-
-                try:
-                    knowledge_list = json.loads(content)
-                    if isinstance(knowledge_list, list):
-                        return knowledge_list
-                    else:
-                        print(f"✗ 返回的不是列表格式: {type(knowledge_list)}")
-                        return None
-                except json.JSONDecodeError as e:
-                    print(f"✗ JSON解析失败: {e}")
-                    print(f"原始内容: {content[:200]}...")
+            try:
+                knowledge_list = json.loads(content)
+                if isinstance(knowledge_list, list):
+                    return knowledge_list
+                else:
+                    print(f"✗ 返回的不是列表格式: {type(knowledge_list)}")
                     return None
-            else:
-                print("✗ 未能获取有效的知识提取结果")
+            except json.JSONDecodeError as e:
+                print(f"✗ JSON解析失败: {e}")
+                print(f"原始内容: {content[:200]}...")
                 return None
 
         except Exception as e:
@@ -555,77 +526,55 @@ class KnowledgeBase:
 
 如果没有明确的主体，返回空数组 []"""
 
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'model': self.model_name,
-                'messages': [
-                    {'role': 'system', 'content': '你是一个专业的实体识别助手，只返回JSON格式数据。'},
-                    {'role': 'user', 'content': extraction_prompt}
-                ],
-                'temperature': 0.2,
-                'max_tokens': 500,
-                'stream': False
-            }
-
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=15
+            from src.core.llm_helper import LLMHelper
+            
+            system_prompt = '你是一个专业的实体识别助手，只返回JSON格式数据。'
+            
+            # 使用工具模型进行实体提取
+            content = LLMHelper.call_tool_model(
+                system_prompt=system_prompt,
+                user_message=extraction_prompt,
+                temperature=0.2,
+                max_tokens=500
             )
+            
+            content = content.strip()
 
-            response.raise_for_status()
-            result = response.json()
+            # 清理markdown代码块
+            if content.startswith('```'):
+                content = content.split('```')[1]
+                if content.startswith('json'):
+                    content = content[4:]
+            content = content.strip()
 
-            if 'choices' in result and len(result['choices']) > 0:
-                content = result['choices'][0]['message']['content'].strip()
-
-                # 清理markdown代码块
-                if content.startswith('```'):
-                    content = content.split('```')[1]
-                    if content.startswith('json'):
-                        content = content[4:]
-                content = content.strip()
-
-                try:
-                    entities = json.loads(content)
-                    if isinstance(entities, list):
-                        result = [e for e in entities if isinstance(e, str)]
-                        debug_logger.log_info('KnowledgeBase', '实体提取成功', {
-                            'query': query,
-                            'entities': result
-                        })
-                        return result
-                    else:
-                        debug_logger.log_info('KnowledgeBase', '实体提取结果不是列表', {'content': content})
-                        return []
-                except json.JSONDecodeError as e:
-                    print(f"✗ 实体提取JSON解析失败")
-                    debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
+            try:
+                entities = json.loads(content)
+                if isinstance(entities, list):
+                    result = [e for e in entities if isinstance(e, str)]
+                    debug_logger.log_info('KnowledgeBase', '实体提取成功', {
+                        'query': query,
+                        'entities': result
+                    })
+                    return result
+                else:
+                    debug_logger.log_info('KnowledgeBase', '实体提取结果不是列表', {'content': content})
                     return []
-            else:
-                debug_logger.log_info('KnowledgeBase', 'API响应中没有choices')
+            except json.JSONDecodeError as e:
+                print(f"✗ 实体提取JSON解析失败")
+                debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
                 return []
 
         except Exception as e:
             print(f"✗ 提取实体时出错: {e}")
             debug_logger.log_error('KnowledgeBase', '提取实体时出错', e)
             return []
-        """
-        搜索知识库
-
-        Args:
-            keyword: 关键词
-            knowledge_type: 知识类型
-            entity_name: 主体名称
-
-        Returns:
-            匹配的知识列表（按置信度排序）
-        """
+    
+    def search_knowledge(
+        self,
+        keyword: str = None,
+        knowledge_type: str = None,
+        entity_name: str = None
+    ) -> List[Dict[str, Any]]:
         results = self.get_all_knowledge(sort_by_confidence=True)
 
         # 按主体名称筛选

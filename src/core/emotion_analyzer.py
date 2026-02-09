@@ -31,25 +31,15 @@ class EmotionRelationshipAnalyzer:
     """
 
     def __init__(self,
-                 db_manager: DatabaseManager = None,
-                 api_key: str = None,
-                 api_url: str = None,
-                 model_name: str = None):
+                 db_manager: DatabaseManager = None):
         """
-        初始化情感关系分析器
+        初始化情感关系分析器（使用LangChain架构）
 
         Args:
             db_manager: 数据库管理器实例（如果为None则创建新实例）
-            api_key: API密钥
-            api_url: API地址
-            model_name: 模型名称
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
-
-        self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-        self.model_name = model_name or os.getenv('MODEL_NAME', 'deepseek-ai/DeepSeek-V3')
 
         # 检查是否需要从JSON迁移数据
         if os.path.exists('emotion_data.json'):
@@ -58,7 +48,7 @@ class EmotionRelationshipAnalyzer:
             os.rename('emotion_data.json', 'emotion_data.json.bak')
             print("✓ 情感数据已迁移，JSON文件已备份")
 
-        print("✓ 情感关系分析器已初始化（使用数据库存储）")
+        print("✓ 情感关系分析器已初始化（使用数据库存储，基于LangChain）")
 
     def analyze_emotion_relationship(self,
                                     messages: List[Dict[str, str]],
@@ -388,7 +378,7 @@ class EmotionRelationshipAnalyzer:
 
     def _call_llm(self, prompt: str) -> str:
         """
-        调用LLM API
+        调用LLM API（使用工具模型处理情感分析任务）
 
         Args:
             prompt: 提示词
@@ -396,56 +386,27 @@ class EmotionRelationshipAnalyzer:
         Returns:
             LLM返回的文本
         """
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-
-        data = {
-            'model': self.model_name,
-            'messages': [
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.3,  # 使用较低温度以获得更稳定的结果
-            'max_tokens': 1000
-        }
-
-        debug_logger.log_request('EmotionAnalyzer', self.api_url, data, headers)
-
-        import time
-        start_time = time.time()
-
+        from src.core.llm_helper import LLMHelper
+        
+        debug_logger.log_info('EmotionAnalyzer', '调用工具模型进行情感分析')
+        
         try:
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=data,
-                timeout=30
+            # 使用工具模型处理情感分析（轻量级任务）
+            response = LLMHelper.call_tool_model(
+                system_prompt="你是一个情感分析专家，负责分析对话中的情感关系。",
+                user_message=prompt,
+                temperature=0.3,
+                max_tokens=1000
             )
-
-            elapsed_time = time.time() - start_time
-
-            if response.status_code == 200:
-                result = response.json()
-                debug_logger.log_response('EmotionAnalyzer', result, response.status_code, elapsed_time)
-
-                content = result['choices'][0]['message']['content']
-                debug_logger.log_info('EmotionAnalyzer', 'API调用成功', {
-                    'response_length': len(content),
-                    'elapsed_time': elapsed_time
-                })
-                return content
-            else:
-                debug_logger.log_error('EmotionAnalyzer',
-                    f'API调用失败: {response.status_code}',
-                    Exception(response.text))
-                raise Exception(f"API调用失败: {response.status_code}, {response.text}")
-
-        except requests.exceptions.Timeout as e:
-            debug_logger.log_error('EmotionAnalyzer', 'API请求超时', e)
-            raise Exception(f"API请求超时: {str(e)}")
+            
+            debug_logger.log_info('EmotionAnalyzer', 'LLM调用成功', {
+                'response_length': len(response)
+            })
+            
+            return response
+            
         except Exception as e:
-            debug_logger.log_error('EmotionAnalyzer', f'API调用异常: {str(e)}', e)
+            debug_logger.log_error('EmotionAnalyzer', f'LLM调用异常: {str(e)}', e)
             raise
 
     def _parse_emotion_result(self, result_text: str, is_initial: bool = True) -> Dict[str, Any]:
