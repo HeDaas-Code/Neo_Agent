@@ -30,28 +30,19 @@ class SubAgent:
         self,
         agent_id: str,
         role: str,
-        description: str,
-        api_key: str,
-        api_url: str,
-        model_name: str
+        description: str
     ):
         """
-        初始化子智能体
+        初始化子智能体（使用LangChain）
 
         Args:
             agent_id: 智能体ID
             role: 智能体角色
             description: 角色描述
-            api_key: API密钥
-            api_url: API地址
-            model_name: 模型名称
         """
         self.agent_id = agent_id
         self.role = role
         self.description = description
-        self.api_key = api_key
-        self.api_url = api_url
-        self.model_name = model_name
 
     def execute_task(
         self,
@@ -98,49 +89,28 @@ class SubAgent:
 请按照任务要求完成你的工作，如有需要可以使用可用的工具。
 输出格式：直接输出你的工作结果，简洁明了。"""
 
-        # 调用API
+        # 使用LangChain LLM执行任务
         try:
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'model': self.model_name,
-                'messages': [
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': f'请完成任务：{task_description}'}
-                ],
-                'temperature': 0.7,
-                'max_tokens': 2000,
-                'stream': False
-            }
-
-            debug_logger.log_request('SubAgent', self.api_url, payload, headers)
-
-            start_time = time.time()
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            elapsed_time = time.time() - start_time
-
-            response.raise_for_status()
-            result = response.json()
-
-            debug_logger.log_response('SubAgent', result, response.status_code, elapsed_time)
-
-            if 'choices' in result and len(result['choices']) > 0:
-                output = result['choices'][0]['message']['content']
-                debug_logger.log_info('SubAgent', f'智能体[{self.role}]任务完成', {
-                    'output_length': len(output),
-                    'elapsed_time': elapsed_time
-                })
-                return output
-            else:
-                return "【执行失败】未收到有效响应"
+            from src.core.langchain_llm import LangChainLLM, ModelType
+            
+            # 子智能体使用工具模型（小模型）
+            llm = LangChainLLM(ModelType.TOOL)
+            
+            messages = [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': f'请完成任务：{task_description}'}
+            ]
+            
+            debug_logger.log_module('SubAgent', f'使用工具模型执行任务', {
+                'model_name': llm.model_name
+            })
+            
+            output = llm.chat(messages)
+            
+            debug_logger.log_info('SubAgent', f'智能体[{self.role}]任务完成', {
+                'output_length': len(output)
+            })
+            return output
 
         except Exception as e:
             debug_logger.log_error('SubAgent', f'智能体[{self.role}]执行失败: {str(e)}', e)
@@ -159,7 +129,7 @@ class MultiAgentCoordinator:
         progress_callback: Optional[Callable[[str], None]] = None
     ):
         """
-        初始化多智能体协调器
+        初始化多智能体协调器（使用LangChain架构）
 
         Args:
             question_tool: 中断性提问工具
@@ -168,15 +138,10 @@ class MultiAgentCoordinator:
         self.question_tool = question_tool
         self.progress_callback = progress_callback
         
-        # 从环境变量获取API配置
-        self.api_key = os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-        self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
-        
         # 协作日志记录
         self.collaboration_logs = []
         
-        debug_logger.log_module('MultiAgentCoordinator', '多智能体协调器初始化完成')
+        debug_logger.log_module('MultiAgentCoordinator', '多智能体协调器初始化完成（基于LangChain）')
 
     def add_collaboration_log(self, agent_role: str, action: str, content: str):
         """
@@ -322,10 +287,7 @@ class MultiAgentCoordinator:
         understanding_agent = SubAgent(
             agent_id='understanding_agent',
             role='任务分析专家',
-            description='负责理解和分析任务需求',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责理解和分析任务需求'
         )
 
         task_description = f"""
@@ -378,10 +340,7 @@ class MultiAgentCoordinator:
         planning_agent = SubAgent(
             agent_id='planning_agent',
             role='任务规划专家',
-            description='负责将复杂任务分解为可执行的步骤',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责将复杂任务分解为可执行的步骤'
         )
 
         context = {
@@ -464,10 +423,7 @@ class MultiAgentCoordinator:
         execution_agent = SubAgent(
             agent_id=f'execution_agent_{len(previous_results)}',
             role='任务执行专家',
-            description='负责执行具体的任务步骤',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责执行具体的任务步骤'
         )
 
         # 准备工具列表（包含中断性提问工具）
@@ -535,10 +491,7 @@ class MultiAgentCoordinator:
         verification_agent = SubAgent(
             agent_id='verification_agent',
             role='任务验证专家',
-            description='负责验证任务是否达到完成标准',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责验证任务是否达到完成标准'
         )
 
         # 整理执行结果
