@@ -575,6 +575,17 @@ class KnowledgeBase:
         knowledge_type: str = None,
         entity_name: str = None
     ) -> List[Dict[str, Any]]:
+        """
+        搜索知识库
+        
+        Args:
+            keyword: 关键词，用于搜索知识内容
+            knowledge_type: 知识类型，如"定义"、"特征"等
+            entity_name: 主体名称，用于筛选特定主体的知识
+            
+        Returns:
+            匹配的知识列表（按置信度排序）
+        """
         results = self.get_all_knowledge(sort_by_confidence=True)
 
         # 按主体名称筛选

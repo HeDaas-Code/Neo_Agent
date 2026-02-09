@@ -4,7 +4,6 @@ LangGraph对话流程管理模块
 """
 
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
-from typing_extensions import TypedDict
 import operator
 from langgraph.graph import StateGraph, END
 
