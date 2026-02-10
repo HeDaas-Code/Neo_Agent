@@ -2,13 +2,14 @@
 智能对话代理模块
 基于LangChain实现的连续对话智能体，支持角色扮演和长效记忆
 使用数据库管理器统一管理数据
+支持模块化提示词系统和世界观注入
 """
 
 import os
 import json
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
@@ -169,6 +170,7 @@ class CharacterProfile:
     """
     角色档案类
     从环境变量读取并管理角色设定
+    使用提示词管理器加载角色提示词模板
     """
 
     def __init__(self):
@@ -185,12 +187,62 @@ class CharacterProfile:
         self.age = os.getenv('CHARACTER_AGE', '18')
         self.background = os.getenv('CHARACTER_BACKGROUND', '')
 
-    def get_system_prompt(self) -> str:
+        # 初始化提示词管理器
+        from src.core.prompt_manager import get_prompt_manager
+        self.prompt_manager = get_prompt_manager()
+
+    def get_system_prompt(self, 
+                         long_term_memory: str = "",
+                         relevant_knowledge: str = "",
+                         environment_context: str = "",
+                         emotion_relationship: str = "") -> str:
         """
-        生成系统提示词
+        生成系统提示词（使用模板）
+
+        Args:
+            long_term_memory: 长期记忆内容
+            relevant_knowledge: 相关知识内容
+            environment_context: 环境上下文
+            emotion_relationship: 情感关系
 
         Returns:
             用于初始化AI的系统提示词
+        """
+        try:
+            # 获取角色设定提示词
+            character_profile = self.prompt_manager.get_character_prompt(
+                character_name=None,  # 使用默认或配置的角色文件
+                character_data=self.get_info_dict()
+            )
+
+            # 获取世界观设定
+            world_setting = self.prompt_manager.get_worldview_prompt()
+
+            # 获取聊天系统提示词
+            variables = {
+                'character_name': self.name,
+                'character_profile': character_profile,
+                'world_setting': world_setting,
+                'long_term_memory': long_term_memory or "无长期记忆",
+                'relevant_knowledge': relevant_knowledge or "无相关知识",
+                'environment_context': environment_context or "无环境信息",
+                'emotion_relationship': emotion_relationship or "初次见面"
+            }
+
+            system_prompt = self.prompt_manager.get_system_prompt('chat_system', variables)
+            return system_prompt
+
+        except Exception as e:
+            # 如果加载模板失败，使用旧的硬编码提示词作为后备
+            print(f"警告: 加载提示词模板失败，使用默认提示词: {e}")
+            return self._get_fallback_prompt()
+
+    def _get_fallback_prompt(self) -> str:
+        """
+        后备的硬编码提示词（兼容性）
+
+        Returns:
+            默认的系统提示词
         """
         prompt = f"""你是{self.name}，正在和用户通过即时通信软件（如QQ、微信）聊天。
 
@@ -229,15 +281,15 @@ class CharacterProfile:
             包含所有角色信息的字典
         """
         return {
-            'name': self.name,
-            'gender': self.gender,
-            'role': self.role,
-            'height': self.height,
-            'weight': self.weight,
-            'personality': self.personality,
-            'age': self.age,
-            'hobby': self.hobby,
-            'background': self.background
+            'character_name': self.name,
+            'character_gender': self.gender,
+            'character_role': self.role,
+            'character_height': self.height,
+            'character_weight': self.weight,
+            'character_personality': self.personality,
+            'character_age': self.age,
+            'character_hobby': self.hobby,
+            'character_background': self.background
         }
 
 
@@ -324,7 +376,8 @@ class ChatAgent:
         self.memory_manager = LongTermMemoryManager(db_manager=self.db)
         self.character = CharacterProfile()
         self.llm = SiliconFlowLLM()
-        self.system_prompt = self.character.get_system_prompt()
+        # system_prompt将在chat方法中根据上下文动态生成
+        self.system_prompt = None
 
         # 初始化情感关系分析器（共享数据库）
         self.emotion_analyzer = EmotionRelationshipAnalyzer(db_manager=self.db)
@@ -720,11 +773,24 @@ class ChatAgent:
         # ===== 构建消息列表 =====
         debug_logger.log_module('ChatAgent', '构建消息列表', '组装系统提示词、知识上下文和历史对话')
 
+        # 动态生成系统提示词，整合各种上下文信息
+        long_term_memory_text = self._build_long_term_memory_text()
+        knowledge_text = self._build_knowledge_text(relevant_knowledge)
+        environment_text = self._build_environment_text(vision_context)
+        emotion_text = self._build_emotion_text()
+        
+        system_prompt = self.character.get_system_prompt(
+            long_term_memory=long_term_memory_text,
+            relevant_knowledge=knowledge_text,
+            environment_context=environment_text,
+            emotion_relationship=emotion_text
+        )
+
         messages = [
-            {'role': 'system', 'content': self.system_prompt}
+            {'role': 'system', 'content': system_prompt}
         ]
 
-        debug_logger.log_prompt('ChatAgent', 'system', self.system_prompt, {'stage': '角色设定'})
+        debug_logger.log_prompt('ChatAgent', 'system', system_prompt, {'stage': '角色设定'})
 
         # 添加情感语气提示（如果有情感分析数据）
         emotion_tone_prompt = self.emotion_analyzer.generate_tone_prompt()
@@ -1358,6 +1424,77 @@ class ChatAgent:
             content = msg['content'][:100]  # 限制长度
             context_parts.append(f"{role}: {content}")
         return "\n".join(context_parts)
+
+    def _build_long_term_memory_text(self) -> str:
+        """
+        构建长期记忆文本
+        
+        Returns:
+            格式化的长期记忆文本
+        """
+        summaries = self.memory_manager.get_long_term_summaries(limit=5)
+        if not summaries:
+            return "暂无长期记忆"
+        
+        text_parts = []
+        for summary in summaries:
+            text_parts.append(f"- {summary['topic']}: {summary['summary'][:100]}")
+        return "\n".join(text_parts)
+
+    def _build_knowledge_text(self, relevant_knowledge: Dict[str, Any]) -> str:
+        """
+        构建知识库文本
+        
+        Args:
+            relevant_knowledge: 相关知识字典
+            
+        Returns:
+            格式化的知识文本
+        """
+        all_knowledge = relevant_knowledge.get('all_knowledge', [])
+        if not all_knowledge:
+            return "暂无相关知识"
+        
+        text_parts = []
+        for k in all_knowledge[:10]:  # 限制数量
+            entity = k.get('entity_name', '未知')
+            content = k.get('content', '')
+            text_parts.append(f"- {entity}: {content[:100]}")
+        return "\n".join(text_parts)
+
+    def _build_environment_text(self, vision_context: Optional[Dict[str, Any]]) -> str:
+        """
+        构建环境上下文文本
+        
+        Args:
+            vision_context: 视觉上下文字典
+            
+        Returns:
+            格式化的环境文本
+        """
+        if not vision_context:
+            return "无特定环境信息"
+        
+        env_name = vision_context['environment']['name']
+        env_desc = vision_context['environment']['description']
+        return f"当前环境：{env_name}\n{env_desc}"
+
+    def _build_emotion_text(self) -> str:
+        """
+        构建情感关系文本
+        
+        Returns:
+            格式化的情感关系文本
+        """
+        latest_emotion = self.emotion_analyzer.get_latest_emotion()
+        if not latest_emotion:
+            return "初次见面，尚未建立情感关系"
+        
+        relationship = latest_emotion.get('relationship_type', '未知')
+        tone = latest_emotion.get('emotional_tone', '未知')
+        score = latest_emotion.get('overall_score', 0)
+        
+        return f"关系类型：{relationship}\n情感基调：{tone}\n关系评分：{score}"
 
 
 # 测试代码
