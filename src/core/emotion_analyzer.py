@@ -287,7 +287,71 @@ class EmotionRelationshipAnalyzer:
                                character_settings: str = "", is_initial: bool = True,
                                current_score: int = 0) -> str:
         """
-        构建情感分析提示词
+        构建情感分析提示词（使用提示词模板）
+
+        Args:
+            conversation_text: 对话文本
+            character_name: AI角色名称
+            character_settings: 角色设定描述
+            is_initial: 是否为初次评估
+            current_score: 当前累计分数
+
+        Returns:
+            分析提示词
+        """
+        try:
+            from src.core.prompt_manager import get_prompt_manager
+            prompt_manager = get_prompt_manager()
+            
+            # 准备变量
+            analysis_type = "初次评估" if is_initial else "更新评估"
+            variables = {
+                'character_name': character_name,
+                'character_settings': character_settings or "无特殊设定",
+                'analysis_type': analysis_type,
+                'conversation_text': conversation_text,
+                'current_score': current_score
+            }
+            
+            # 加载并渲染模板
+            prompt = prompt_manager.get_system_prompt('emotion_analysis', variables)
+            
+            # 根据评估类型附加具体指令
+            if is_initial:
+                prompt += f"""
+
+【当前任务】
+这是初次评估，基于前5轮对话。
+
+对话内容：
+{conversation_text}
+
+请返回JSON格式的初次评估结果。"""
+            else:
+                prompt += f"""
+
+【当前任务】
+这是更新评估，基于最近15轮对话。
+当前累计分数：{current_score}/100
+
+最近对话内容：
+{conversation_text}
+
+请返回JSON格式的更新评估结果。"""
+            
+            return prompt
+            
+        except Exception as e:
+            # 如果模板加载失败，使用后备的硬编码提示词
+            debug_logger.log_error('EmotionAnalyzer', f'加载提示词模板失败: {str(e)}', e)
+            return self._build_fallback_prompt(conversation_text, character_name, 
+                                             character_settings, is_initial, current_score)
+
+    def _build_fallback_prompt(self, conversation_text: str, character_name: str, 
+                               character_settings: str = "", is_initial: bool = True,
+                               current_score: int = 0) -> str:
+        """
+        后备的硬编码提示词（兼容性）
 
         Args:
             conversation_text: 对话文本

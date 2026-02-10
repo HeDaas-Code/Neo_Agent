@@ -51,7 +51,7 @@ class SubAgent:
         tools: List[Dict[str, Any]] = None
     ) -> str:
         """
-        执行任务
+        执行任务（使用提示词模板）
 
         Args:
             task_description: 任务描述
@@ -66,28 +66,34 @@ class SubAgent:
             'task_length': len(task_description)
         })
 
-        # 构建系统提示词
-        system_prompt = f"""你是一个{self.role}。
-
-你的职责：{self.description}
-
-当前任务：{task_description}
-
-上下文信息：
-{json.dumps(context, ensure_ascii=False, indent=2)}
-"""
-
-        # 如果有可用工具，添加工具说明
-        if tools:
-            tools_description = "\n\n可用工具：\n"
-            for tool in tools:
-                tools_description += f"- {tool['name']}: {tool['description']}\n"
-            system_prompt += tools_description
-
-        system_prompt += """
-
-请按照任务要求完成你的工作，如有需要可以使用可用的工具。
-输出格式：直接输出你的工作结果，简洁明了。"""
+        try:
+            # 尝试使用提示词模板
+            from src.core.prompt_manager import get_prompt_manager
+            prompt_manager = get_prompt_manager()
+            
+            # 构建工具描述
+            tools_description = ""
+            if tools:
+                tools_description = "\n可用工具：\n"
+                for tool in tools:
+                    tools_description += f"- {tool['name']}: {tool['description']}\n"
+            
+            # 准备变量
+            variables = {
+                'agent_role': self.role,
+                'agent_description': self.description,
+                'task_description': task_description,
+                'context': json.dumps(context, ensure_ascii=False, indent=2),
+                'tools_description': tools_description or "无可用工具"
+            }
+            
+            # 加载并渲染任务提示词
+            system_prompt = prompt_manager.get_task_prompt('sub_agent_task', variables)
+            
+        except Exception as e:
+            # 如果模板加载失败，使用后备的硬编码提示词
+            debug_logger.log_error('SubAgent', f'加载提示词模板失败，使用后备提示词: {str(e)}', e)
+            system_prompt = self._build_fallback_prompt(task_description, context, tools)
 
         # 使用LangChain LLM执行任务
         try:
@@ -115,6 +121,47 @@ class SubAgent:
         except Exception as e:
             debug_logger.log_error('SubAgent', f'智能体[{self.role}]执行失败: {str(e)}', e)
             return f"【执行失败】{str(e)}"
+
+    def _build_fallback_prompt(
+        self,
+        task_description: str,
+        context: Dict[str, Any],
+        tools: List[Dict[str, Any]] = None
+    ) -> str:
+        """
+        构建后备提示词（兼容性）
+
+        Args:
+            task_description: 任务描述
+            context: 上下文信息
+            tools: 可用工具列表
+
+        Returns:
+            提示词
+        """
+        system_prompt = f"""你是一个{self.role}。
+
+你的职责：{self.description}
+
+当前任务：{task_description}
+
+上下文信息：
+{json.dumps(context, ensure_ascii=False, indent=2)}
+"""
+
+        # 如果有可用工具，添加工具说明
+        if tools:
+            tools_description = "\n\n可用工具：\n"
+            for tool in tools:
+                tools_description += f"- {tool['name']}: {tool['description']}\n"
+            system_prompt += tools_description
+
+        system_prompt += """
+
+请按照任务要求完成你的工作，如有需要可以使用可用的工具。
+输出格式：直接输出你的工作结果，简洁明了。"""
+
+        return system_prompt
 
 
 class MultiAgentCoordinator:
