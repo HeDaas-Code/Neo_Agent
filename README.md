@@ -28,6 +28,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - 🖥️ **现代化GUI**: 基于Tkinter的友好界面
 - 📅 **事件驱动**: 通知事件、任务事件、日程管理
 - 🗄️ **数据管理**: SQLite存储、数据迁移、备份恢复
+- 📝 **提示词工程**: 模块化Markdown提示词、角色扮演、世界观注入
 
 ### 快速开始
 
@@ -71,8 +72,14 @@ Neo_Agent/
 │   ├── gui/               # GUI模块
 │   ├── tools/             # 工具模块
 │   └── nps/               # NPS工具系统
+├── prompts/               # 提示词模板
+│   ├── character/         # 角色设定模板
+│   ├── system/           # 系统提示词模板
+│   ├── task/             # 任务提示词模板
+│   └── worldview/        # 世界观设定
 ├── tests/                 # 测试文件
 ├── examples/              # 示例代码
+├── docs/                  # 文档
 ├── main.py               # 主入口（推荐）
 ├── run.py                # 简化启动器
 ├── requirements.txt      # 依赖列表
@@ -82,6 +89,7 @@ Neo_Agent/
 
 ### 核心模块
 
+- **prompt_manager**: 提示词管理，支持Markdown模板加载和渲染
 - **model_config**: 多层模型配置管理
 - **langchain_llm**: LangChain LLM封装，支持模型路由
 - **llm_helper**: LLM辅助工具，简化工具级任务调用
@@ -94,6 +102,18 @@ Neo_Agent/
 - **long_term_memory**: 长期记忆系统
 - **schedule_manager**: 日程管理
 - **multi_agent_coordinator**: 多智能体协作（使用工具模型）
+
+### 提示词系统
+
+Neo Agent采用模块化的提示词工程系统，参考了SillyTavern的设计理念：
+
+- 📝 **Markdown模板**: 所有提示词以Markdown文件存储
+- 🎭 **角色扮演**: 详细的角色设定和行为准则
+- 🌍 **世界观注入**: 虚拟世界背景和环境设定
+- 🔄 **动态渲染**: 支持变量替换和上下文注入
+- 🛡️ **后备机制**: 模板失败时自动降级到硬编码提示词
+
+详见 `prompts/README.md` 获取完整说明。
 
 ### 许可证
 
