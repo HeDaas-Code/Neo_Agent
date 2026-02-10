@@ -168,12 +168,14 @@ class MultiAgentCoordinator:
     """
     多智能体协调器
     负责协调多个智能体完成复杂任务
+    支持传统的固定流程和新的动态流程
     """
 
     def __init__(
         self,
         question_tool: InterruptQuestionTool,
-        progress_callback: Optional[Callable[[str], None]] = None
+        progress_callback: Optional[Callable[[str], None]] = None,
+        use_dynamic_graph: bool = True
     ):
         """
         初始化多智能体协调器（使用LangChain架构）
@@ -181,14 +183,36 @@ class MultiAgentCoordinator:
         Args:
             question_tool: 中断性提问工具
             progress_callback: 进度回调函数
+            use_dynamic_graph: 是否使用动态协作图（默认True）
         """
         self.question_tool = question_tool
         self.progress_callback = progress_callback
+        self.use_dynamic_graph = use_dynamic_graph
         
         # 协作日志记录
         self.collaboration_logs = []
         
-        debug_logger.log_module('MultiAgentCoordinator', '多智能体协调器初始化完成（基于LangChain）')
+        # 初始化动态协作图
+        if use_dynamic_graph:
+            try:
+                from src.core.dynamic_multi_agent_graph import DynamicMultiAgentGraph
+                self.dynamic_graph = DynamicMultiAgentGraph(
+                    question_tool=question_tool,
+                    progress_callback=progress_callback
+                )
+                debug_logger.log_module('MultiAgentCoordinator', 
+                    '多智能体协调器初始化完成（使用动态LangGraph协作）')
+            except Exception as e:
+                debug_logger.log_error('MultiAgentCoordinator', 
+                    f'动态协作图初始化失败，降级到传统模式: {str(e)}', e)
+                self.use_dynamic_graph = False
+                self.dynamic_graph = None
+                debug_logger.log_module('MultiAgentCoordinator', 
+                    '多智能体协调器初始化完成（使用传统固定流程）')
+        else:
+            self.dynamic_graph = None
+            debug_logger.log_module('MultiAgentCoordinator', 
+                '多智能体协调器初始化完成（使用传统固定流程）')
 
     def add_collaboration_log(self, agent_role: str, action: str, content: str):
         """
@@ -237,6 +261,7 @@ class MultiAgentCoordinator:
     ) -> Dict[str, Any]:
         """
         处理任务型事件
+        根据配置选择动态协作图或传统固定流程
 
         Args:
             task_event: 任务事件
@@ -247,8 +272,42 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始处理任务型事件', {
             'event_id': task_event.event_id,
-            'title': task_event.title
+            'title': task_event.title,
+            'mode': 'dynamic' if self.use_dynamic_graph else 'traditional'
         })
+
+        # 使用动态协作图
+        if self.use_dynamic_graph and self.dynamic_graph:
+            try:
+                result = self.dynamic_graph.process_task_event(task_event, character_context)
+                # 合并协作日志
+                self.collaboration_logs = result.get('collaboration_logs', [])
+                return result
+            except Exception as e:
+                debug_logger.log_error('MultiAgentCoordinator', 
+                    f'动态协作图执行失败，降级到传统模式: {str(e)}', e)
+                # 降级到传统模式
+                return self._process_task_event_traditional(task_event, character_context)
+        
+        # 使用传统固定流程
+        return self._process_task_event_traditional(task_event, character_context)
+
+    def _process_task_event_traditional(
+        self,
+        task_event: TaskEvent,
+        character_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        使用传统固定流程处理任务型事件（后备方案）
+
+        Args:
+            task_event: 任务事件
+            character_context: 角色上下文信息
+
+        Returns:
+            处理结果
+        """
+        debug_logger.log_module('MultiAgentCoordinator', '使用传统固定流程处理任务')
 
         # 清空之前的协作日志
         self.collaboration_logs = []
