@@ -294,6 +294,40 @@ class EnhancedKnowledgeBase:
                 'error': 'DeepAgents未启用'
             }
     
+    def _create_knowledge_item(
+        self,
+        entity_name: str,
+        type_: str,
+        content: str,
+        confidence: float,
+        priority: int,
+        is_base_knowledge: bool = False
+    ) -> Dict[str, Any]:
+        """
+        创建知识条目字典（辅助方法，减少代码重复）
+        
+        Args:
+            entity_name: 实体名称
+            type_: 知识类型
+            content: 内容
+            confidence: 置信度
+            priority: 优先级
+            is_base_knowledge: 是否为基础知识
+            
+        Returns:
+            知识条目字典
+        """
+        item = {
+            'entity_name': entity_name,
+            'type': type_,
+            'content': content,
+            'confidence': confidence,
+            'priority': priority
+        }
+        if is_base_knowledge:
+            item['is_base_knowledge'] = True
+        return item
+    
     def get_relevant_knowledge_for_query(
         self,
         query: str,
@@ -326,14 +360,14 @@ class EnhancedKnowledgeBase:
             # 检查基础知识库
             base_fact = self.base_knowledge.get_base_fact(entity_name)
             if base_fact:
-                base_knowledge_items.append({
-                    'entity_name': entity_name,
-                    'type': '基础知识',
-                    'content': base_fact['content'],
-                    'confidence': 1.0,
-                    'priority': 0,
-                    'is_base_knowledge': True
-                })
+                base_knowledge_items.append(self._create_knowledge_item(
+                    entity_name=entity_name,
+                    type_='基础知识',
+                    content=base_fact['content'],
+                    confidence=1.0,
+                    priority=0,
+                    is_base_knowledge=True
+                ))
                 entities_found.append(entity_name)
             
             # 查找数据库中的知识
@@ -346,24 +380,24 @@ class EnhancedKnowledgeBase:
                 # 添加定义
                 definition = self.db.get_entity_definition(entity_uuid)
                 if definition and not definition.get('is_base_knowledge', False):
-                    knowledge_items.append({
-                        'entity_name': entity['name'],
-                        'type': '定义',
-                        'content': definition['content'],
-                        'confidence': definition['confidence'],
-                        'priority': 1
-                    })
+                    knowledge_items.append(self._create_knowledge_item(
+                        entity_name=entity['name'],
+                        type_='定义',
+                        content=definition['content'],
+                        confidence=definition['confidence'],
+                        priority=1
+                    ))
                 
                 # 添加相关信息
                 related_infos = self.db.get_entity_related_info(entity_uuid)
                 for info in related_infos[:3]:
-                    knowledge_items.append({
-                        'entity_name': entity['name'],
-                        'type': info['type'],
-                        'content': info['content'],
-                        'confidence': info['confidence'],
-                        'priority': 2
-                    })
+                    knowledge_items.append(self._create_knowledge_item(
+                        entity_name=entity['name'],
+                        type_=info['type'],
+                        content=info['content'],
+                        confidence=info['confidence'],
+                        priority=2
+                    ))
         
         # 如果启用DeepAgents，使用智能检索增强结果
         if use_deep and self.deep_knowledge and entities_found:

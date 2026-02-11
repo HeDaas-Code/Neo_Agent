@@ -68,7 +68,6 @@ DeepAgents库提供高级功能（[详细文档](docs/DEEPAGENTS_INTEGRATION.md)
   - 知识提取
   - 实体识别
   - 子智能体任务
-  - 子智能体任务
   - 意图识别
 
 #### 多模态模型 (Qwen/Qwen3-VL-32B-Instruct)
