@@ -1300,17 +1300,25 @@ class ChatAgent:
             character_context
         )
 
-        # 保存协作日志到事件元数据
+        # 保存协作相关数据到事件元数据
         if 'collaboration_logs' in result:
-            import json
             event.metadata['collaboration_logs'] = result['collaboration_logs']
-            # 更新数据库中的元数据
-            with self.db.get_connection() as conn:
-                conn.execute('''
-                    UPDATE events 
-                    SET metadata = ?
-                    WHERE event_id = ?
-                ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
+        
+        # 保存动态协作系统的编排计划和智能体结果
+        if 'orchestration_plan' in result and result['orchestration_plan']:
+            event.metadata['orchestration_plan'] = result['orchestration_plan']
+        
+        if 'agent_results' in result and result['agent_results']:
+            event.metadata['agent_results'] = result['agent_results']
+        
+        # 更新数据库中的元数据
+        import json
+        with self.db.get_connection() as conn:
+            conn.execute('''
+                UPDATE events 
+                SET metadata = ?
+                WHERE event_id = ?
+            ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
 
         # 记录处理结果
         self.event_manager.add_event_log(
