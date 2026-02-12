@@ -644,10 +644,45 @@ class DynamicMultiAgentGraph:
                     'collaboration_logs': final_state.get('collaboration_logs', [])
                 }
             
+            # 检查智能体执行状态，判断任务是否真正成功
+            orchestration_plan = final_state.get('orchestration_plan', {})
+            agents = orchestration_plan.get('agents', [])
+            
+            if agents:
+                # 统计成功和失败的智能体数量
+                successful_agents = [a for a in agents if a.get('status') == 'completed']
+                failed_agents = [a for a in agents if a.get('status') == 'failed']
+                
+                # 如果所有智能体都失败，任务失败
+                if failed_agents and not successful_agents:
+                    error_details = []
+                    for agent in failed_agents:
+                        error_msg = agent.get('error', '未知错误')
+                        error_details.append(f"[{agent.get('role', '未知')}]: {error_msg}")
+                    
+                    return {
+                        'success': False,
+                        'error': f"所有智能体执行失败。详情：\n" + "\n".join(error_details),
+                        'result': final_state.get('final_result', '任务执行失败'),
+                        'orchestration_plan': orchestration_plan,
+                        'agent_results': final_state.get('agent_results', {}),
+                        'collaboration_logs': final_state.get('collaboration_logs', []),
+                        'failed_agents_count': len(failed_agents),
+                        'successful_agents_count': len(successful_agents)
+                    }
+                
+                # 如果有部分智能体失败，在结果中说明但仍标记为成功（部分成功）
+                if failed_agents:
+                    debug_logger.log_warning('DynamicMultiAgentGraph', 
+                        f'任务部分完成：{len(successful_agents)}/{len(agents)}个智能体成功', {
+                        'successful': len(successful_agents),
+                        'failed': len(failed_agents)
+                    })
+            
             return {
                 'success': True,
                 'result': final_state.get('final_result', '任务完成'),
-                'orchestration_plan': final_state.get('orchestration_plan'),
+                'orchestration_plan': orchestration_plan,
                 'agent_results': final_state.get('agent_results', {}),
                 'collaboration_logs': final_state.get('collaboration_logs', [])
             }
