@@ -39,7 +39,8 @@ class DeepSubAgentWrapper:
         tools: List[Any] = None,
         memory_paths: List[str] = None,
         enable_filesystem: bool = True,
-        enable_memory: bool = True
+        enable_memory: bool = True,
+        **kwargs  # 接受额外参数以保持向后兼容
     ):
         """
         初始化深度子智能体
@@ -53,6 +54,7 @@ class DeepSubAgentWrapper:
             memory_paths: 记忆文件路径列表
             enable_filesystem: 是否启用文件系统功能
             enable_memory: 是否启用长期记忆功能
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         self.agent_id = agent_id
         self.role = role
@@ -264,7 +266,8 @@ class DeepAgentsKnowledgeManager:
     def __init__(
         self,
         knowledge_dir: str = "/knowledge",
-        memory_file: str = "/memory/AGENTS.md"
+        memory_file: str = "/memory/AGENTS.md",
+        **kwargs  # 接受额外参数以保持向后兼容
     ):
         """
         初始化知识管理器
@@ -272,6 +275,7 @@ class DeepAgentsKnowledgeManager:
         Args:
             knowledge_dir: 知识存储目录（虚拟文件系统）
             memory_file: 记忆文件路径
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         self.knowledge_dir = knowledge_dir
         self.memory_file = memory_file

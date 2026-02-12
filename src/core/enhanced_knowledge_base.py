@@ -37,7 +37,8 @@ class EnhancedKnowledgeBase:
     def __init__(
         self,
         db_manager: DatabaseManager = None,
-        use_deepagents: bool = USE_DEEPAGENTS_KNOWLEDGE
+        use_deepagents: bool = USE_DEEPAGENTS_KNOWLEDGE,
+        **kwargs  # 接受额外参数以保持向后兼容
     ):
         """
         初始化增强知识库
@@ -45,6 +46,7 @@ class EnhancedKnowledgeBase:
         Args:
             db_manager: 数据库管理器实例
             use_deepagents: 是否使用DeepAgents增强功能
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
