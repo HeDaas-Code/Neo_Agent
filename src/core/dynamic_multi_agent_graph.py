@@ -639,6 +639,8 @@ class DynamicMultiAgentGraph:
                 return {
                     'success': False,
                     'error': final_state['error'],
+                    'orchestration_plan': final_state.get('orchestration_plan'),
+                    'agent_results': final_state.get('agent_results', {}),
                     'collaboration_logs': final_state.get('collaboration_logs', [])
                 }
             
@@ -655,5 +657,7 @@ class DynamicMultiAgentGraph:
             return {
                 'success': False,
                 'error': f'任务处理失败: {str(e)}',
+                'orchestration_plan': initial_state.get('orchestration_plan'),
+                'agent_results': initial_state.get('agent_results', {}),
                 'collaboration_logs': initial_state.get('collaboration_logs', [])
             }
