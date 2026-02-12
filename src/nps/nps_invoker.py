@@ -321,6 +321,60 @@ class NPSInvoker:
 以下是通过工具获取的实时信息，请在回复中参考使用：
 {context_info}"""
     
+    def invoke_tool_by_name(self, tool_name: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        通过工具名称或ID直接调用工具（用于智能体协作）
+        
+        Args:
+            tool_name: 工具名称或tool_id（如'websearch', 'systime'）
+            context: 执行上下文
+            
+        Returns:
+            工具执行结果
+        """
+        # 尝试通过tool_id获取
+        tool = self.registry.get_tool(tool_name)
+        
+        # 如果通过ID找不到，尝试通过名称查找
+        if not tool:
+            all_tools = self.registry.get_all_tools()
+            for t in all_tools:
+                if t.name == tool_name or t.tool_id == tool_name:
+                    tool = t
+                    break
+        
+        if not tool:
+            debug_logger.log_warning('NPSInvoker', f'工具未找到: {tool_name}')
+            return {
+                'success': False,
+                'error': f'工具未找到: {tool_name}',
+                'tool_name': tool_name
+            }
+        
+        if not tool.enabled:
+            debug_logger.log_warning('NPSInvoker', f'工具未启用: {tool_name}')
+            return {
+                'success': False,
+                'error': f'工具未启用: {tool_name}',
+                'tool_name': tool_name
+            }
+        
+        debug_logger.log_module('NPSInvoker', f'直接调用工具: {tool.name}', context or {})
+        
+        # 执行工具
+        result = tool.execute(context or {})
+        
+        return result
+    
+    def get_all_tools(self) -> List[NPSTool]:
+        """
+        获取所有工具列表（用于智能体查询可用工具）
+        
+        Returns:
+            工具列表
+        """
+        return self.registry.get_all_tools()
+    
     def get_statistics(self) -> Dict[str, Any]:
         """
         获取调用器统计信息
