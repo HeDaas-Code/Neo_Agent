@@ -335,6 +335,21 @@ class LongTermMemoryManager:
             概括列表
         """
         return self.db.get_long_term_summaries()
+    
+    def get_long_term_summaries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        获取长期记忆概括（支持限制数量）
+
+        Args:
+            limit: 限制返回的概括数量，None表示返回全部
+
+        Returns:
+            概括列表
+        """
+        summaries = self.db.get_long_term_summaries()
+        if limit is not None and limit > 0:
+            return summaries[:limit]
+        return summaries
 
     def get_statistics(self) -> Dict[str, Any]:
         """
