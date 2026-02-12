@@ -23,12 +23,13 @@ class NPSInvoker:
     负责判断用户对话与哪些工具相关，并调用相关工具获取信息
     """
     
-    def __init__(self, registry: NPSRegistry = None):
+    def __init__(self, registry: NPSRegistry = None, **kwargs):
         """
         初始化工具调用器
 
         Args:
             registry: 工具注册表实例，如果为空则创建新实例并自动扫描
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         # API配置
         self.api_key = os.getenv('SILICONFLOW_API_KEY')
