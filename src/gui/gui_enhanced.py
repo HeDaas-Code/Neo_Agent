@@ -2202,19 +2202,19 @@ class EnhancedChatDebugGUI:
         if self.agent:
             char_info = self.agent.get_character_info()
             # 简化显示文本，主要信息在第一行
-            info_text = f"姓名: {char_info['name']} | 性别: {char_info['gender']} | 身份: {char_info['role']} | 年龄: {char_info['age']}岁\n"
-            info_text += f"性格: {char_info['personality'][:50]}{'...' if len(char_info['personality']) > 50 else ''}"
+            info_text = f"姓名: {char_info['character_name']} | 性别: {char_info['character_gender']} | 身份: {char_info['character_role']} | 年龄: {char_info['character_age']}岁\n"
+            info_text += f"性格: {char_info['character_personality'][:50]}{'...' if len(char_info['character_personality']) > 50 else ''}"
             
             # 完整信息用于工具提示
-            full_info = f"姓名: {char_info['name']}\n"
-            full_info += f"性别: {char_info['gender']}\n"
-            full_info += f"身份: {char_info['role']}\n"
-            full_info += f"年龄: {char_info['age']}岁\n"
-            full_info += f"身高: {char_info['height']}\n"
-            full_info += f"体重: {char_info['weight']}\n"
-            full_info += f"性格: {char_info['personality']}\n"
-            full_info += f"背景: {char_info.get('background', '未设置')}\n"
-            full_info += f"爱好: {char_info.get('hobbies', '未设置')}"
+            full_info = f"姓名: {char_info['character_name']}\n"
+            full_info += f"性别: {char_info['character_gender']}\n"
+            full_info += f"身份: {char_info['character_role']}\n"
+            full_info += f"年龄: {char_info['character_age']}岁\n"
+            full_info += f"身高: {char_info['character_height']}\n"
+            full_info += f"体重: {char_info['character_weight']}\n"
+            full_info += f"性格: {char_info['character_personality']}\n"
+            full_info += f"背景: {char_info.get('character_background', '未设置')}\n"
+            full_info += f"爱好: {char_info.get('character_hobby', '未设置')}"
 
             self.character_label.config(text=info_text)
             
