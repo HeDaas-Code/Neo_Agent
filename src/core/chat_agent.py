@@ -1327,18 +1327,32 @@ class ChatAgent:
             f"处理结果: {result.get('message', '未知')}"
         )
 
-        # 任务执行完成后，直接标记为已完成，不进行评价
-        # 将结果提交给用户
-        self.event_manager.update_event_status(
-            event.event_id,
-            EventStatus.COMPLETED,
-            '任务执行完成，结果已提交给用户'
-        )
-
-        debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
-            'event_id': event.event_id,
-            'success': result.get('success', False)
-        })
+        # 根据实际执行结果更新事件状态
+        # 只有在任务真正执行完成后才更新为COMPLETED
+        # 如果只是生成了计划但未执行，或执行失败，则不更新为COMPLETED
+        if result.get('success'):
+            self.event_manager.update_event_status(
+                event.event_id,
+                EventStatus.COMPLETED,
+                '任务执行完成，结果已提交给用户'
+            )
+            debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
+                'event_id': event.event_id,
+                'success': True
+            })
+        else:
+            # 任务执行失败
+            error_msg = result.get('error', result.get('message', '任务执行失败'))
+            self.event_manager.update_event_status(
+                event.event_id,
+                EventStatus.FAILED,
+                f'任务执行失败：{error_msg}'
+            )
+            debug_logger.log_info('ChatAgent', '任务型事件处理失败', {
+                'event_id': event.event_id,
+                'success': False,
+                'error': error_msg
+            })
 
         return result
 
