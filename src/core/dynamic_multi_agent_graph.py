@@ -647,6 +647,7 @@ class DynamicMultiAgentGraph:
             # 检查智能体执行状态，判断任务是否真正成功
             orchestration_plan = final_state.get('orchestration_plan', {})
             agents = orchestration_plan.get('agents', [])
+            strategy = orchestration_plan.get('execution_strategy', '')
             
             if agents:
                 # 统计成功和失败的智能体数量
@@ -678,6 +679,19 @@ class DynamicMultiAgentGraph:
                         'successful': len(successful_agents),
                         'failed': len(failed_agents)
                     })
+            
+            # 对于simple策略，返回结果但标记为需要用户确认
+            # 避免在计划生成后立即标记为完成
+            if strategy == 'simple':
+                return {
+                    'success': True,
+                    'result': final_state.get('final_result', '任务完成'),
+                    'orchestration_plan': orchestration_plan,
+                    'agent_results': final_state.get('agent_results', {}),
+                    'collaboration_logs': final_state.get('collaboration_logs', []),
+                    'is_simple_result': True,  # 标记为简单结果，需要延迟状态更新
+                    'requires_delivery_confirmation': True  # 需要确认结果已交付
+                }
             
             return {
                 'success': True,

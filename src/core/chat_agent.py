@@ -1330,16 +1330,29 @@ class ChatAgent:
         # 根据实际执行结果更新事件状态
         # 只有在任务真正执行完成后才更新为COMPLETED
         # 如果只是生成了计划但未执行，或执行失败，则不更新为COMPLETED
+        # 对于simple策略任务，不立即更新为COMPLETED，保持PROCESSING状态
         if result.get('success'):
-            self.event_manager.update_event_status(
-                event.event_id,
-                EventStatus.COMPLETED,
-                '任务执行完成，结果已提交给用户'
-            )
-            debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
-                'event_id': event.event_id,
-                'success': True
-            })
+            # 检查是否是simple策略的结果（需要延迟状态更新）
+            if result.get('is_simple_result') or result.get('requires_delivery_confirmation'):
+                # Simple策略任务：结果已生成但不标记为COMPLETED
+                # 状态保持PROCESSING，等待结果真正交付给用户后再更新
+                debug_logger.log_info('ChatAgent', '任务结果已生成（simple策略），保持PROCESSING状态', {
+                    'event_id': event.event_id,
+                    'strategy': 'simple',
+                    'result_ready': True
+                })
+                # 注意：状态不更新为COMPLETED，GUI收到结果后由用户或GUI来确认
+            else:
+                # 非simple策略：任务真正执行完成，更新为COMPLETED
+                self.event_manager.update_event_status(
+                    event.event_id,
+                    EventStatus.COMPLETED,
+                    '任务执行完成，结果已提交给用户'
+                )
+                debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
+                    'event_id': event.event_id,
+                    'success': True
+                })
         else:
             # 任务执行失败
             error_msg = result.get('error', result.get('message', '任务执行失败'))
