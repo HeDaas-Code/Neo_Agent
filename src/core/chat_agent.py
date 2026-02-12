@@ -1381,11 +1381,29 @@ class ChatAgent:
                     last_result = result['execution_results'][-1]
                     final_output = last_result.get('output', '')
                     
+                    # 如果输出为空，尝试构建更详细的反馈
+                    if not final_output:
+                        # 检查是否有错误
+                        if 'error' in last_result:
+                            final_output = f"❌ 任务执行失败：{last_result['error']}"
+                        elif 'step' in last_result:
+                            # 有步骤信息但无输出
+                            final_output = f"✅ 任务步骤「{last_result['step']}」已完成，但未返回具体内容"
+                        else:
+                            # 使用result中的message
+                            final_output = result.get('message', '任务执行完成但未返回具体内容')
+                    
                     # 使用正常的智能体回复模式，直接返回最后的执行结果
-                    return final_output if final_output else result.get('message', '任务已完成')
+                    return final_output
                 else:
-                    # 如果没有执行结果，返回基本消息
-                    return result.get('message', '任务已完成')
+                    # 如果没有执行结果，检查是否有错误信息
+                    if 'error' in result:
+                        return f"❌ 任务执行失败：{result['error']}"
+                    elif result.get('success') == False:
+                        return f"❌ 任务执行未成功：{result.get('message', '未知原因')}"
+                    else:
+                        # 返回基本消息或默认消息
+                        return result.get('message', '⚠️ 任务执行未产生结果，请检查任务配置')
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"

@@ -371,6 +371,20 @@ class MultiAgentCoordinator:
         self.emit_progress("智能体正在制定执行计划...")
         execution_plan = self._create_execution_plan(task_event, task_understanding)
         
+        # 检查执行计划是否有效
+        if not execution_plan.get('steps') or len(execution_plan['steps']) == 0:
+            error_msg = '无法制定执行计划，任务可能太模糊或不明确'
+            self.emit_progress(f"❌ {error_msg}")
+            return {
+                'success': False,
+                'message': error_msg,
+                'error': error_msg,
+                'execution_results': [],
+                'task_understanding': task_understanding,
+                'execution_plan': execution_plan,
+                'collaboration_logs': self.collaboration_logs
+            }
+        
         self.emit_progress(f"执行计划已制定，共{len(execution_plan['steps'])}个步骤")
 
         # 第三步：执行计划
@@ -391,10 +405,15 @@ class MultiAgentCoordinator:
                 self.emit_progress(f"用户已回答问题，继续执行...")
 
             if not result.get('success'):
-                self.emit_progress(f"步骤执行失败：{result.get('error', '未知错误')}")
+                error_detail = result.get('error', '未知错误')
+                self.emit_progress(f"步骤执行失败：{error_detail}")
+                # 确保execution_results包含失败信息
+                if not result.get('output'):
+                    result['output'] = f"❌ 步骤{i}执行失败：{error_detail}"
                 return {
                     'success': False,
-                    'error': f'执行失败于步骤{i}',
+                    'message': f'任务执行失败于步骤{i}：{error_detail}',
+                    'error': f'执行失败于步骤{i}：{error_detail}',
                     'execution_results': execution_results,
                     'collaboration_logs': self.collaboration_logs
                 }
