@@ -4,6 +4,8 @@ Debug日志管理器
 """
 
 import os
+import sys
+import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import json
@@ -236,7 +238,7 @@ class DebugLogger:
 
     def log_error(self, module_name: str, error_message: str, exception: Exception = None):
         """
-        记录错误信息
+        记录错误信息（包含文件和行号）
 
         Args:
             module_name: 模块名称
@@ -246,12 +248,33 @@ class DebugLogger:
         if not self.debug_mode:
             return
 
+        # 获取堆栈跟踪信息
+        traceback_info = None
+        file_info = None
+        if exception:
+            tb = sys.exc_info()[2]
+            if tb:
+                # 提取堆栈帧
+                frames = traceback.extract_tb(tb)
+                if frames:
+                    # 获取最后一帧（错误发生的位置）
+                    last_frame = frames[-1]
+                    file_info = {
+                        'filename': last_frame.filename,
+                        'line': last_frame.lineno,
+                        'function': last_frame.name,
+                        'code': last_frame.line
+                    }
+                    traceback_info = ''.join(traceback.format_exception(type(exception), exception, tb))
+
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'type': 'error',
             'module': module_name,
             'message': error_message,
-            'exception': str(exception) if exception else None
+            'exception': str(exception) if exception else None,
+            'file_info': file_info,
+            'traceback': traceback_info
         }
 
         self.logs.append(log_entry)
@@ -261,9 +284,15 @@ class DebugLogger:
         message += f"  错误: {error_message}"
         if exception:
             message += f"\n  异常: {str(exception)}"
-
+        if file_info:
+            message += f"\n  位置: {file_info['filename']}:{file_info['line']} in {file_info['function']}()"
+            if file_info['code']:
+                message += f"\n  代码: {file_info['code']}"
+        
         print(message)
         self._write_to_file(message)
+        if traceback_info:
+            self._write_to_file(f"  完整堆栈:\n{traceback_info}")
         self._notify_listeners(log_entry)
 
     def log_info(self, module_name: str, message: str, data: Any = None):
@@ -340,6 +369,50 @@ class DebugLogger:
             'debug_mode': self.debug_mode,
             'log_file': self.log_file
         }
+    
+    @staticmethod
+    def format_exception_with_location(exception: Exception, include_traceback: bool = True) -> str:
+        """
+        格式化异常信息，包含文件位置信息
+        
+        Args:
+            exception: 异常对象
+            include_traceback: 是否包含完整堆栈跟踪
+            
+        Returns:
+            格式化的异常信息
+        """
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        
+        if not exc_tb:
+            return str(exception)
+        
+        # 提取堆栈帧
+        frames = traceback.extract_tb(exc_tb)
+        
+        if not frames:
+            return str(exception)
+        
+        # 获取最后一帧（错误发生的位置）
+        last_frame = frames[-1]
+        
+        # 构建简短的错误信息（带文件和行号）
+        error_msg = f"{exc_type.__name__}: {exc_value}\n"
+        error_msg += f"位置: {last_frame.filename}:{last_frame.lineno}\n"
+        error_msg += f"函数: {last_frame.name}()"
+        
+        if last_frame.line:
+            error_msg += f"\n代码: {last_frame.line.strip()}"
+        
+        # 如果需要完整堆栈跟踪
+        if include_traceback and len(frames) > 1:
+            error_msg += "\n\n完整堆栈跟踪:\n"
+            for i, frame in enumerate(frames):
+                error_msg += f"  {i+1}. {frame.filename}:{frame.lineno} in {frame.name}()\n"
+                if frame.line:
+                    error_msg += f"     {frame.line.strip()}\n"
+        
+        return error_msg
 
     def format_log_for_display(self, log_entry: Dict[str, Any]) -> str:
         """
@@ -372,7 +445,12 @@ class DebugLogger:
             return f"[{timestamp}] [{log_type}] {module} | 状态:{status} | 耗时:{elapsed:.2f}s"
 
         elif log_type == 'ERROR':
-            return f"[{timestamp}] [{log_type}] {module} | {log_entry.get('message', '')}"
+            msg = log_entry.get('message', '')
+            file_info = log_entry.get('file_info')
+            if file_info:
+                location = f"{file_info.get('filename', 'unknown')}:{file_info.get('line', '?')}"
+                return f"[{timestamp}] [{log_type}] {module} | {msg} @ {location}"
+            return f"[{timestamp}] [{log_type}] {module} | {msg}"
 
         elif log_type == 'INFO':
             return f"[{timestamp}] [{log_type}] {module} | {log_entry.get('message', '')}"

@@ -12,7 +12,7 @@ import math
 from typing import Dict, Any, List, Optional
 from src.core.chat_agent import ChatAgent
 from src.core.database_manager import DatabaseManager
-from src.tools.debug_logger import get_debug_logger
+from src.tools.debug_logger import get_debug_logger, DebugLogger
 from src.core.emotion_analyzer import format_emotion_summary
 from src.tools.tooltip_utils import ToolTip, create_treeview_tooltip
 from src.gui.nps_gui import NPSManagerGUI
@@ -2191,7 +2191,9 @@ class EnhancedChatDebugGUI:
 
         except Exception as e:
             self.update_status("初始化失败", "red")
-            messagebox.showerror("初始化错误", f"初始化聊天代理时出错：\n{str(e)}")
+            # 使用增强的错误格式
+            error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
+            messagebox.showerror("初始化错误", f"初始化聊天代理时出错：\n\n{error_msg}")
 
     def update_character_info(self):
         """
@@ -2310,8 +2312,9 @@ class EnhancedChatDebugGUI:
 
             except Exception as e:
                 debug_logger.log_error('GUI', f'情感分析线程出错: {str(e)}', e)
+                error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
                 self.root.after(0, lambda: self.update_status("分析失败", "red"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"情感分析时出错：\n{str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"情感分析时出错：\n\n{error_msg}"))
 
         thread = threading.Thread(target=analyze_thread, daemon=True)
         thread.start()
@@ -3262,8 +3265,8 @@ class EnhancedChatDebugGUI:
                 response = self.agent.chat(user_input)
                 self.root.after(0, lambda: self.handle_response(response, old_summary_count))
             except Exception as e:
-                error_msg = f"处理消息时出错: {str(e)}"
-                self.root.after(0, lambda: self.handle_error(error_msg))
+                error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
+                self.root.after(0, lambda: self.handle_error(f"处理消息时出错:\n\n{error_msg}"))
 
         thread = threading.Thread(target=process_chat, daemon=True)
         thread.start()
