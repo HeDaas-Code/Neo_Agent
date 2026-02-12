@@ -48,6 +48,26 @@ class LangChainLLM:
         self.temperature = model_config['temperature']
         self.max_tokens = model_config['max_tokens']
         
+        # 获取超时配置（根据模型类型使用不同的默认值）
+        # 主模型默认60秒（处理复杂推理任务）
+        # 工具模型默认45秒（处理工具调用和子任务）
+        # 多模态模型默认90秒（处理视觉推理任务）
+        timeout_defaults = {
+            ModelType.MAIN: 60,
+            ModelType.TOOL: 45,
+            ModelType.VISION: 90
+        }
+        default_timeout = timeout_defaults.get(model_type, 45)
+        
+        # 从环境变量读取超时配置，支持针对每种模型类型单独配置
+        timeout_env_keys = {
+            ModelType.MAIN: 'MAIN_MODEL_TIMEOUT',
+            ModelType.TOOL: 'TOOL_MODEL_TIMEOUT',
+            ModelType.VISION: 'VISION_MODEL_TIMEOUT'
+        }
+        timeout_env_key = timeout_env_keys.get(model_type, 'LLM_TIMEOUT')
+        self.timeout = int(os.getenv(timeout_env_key, str(default_timeout)))
+        
         # 创建ChatOpenAI实例（兼容SiliconFlow API）
         # SiliconFlow使用OpenAI兼容接口
         # 注意：base_url参数需要指向API根路径，不包括/chat/completions
@@ -61,13 +81,14 @@ class LangChainLLM:
             max_tokens=self.max_tokens,
             api_key=self.api_key,  # 使用api_key参数而不是openai_api_key
             base_url=base_url,  # 使用base_url参数而不是openai_api_base
-            timeout=30
+            timeout=self.timeout
         )
         
         debug_logger.log_module('LangChainLLM', f'初始化{model_type.value}模型', {
             'model_name': self.model_name,
             'temperature': self.temperature,
-            'max_tokens': self.max_tokens
+            'max_tokens': self.max_tokens,
+            'timeout': self.timeout
         })
         
         # 验证配置
