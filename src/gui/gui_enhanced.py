@@ -1753,17 +1753,19 @@ class EnhancedChatDebugGUI:
             messagebox.showinfo("提示", "只有任务型事件才有协作详情！")
             return
 
-        # 获取协作日志
+        # 获取协作相关数据
         collaboration_logs = event.metadata.get('collaboration_logs', [])
+        orchestration_plan = event.metadata.get('orchestration_plan', None)
+        agent_results = event.metadata.get('agent_results', {})
         
-        if not collaboration_logs:
+        if not collaboration_logs and not orchestration_plan:
             messagebox.showinfo("提示", "该事件还没有协作日志。\n请先触发该任务事件。")
             return
 
         # 创建对话框显示协作详情
         dialog = tk.Toplevel(self.root)
         dialog.title(f"智能体协作详情 - {event.title}")
-        dialog.geometry("900x700")
+        dialog.geometry("1000x750")
         
         # 设置对话框图标（如果主窗口有图标）
         if self.root.iconbitmap:
@@ -1776,7 +1778,7 @@ class EnhancedChatDebugGUI:
         main_frame = ttk.Frame(dialog, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 标题
+        # 标题框架
         title_frame = ttk.Frame(main_frame)
         title_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -1786,6 +1788,23 @@ class EnhancedChatDebugGUI:
             font=("微软雅黑", 12, "bold")
         ).pack(side=tk.LEFT)
         
+        # 显示协作模式
+        if orchestration_plan:
+            strategy = orchestration_plan.get('execution_strategy', 'unknown')
+            strategy_text = {
+                'simple': '简单直接',
+                'parallel': '并行执行',
+                'sequential': '顺序执行'
+            }.get(strategy, strategy)
+            
+            mode_label = ttk.Label(
+                title_frame,
+                text=f"🤖 {strategy_text}模式",
+                font=("微软雅黑", 9, "bold"),
+                foreground="#2c5aa0"
+            )
+            mode_label.pack(side=tk.RIGHT, padx=10)
+        
         ttk.Label(
             title_frame,
             text=f"共 {len(collaboration_logs)} 条协作记录",
@@ -1793,16 +1812,139 @@ class EnhancedChatDebugGUI:
             foreground="gray"
         ).pack(side=tk.RIGHT)
 
-        # 创建文本框显示协作日志（对话形式）
-        text_frame = ttk.Frame(main_frame)
-        text_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # 创建Notebook用于分标签页显示
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        # 标签页1：编排计划（如果有）
+        if orchestration_plan:
+            plan_frame = ttk.Frame(notebook, padding=10)
+            notebook.add(plan_frame, text="📊 编排计划")
+            
+            # 创建滚动文本框
+            plan_scrollbar = ttk.Scrollbar(plan_frame)
+            plan_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            plan_text = tk.Text(
+                plan_frame,
+                wrap=tk.WORD,
+                yscrollcommand=plan_scrollbar.set,
+                font=("Microsoft YaHei", 10),
+                padx=10,
+                pady=10,
+                relief=tk.FLAT,
+                background="#f8f9fa"
+            )
+            plan_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            plan_scrollbar.config(command=plan_text.yview)
+            
+            # 配置标签样式
+            plan_text.tag_config("title", foreground="#2c5aa0", font=("微软雅黑", 11, "bold"))
+            plan_text.tag_config("label", foreground="#6c757d", font=("微软雅黑", 9, "bold"))
+            plan_text.tag_config("value", foreground="#212529", font=("微软雅黑", 10))
+            plan_text.tag_config("agent", foreground="#28a745", font=("微软雅黑", 10, "bold"))
+            
+            # 显示编排计划
+            plan_text.insert(tk.END, "🎯 任务分析\n", "title")
+            plan_text.insert(tk.END, "─" * 80 + "\n\n")
+            
+            complexity = orchestration_plan.get('complexity', 'unknown')
+            plan_text.insert(tk.END, "任务复杂度：", "label")
+            plan_text.insert(tk.END, f"{complexity}\n\n", "value")
+            
+            plan_text.insert(tk.END, "执行策略：", "label")
+            plan_text.insert(tk.END, f"{strategy_text}\n\n", "value")
+            
+            reasoning = orchestration_plan.get('reasoning', '')
+            if reasoning:
+                plan_text.insert(tk.END, "分析理由：", "label")
+                plan_text.insert(tk.END, f"\n{reasoning}\n\n", "value")
+            
+            # 显示智能体列表
+            agents = orchestration_plan.get('agents', [])
+            if agents:
+                plan_text.insert(tk.END, f"\n👥 智能体分配 (共{len(agents)}个)\n", "title")
+                plan_text.insert(tk.END, "─" * 80 + "\n\n")
+                
+                for i, agent in enumerate(agents, 1):
+                    plan_text.insert(tk.END, f"智能体 {i}: ", "label")
+                    plan_text.insert(tk.END, f"{agent.get('role', '未知')}\n", "agent")
+                    
+                    plan_text.insert(tk.END, "  任务: ", "label")
+                    plan_text.insert(tk.END, f"{agent.get('task', '未指定')}\n", "value")
+                    
+                    deps = agent.get('dependencies', [])
+                    if deps:
+                        plan_text.insert(tk.END, "  依赖: ", "label")
+                        plan_text.insert(tk.END, f"{', '.join(deps)}\n", "value")
+                    
+                    status = agent.get('status', 'pending')
+                    plan_text.insert(tk.END, "  状态: ", "label")
+                    status_text = {
+                        'pending': '待执行',
+                        'running': '执行中',
+                        'completed': '已完成',
+                        'failed': '失败'
+                    }.get(status, status)
+                    plan_text.insert(tk.END, f"{status_text}\n\n", "value")
+            
+            plan_text.config(state=tk.DISABLED)
+
+        # 标签页2：智能体结果（如果有）
+        if agent_results:
+            results_frame = ttk.Frame(notebook, padding=10)
+            notebook.add(results_frame, text="📝 智能体结果")
+            
+            results_scrollbar = ttk.Scrollbar(results_frame)
+            results_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            results_text = tk.Text(
+                results_frame,
+                wrap=tk.WORD,
+                yscrollcommand=results_scrollbar.set,
+                font=("Microsoft YaHei", 10),
+                padx=10,
+                pady=10,
+                relief=tk.FLAT,
+                background="#f8f9fa"
+            )
+            results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            results_scrollbar.config(command=results_text.yview)
+            
+            # 配置标签样式
+            results_text.tag_config("agent_name", foreground="#2c5aa0", font=("微软雅黑", 10, "bold"))
+            results_text.tag_config("result", foreground="#212529", font=("微软雅黑", 10))
+            results_text.tag_config("separator", foreground="#dee2e6")
+            
+            # 显示各智能体的结果
+            for i, (agent_id, result) in enumerate(agent_results.items(), 1):
+                # 尝试从orchestration_plan中找到对应的角色名
+                role = agent_id
+                if orchestration_plan:
+                    agents = orchestration_plan.get('agents', [])
+                    for agent in agents:
+                        if agent.get('agent_id') == agent_id:
+                            role = agent.get('role', agent_id)
+                            break
+                
+                results_text.insert(tk.END, f"【{role}】\n", "agent_name")
+                results_text.insert(tk.END, f"{result}\n", "result")
+                
+                if i < len(agent_results):
+                    results_text.insert(tk.END, "\n" + "─" * 80 + "\n\n", "separator")
+            
+            results_text.config(state=tk.DISABLED)
+
+        # 标签页3：协作日志
+        logs_frame = ttk.Frame(notebook, padding=10)
+        notebook.add(logs_frame, text="📜 协作日志")
+        
         # 创建滚动文本框
-        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar = ttk.Scrollbar(logs_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         text_widget = tk.Text(
-            text_frame,
+            logs_frame,
             wrap=tk.WORD,
             yscrollcommand=scrollbar.set,
             font=("Microsoft YaHei", 10),
@@ -1823,9 +1965,9 @@ class EnhancedChatDebugGUI:
 
         # 插入协作日志内容（对话形式）
         for i, log in enumerate(collaboration_logs):
-            agent_role = log.get('agent_role', '未知智能体')
-            action = log.get('action', '操作')
-            content = log.get('content', '')
+            agent_role = log.get('agent_role', log.get('role', '未知智能体'))
+            action = log.get('action', log.get('type', '操作'))
+            content = log.get('content', log.get('message', ''))
             timestamp = log.get('timestamp', '')
             
             # 格式化时间戳
@@ -1872,21 +2014,21 @@ class EnhancedChatDebugGUI:
 
         ttk.Button(
             button_frame,
-            text="导出日志",
-            command=lambda: self.export_collaboration_logs(event, collaboration_logs),
+            text="导出完整报告",
+            command=lambda: self.export_collaboration_logs(event, collaboration_logs, orchestration_plan, agent_results),
             width=15
         ).pack(side=tk.RIGHT, padx=5)
 
-    def export_collaboration_logs(self, event, collaboration_logs):
-        """导出协作日志到文件"""
+    def export_collaboration_logs(self, event, collaboration_logs, orchestration_plan=None, agent_results=None):
+        """导出智能体协作报告"""
         from tkinter import filedialog
         import json
         from datetime import datetime
         
         # 让用户选择保存位置
-        default_filename = f"collaboration_logs_{event.event_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        default_filename = f"collaboration_report_{event.event_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         filepath = filedialog.asksaveasfilename(
-            title="导出协作日志",
+            title="导出协作报告",
             defaultextension=".txt",
             initialfile=default_filename,
             filetypes=[
@@ -1904,34 +2046,100 @@ class EnhancedChatDebugGUI:
                 # 导出为JSON格式
                 with open(filepath, 'w', encoding='utf-8') as f:
                     json.dump({
-                        'event_id': event.event_id,
-                        'event_title': event.title,
-                        'event_description': event.description,
+                        'event': {
+                            'event_id': event.event_id,
+                            'title': event.title,
+                            'description': event.description,
+                            'status': event.status.value,
+                            'created_at': event.created_at
+                        },
+                        'orchestration_plan': orchestration_plan,
+                        'agent_results': agent_results,
                         'collaboration_logs': collaboration_logs
                     }, f, ensure_ascii=False, indent=2)
             else:
                 # 导出为文本格式
                 with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(f"智能体协作日志\n")
-                    f.write(f"=" * 80 + "\n")
-                    f.write(f"任务ID: {event.event_id}\n")
-                    f.write(f"任务标题: {event.title}\n")
-                    f.write(f"任务描述: {event.description}\n")
-                    f.write(f"=" * 80 + "\n\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"智能体协作报告\n")
+                    f.write("=" * 80 + "\n\n")
+                    
+                    f.write(f"任务标题：{event.title}\n")
+                    f.write(f"任务ID：{event.event_id}\n")
+                    f.write(f"状态：{event.status.value}\n")
+                    f.write(f"创建时间：{event.created_at}\n")
+                    f.write(f"导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    
+                    f.write(f"描述：{event.description}\n\n")
+                    
+                    # 导出编排计划
+                    if orchestration_plan:
+                        f.write("=" * 80 + "\n")
+                        f.write("【编排计划】\n")
+                        f.write("=" * 80 + "\n\n")
+                        
+                        complexity = orchestration_plan.get('complexity', 'unknown')
+                        strategy = orchestration_plan.get('execution_strategy', 'unknown')
+                        reasoning = orchestration_plan.get('reasoning', '')
+                        
+                        f.write(f"任务复杂度：{complexity}\n")
+                        f.write(f"执行策略：{strategy}\n")
+                        if reasoning:
+                            f.write(f"分析理由：{reasoning}\n")
+                        f.write("\n")
+                        
+                        agents = orchestration_plan.get('agents', [])
+                        if agents:
+                            f.write(f"智能体分配（共{len(agents)}个）：\n\n")
+                            for i, agent in enumerate(agents, 1):
+                                f.write(f"  智能体 {i}：{agent.get('role', '未知')}\n")
+                                f.write(f"    ID：{agent.get('agent_id', '')}\n")
+                                f.write(f"    任务：{agent.get('task', '未指定')}\n")
+                                f.write(f"    职责：{agent.get('description', '')}\n")
+                                deps = agent.get('dependencies', [])
+                                if deps:
+                                    f.write(f"    依赖：{', '.join(deps)}\n")
+                                status = agent.get('status', 'pending')
+                                f.write(f"    状态：{status}\n")
+                                f.write("\n")
+                    
+                    # 导出智能体结果
+                    if agent_results:
+                        f.write("=" * 80 + "\n")
+                        f.write("【智能体执行结果】\n")
+                        f.write("=" * 80 + "\n\n")
+                        
+                        for agent_id, result in agent_results.items():
+                            # 尝试找到角色名
+                            role = agent_id
+                            if orchestration_plan:
+                                agents = orchestration_plan.get('agents', [])
+                                for agent in agents:
+                                    if agent.get('agent_id') == agent_id:
+                                        role = agent.get('role', agent_id)
+                                        break
+                            
+                            f.write(f"【{role}】\n")
+                            f.write(f"{result}\n")
+                            f.write("-" * 80 + "\n\n")
+                    
+                    # 导出协作日志
+                    f.write("=" * 80 + "\n")
+                    f.write(f"【协作日志】（共{len(collaboration_logs)}条记录）\n")
+                    f.write("=" * 80 + "\n\n")
                     
                     for i, log in enumerate(collaboration_logs, 1):
-                        agent_role = log.get('agent_role', '未知智能体')
-                        action = log.get('action', '操作')
-                        content = log.get('content', '')
+                        agent_role = log.get('agent_role', log.get('role', '未知智能体'))
+                        action = log.get('action', log.get('type', '操作'))
+                        content = log.get('content', log.get('message', ''))
                         timestamp = log.get('timestamp', '')
                         
-                        f.write(f"[{i}] {timestamp}\n")
-                        f.write(f"智能体: {agent_role}\n")
-                        f.write(f"动作: {action}\n")
-                        f.write(f"内容: {content}\n")
-                        f.write("-" * 80 + "\n\n")
+                        f.write(f"[{i}] [{timestamp}] {agent_role} - {action}\n")
+                        if content:
+                            f.write(f"    {content}\n")
+                        f.write("\n")
             
-            messagebox.showinfo("成功", f"协作日志已导出到：\n{filepath}")
+            messagebox.showinfo("成功", f"协作报告已导出到：\n{filepath}")
         except Exception as e:
             messagebox.showerror("错误", f"导出失败：{str(e)}")
 

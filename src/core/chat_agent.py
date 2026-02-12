@@ -2,13 +2,14 @@
 智能对话代理模块
 基于LangChain实现的连续对话智能体，支持角色扮演和长效记忆
 使用数据库管理器统一管理数据
+支持模块化提示词系统和世界观注入
 """
 
 import os
 import json
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
@@ -169,6 +170,7 @@ class CharacterProfile:
     """
     角色档案类
     从环境变量读取并管理角色设定
+    使用提示词管理器加载角色提示词模板
     """
 
     def __init__(self):
@@ -185,12 +187,62 @@ class CharacterProfile:
         self.age = os.getenv('CHARACTER_AGE', '18')
         self.background = os.getenv('CHARACTER_BACKGROUND', '')
 
-    def get_system_prompt(self) -> str:
+        # 初始化提示词管理器
+        from src.core.prompt_manager import get_prompt_manager
+        self.prompt_manager = get_prompt_manager()
+
+    def get_system_prompt(self, 
+                         long_term_memory: str = "",
+                         relevant_knowledge: str = "",
+                         environment_context: str = "",
+                         emotion_relationship: str = "") -> str:
         """
-        生成系统提示词
+        生成系统提示词（使用模板）
+
+        Args:
+            long_term_memory: 长期记忆内容
+            relevant_knowledge: 相关知识内容
+            environment_context: 环境上下文
+            emotion_relationship: 情感关系
 
         Returns:
             用于初始化AI的系统提示词
+        """
+        try:
+            # 获取角色设定提示词
+            character_profile = self.prompt_manager.get_character_prompt(
+                character_name=None,  # 使用默认或配置的角色文件
+                character_data=self.get_info_dict()
+            )
+
+            # 获取世界观设定
+            world_setting = self.prompt_manager.get_worldview_prompt()
+
+            # 获取聊天系统提示词
+            variables = {
+                'character_name': self.name,
+                'character_profile': character_profile,
+                'world_setting': world_setting,
+                'long_term_memory': long_term_memory or "无长期记忆",
+                'relevant_knowledge': relevant_knowledge or "无相关知识",
+                'environment_context': environment_context or "无环境信息",
+                'emotion_relationship': emotion_relationship or "初次见面"
+            }
+
+            system_prompt = self.prompt_manager.get_system_prompt('chat_system', variables)
+            return system_prompt
+
+        except Exception as e:
+            # 如果加载模板失败，使用旧的硬编码提示词作为后备
+            print(f"警告: 加载提示词模板失败，使用默认提示词: {e}")
+            return self._get_fallback_prompt()
+
+    def _get_fallback_prompt(self) -> str:
+        """
+        后备的硬编码提示词（兼容性）
+
+        Returns:
+            默认的系统提示词
         """
         prompt = f"""你是{self.name}，正在和用户通过即时通信软件（如QQ、微信）聊天。
 
@@ -229,111 +281,82 @@ class CharacterProfile:
             包含所有角色信息的字典
         """
         return {
-            'name': self.name,
-            'gender': self.gender,
-            'role': self.role,
-            'height': self.height,
-            'weight': self.weight,
-            'personality': self.personality,
-            'age': self.age,
-            'hobby': self.hobby,
-            'background': self.background
+            'character_name': self.name,
+            'character_gender': self.gender,
+            'character_role': self.role,
+            'character_height': self.height,
+            'character_weight': self.weight,
+            'character_personality': self.personality,
+            'character_age': self.age,
+            'character_hobby': self.hobby,
+            'character_background': self.background
         }
 
 
 class SiliconFlowLLM:
     """
-    硅基流动API封装类
-    用于调用SiliconFlow的大语言模型API
+    硅基流动API封装类（兼容层）
+    现在使用LangChain作为底层实现，支持多层模型架构
+    
+    这个类保持向后兼容，同时内部使用新的LangChain架构
     """
 
     def __init__(self):
         """
-        初始化API客户端
+        初始化API客户端（使用LangChain）
         """
-        self.api_key = os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-        self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
-        self.temperature = float(os.getenv('TEMPERATURE', 0.8))
-        self.max_tokens = int(os.getenv('MAX_TOKENS', 2000))
+        # 导入LangChain相关模块
+        from src.core.model_config import get_model_config, ModelType
+        from src.core.langchain_llm import ModelRouter
+        
+        # 创建模型路由器
+        self.model_router = ModelRouter()
+        
+        # 获取配置（用于兼容性）
+        self.config = get_model_config()
+        self.api_key = self.config.api_key
+        self.api_url = self.config.api_url
+        
+        # 主模型配置（用于兼容性）
+        main_config = self.config.get_model_config(ModelType.MAIN)
+        self.model_name = main_config['name']
+        self.temperature = main_config['temperature']
+        self.max_tokens = main_config['max_tokens']
 
-        if not self.api_key or self.api_key == 'your_api_key_here':
+        if not self.config.is_valid():
             print("警告: 未设置有效的API密钥，请在.env文件中配置SILICONFLOW_API_KEY")
+        else:
+            # 打印多层模型配置
+            print(self.config.get_summary())
 
-    def chat(self, messages: List[Dict[str, str]]) -> str:
+    def chat(self, messages: List[Dict[str, str]], task_type: str = 'main') -> str:
         """
-        发送聊天请求到API
+        发送聊天请求到API（通过LangChain）
 
         Args:
             messages: 消息列表，格式为 [{'role': 'user/assistant/system', 'content': '...'}]
+            task_type: 任务类型 ('main', 'tool', 'vision')，用于选择合适的模型
 
         Returns:
             AI的回复内容
         """
         try:
-            # Debug: 记录请求前的信息
-            debug_logger.log_module('SiliconFlowLLM', '准备发送API请求', f'消息数: {len(messages)}')
+            # 根据任务类型路由到合适的模型
+            llm = self.model_router.route(task_type)
+            
+            debug_logger.log_module('SiliconFlowLLM', f'使用{task_type}模型处理请求', {
+                'model_name': llm.model_name,
+                'message_count': len(messages)
+            })
+            
+            # 调用LangChain LLM
+            response = llm.chat(messages)
+            return response
 
-            # Debug: 记录所有消息
-            for i, msg in enumerate(messages):
-                debug_logger.log_prompt(
-                    'SiliconFlowLLM',
-                    msg['role'],
-                    msg['content'],
-                    {'message_index': i, 'total_messages': len(messages)}
-                )
-
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'model': self.model_name,
-                'messages': messages,
-                'temperature': self.temperature,
-                'max_tokens': self.max_tokens,
-                'stream': False
-            }
-
-            # Debug: 记录API请求
-            debug_logger.log_request('SiliconFlowLLM', self.api_url, payload, headers)
-
-            start_time = time.time()
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            elapsed_time = time.time() - start_time
-
-            response.raise_for_status()
-            result = response.json()
-
-            # Debug: 记录API响应
-            debug_logger.log_response('SiliconFlowLLM', result, response.status_code, elapsed_time)
-
-            # 提取回复内容
-            if 'choices' in result and len(result['choices']) > 0:
-                reply_content = result['choices'][0]['message']['content']
-                debug_logger.log_info('SiliconFlowLLM', '成功提取回复内容', {
-                    'reply_length': len(reply_content),
-                    'elapsed_time': elapsed_time
-                })
-                return reply_content
-            else:
-                debug_logger.log_error('SiliconFlowLLM', '响应中没有有效的choices')
-                return "抱歉，我没有收到有效的回复。"
-
-        except requests.exceptions.RequestException as e:
-            debug_logger.log_error('SiliconFlowLLM', f'API请求错误: {str(e)}', e)
-            print(f"API请求错误: {e}")
-            return f"抱歉，网络连接出现问题: {str(e)}"
         except Exception as e:
-            debug_logger.log_error('SiliconFlowLLM', f'处理回复时出错: {str(e)}', e)
-            print(f"处理回复时出错: {e}")
-            return f"抱歉，处理回复时出现错误: {str(e)}"
+            debug_logger.log_error('SiliconFlowLLM', f'处理请求时出错: {str(e)}', e)
+            print(f"处理请求时出错: {e}")
+            return f"抱歉，处理请求时出现错误: {str(e)}"
 
 
 class ChatAgent:
@@ -353,7 +376,8 @@ class ChatAgent:
         self.memory_manager = LongTermMemoryManager(db_manager=self.db)
         self.character = CharacterProfile()
         self.llm = SiliconFlowLLM()
-        self.system_prompt = self.character.get_system_prompt()
+        # system_prompt将在chat方法中根据上下文动态生成
+        self.system_prompt = None
 
         # 初始化情感关系分析器（共享数据库）
         self.emotion_analyzer = EmotionRelationshipAnalyzer(db_manager=self.db)
@@ -749,11 +773,24 @@ class ChatAgent:
         # ===== 构建消息列表 =====
         debug_logger.log_module('ChatAgent', '构建消息列表', '组装系统提示词、知识上下文和历史对话')
 
+        # 动态生成系统提示词，整合各种上下文信息
+        long_term_memory_text = self._build_long_term_memory_text()
+        knowledge_text = self._build_knowledge_text(relevant_knowledge)
+        environment_text = self._build_environment_text(vision_context)
+        emotion_text = self._build_emotion_text()
+        
+        system_prompt = self.character.get_system_prompt(
+            long_term_memory=long_term_memory_text,
+            relevant_knowledge=knowledge_text,
+            environment_context=environment_text,
+            emotion_relationship=emotion_text
+        )
+
         messages = [
-            {'role': 'system', 'content': self.system_prompt}
+            {'role': 'system', 'content': system_prompt}
         ]
 
-        debug_logger.log_prompt('ChatAgent', 'system', self.system_prompt, {'stage': '角色设定'})
+        debug_logger.log_prompt('ChatAgent', 'system', system_prompt, {'stage': '角色设定'})
 
         # 添加情感语气提示（如果有情感分析数据）
         emotion_tone_prompt = self.emotion_analyzer.generate_tone_prompt()
@@ -1263,17 +1300,25 @@ class ChatAgent:
             character_context
         )
 
-        # 保存协作日志到事件元数据
+        # 保存协作相关数据到事件元数据
         if 'collaboration_logs' in result:
-            import json
             event.metadata['collaboration_logs'] = result['collaboration_logs']
-            # 更新数据库中的元数据
-            with self.db.get_connection() as conn:
-                conn.execute('''
-                    UPDATE events 
-                    SET metadata = ?
-                    WHERE event_id = ?
-                ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
+        
+        # 保存动态协作系统的编排计划和智能体结果
+        if 'orchestration_plan' in result and result['orchestration_plan']:
+            event.metadata['orchestration_plan'] = result['orchestration_plan']
+        
+        if 'agent_results' in result and result['agent_results']:
+            event.metadata['agent_results'] = result['agent_results']
+        
+        # 更新数据库中的元数据
+        import json
+        with self.db.get_connection() as conn:
+            conn.execute('''
+                UPDATE events 
+                SET metadata = ?
+                WHERE event_id = ?
+            ''', (json.dumps(event.metadata, ensure_ascii=False), event.event_id))
 
         # 记录处理结果
         self.event_manager.add_event_log(
@@ -1387,6 +1432,77 @@ class ChatAgent:
             content = msg['content'][:100]  # 限制长度
             context_parts.append(f"{role}: {content}")
         return "\n".join(context_parts)
+
+    def _build_long_term_memory_text(self) -> str:
+        """
+        构建长期记忆文本
+        
+        Returns:
+            格式化的长期记忆文本
+        """
+        summaries = self.memory_manager.get_long_term_summaries(limit=5)
+        if not summaries:
+            return "暂无长期记忆"
+        
+        text_parts = []
+        for summary in summaries:
+            text_parts.append(f"- {summary['topic']}: {summary['summary'][:100]}")
+        return "\n".join(text_parts)
+
+    def _build_knowledge_text(self, relevant_knowledge: Dict[str, Any]) -> str:
+        """
+        构建知识库文本
+        
+        Args:
+            relevant_knowledge: 相关知识字典
+            
+        Returns:
+            格式化的知识文本
+        """
+        all_knowledge = relevant_knowledge.get('all_knowledge', [])
+        if not all_knowledge:
+            return "暂无相关知识"
+        
+        text_parts = []
+        for k in all_knowledge[:10]:  # 限制数量
+            entity = k.get('entity_name', '未知')
+            content = k.get('content', '')
+            text_parts.append(f"- {entity}: {content[:100]}")
+        return "\n".join(text_parts)
+
+    def _build_environment_text(self, vision_context: Optional[Dict[str, Any]]) -> str:
+        """
+        构建环境上下文文本
+        
+        Args:
+            vision_context: 视觉上下文字典
+            
+        Returns:
+            格式化的环境文本
+        """
+        if not vision_context:
+            return "无特定环境信息"
+        
+        env_name = vision_context['environment']['name']
+        env_desc = vision_context['environment']['description']
+        return f"当前环境：{env_name}\n{env_desc}"
+
+    def _build_emotion_text(self) -> str:
+        """
+        构建情感关系文本
+        
+        Returns:
+            格式化的情感关系文本
+        """
+        latest_emotion = self.emotion_analyzer.get_latest_emotion()
+        if not latest_emotion:
+            return "初次见面，尚未建立情感关系"
+        
+        relationship = latest_emotion.get('relationship_type', '未知')
+        tone = latest_emotion.get('emotional_tone', '未知')
+        score = latest_emotion.get('overall_score', 0)
+        
+        return f"关系类型：{relationship}\n情感基调：{tone}\n关系评分：{score}"
 
 
 # 测试代码
