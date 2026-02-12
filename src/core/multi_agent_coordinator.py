@@ -13,11 +13,15 @@ import requests
 from src.core.event_manager import TaskEvent
 from src.tools.interrupt_question_tool import InterruptQuestionTool
 from src.tools.debug_logger import get_debug_logger
+from src.core.deepagents_wrapper import DeepSubAgentWrapper
 
 load_dotenv()
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
+
+# 标志：是否使用deepagents增强的子智能体
+USE_DEEP_AGENTS = os.getenv('USE_DEEP_AGENTS', 'true').lower() == 'true'
 
 
 class SubAgent:
@@ -162,6 +166,43 @@ class SubAgent:
 输出格式：直接输出你的工作结果，简洁明了。"""
 
         return system_prompt
+
+
+def create_sub_agent(
+    agent_id: str,
+    role: str,
+    description: str,
+    use_deep_agents: bool = USE_DEEP_AGENTS
+) -> 'SubAgent':
+    """
+    工厂函数：创建子智能体
+    根据配置选择使用传统SubAgent或DeepAgents增强版本
+
+    Args:
+        agent_id: 智能体ID
+        role: 角色名称
+        description: 角色描述
+        use_deep_agents: 是否使用deepagents（默认从环境变量读取）
+
+    Returns:
+        SubAgent或DeepSubAgentWrapper实例
+    """
+    if use_deep_agents:
+        try:
+            debug_logger.log_info('SubAgentFactory', f'创建DeepAgents增强子智能体: {role}')
+            return DeepSubAgentWrapper(
+                agent_id=agent_id,
+                role=role,
+                description=description
+            )
+        except Exception as e:
+            debug_logger.log_error('SubAgentFactory', 
+                f'创建DeepAgents子智能体失败，降级到传统模式: {str(e)}', e)
+            # 降级到传统SubAgent
+            return SubAgent(agent_id, role, description)
+    else:
+        debug_logger.log_info('SubAgentFactory', f'创建传统子智能体: {role}')
+        return SubAgent(agent_id, role, description)
 
 
 class MultiAgentCoordinator:
@@ -330,6 +371,20 @@ class MultiAgentCoordinator:
         self.emit_progress("智能体正在制定执行计划...")
         execution_plan = self._create_execution_plan(task_event, task_understanding)
         
+        # 检查执行计划是否有效
+        if not execution_plan.get('steps') or len(execution_plan['steps']) == 0:
+            error_msg = '无法制定执行计划，任务可能太模糊或不明确'
+            self.emit_progress(f"❌ {error_msg}")
+            return {
+                'success': False,
+                'message': error_msg,
+                'error': error_msg,
+                'execution_results': [],
+                'task_understanding': task_understanding,
+                'execution_plan': execution_plan,
+                'collaboration_logs': self.collaboration_logs
+            }
+        
         self.emit_progress(f"执行计划已制定，共{len(execution_plan['steps'])}个步骤")
 
         # 第三步：执行计划
@@ -350,10 +405,15 @@ class MultiAgentCoordinator:
                 self.emit_progress(f"用户已回答问题，继续执行...")
 
             if not result.get('success'):
-                self.emit_progress(f"步骤执行失败：{result.get('error', '未知错误')}")
+                error_detail = result.get('error', '未知错误')
+                self.emit_progress(f"步骤执行失败：{error_detail}")
+                # 确保execution_results包含失败信息
+                if not result.get('output'):
+                    result['output'] = f"❌ 步骤{i}执行失败：{error_detail}"
                 return {
                     'success': False,
-                    'error': f'执行失败于步骤{i}',
+                    'message': f'任务执行失败于步骤{i}：{error_detail}',
+                    'error': f'执行失败于步骤{i}：{error_detail}',
                     'execution_results': execution_results,
                     'collaboration_logs': self.collaboration_logs
                 }
@@ -389,8 +449,8 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始理解任务')
 
-        # 创建理解智能体
-        understanding_agent = SubAgent(
+        # 创建理解智能体（使用工厂函数）
+        understanding_agent = create_sub_agent(
             agent_id='understanding_agent',
             role='任务分析专家',
             description='负责理解和分析任务需求'
@@ -442,8 +502,8 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始制定执行计划')
 
-        # 创建规划智能体
-        planning_agent = SubAgent(
+        # 创建规划智能体（使用工厂函数）
+        planning_agent = create_sub_agent(
             agent_id='planning_agent',
             role='任务规划专家',
             description='负责将复杂任务分解为可执行的步骤'
@@ -525,8 +585,8 @@ class MultiAgentCoordinator:
             'step': step['description']
         })
 
-        # 创建执行智能体
-        execution_agent = SubAgent(
+        # 创建执行智能体（使用工厂函数）
+        execution_agent = create_sub_agent(
             agent_id=f'execution_agent_{len(previous_results)}',
             role='任务执行专家',
             description='负责执行具体的任务步骤'
@@ -593,8 +653,8 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始验证任务完成情况')
 
-        # 创建验证智能体
-        verification_agent = SubAgent(
+        # 创建验证智能体（使用工厂函数）
+        verification_agent = create_sub_agent(
             agent_id='verification_agent',
             role='任务验证专家',
             description='负责验证任务是否达到完成标准'

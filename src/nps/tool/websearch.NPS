@@ -1,0 +1,18 @@
+{
+    "tool_id": "websearch",
+    "name": "网络搜索",
+    "description": "使用SerpAPI进行网络搜索，获取实时信息、新闻、知识等。适用于需要查询最新信息、搜索特定内容、获取网络资料的场景。",
+    "module": "websearch",
+    "function": "search_web",
+    "version": "1.0.0",
+    "author": "Neo Agent",
+    "keywords": [
+        "搜索", "查找", "查询", "找", "搜", "寻找", "百度", "谷歌",
+        "信息", "资料", "内容", "网上", "网络", "互联网",
+        "什么是", "谁是", "哪里", "怎么", "为什么", "如何",
+        "最新", "新闻", "消息", "动态", "更新"
+    ],
+    "enabled": true,
+    "requires_api_key": true,
+    "api_key_env": "SERPAPI_API_KEY"
+}

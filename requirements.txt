@@ -6,6 +6,9 @@ langchain-core>=0.3.0
 # LangGraph - 用于状态图和多智能体协作
 langgraph>=0.2.0
 
+# DeepAgents - 用于子智能体生成、长期记忆和文件系统
+deepagents>=0.4.0
+
 # LangChain集成
 langchain-openai>=0.2.0
 

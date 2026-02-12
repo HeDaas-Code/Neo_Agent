@@ -12,7 +12,7 @@ import math
 from typing import Dict, Any, List, Optional
 from src.core.chat_agent import ChatAgent
 from src.core.database_manager import DatabaseManager
-from src.tools.debug_logger import get_debug_logger
+from src.tools.debug_logger import get_debug_logger, DebugLogger
 from src.core.emotion_analyzer import format_emotion_summary
 from src.tools.tooltip_utils import ToolTip, create_treeview_tooltip
 from src.gui.nps_gui import NPSManagerGUI
@@ -429,6 +429,150 @@ class EnhancedChatDebugGUI:
         # 绑定快捷键
         self.root.bind('<Return>', lambda e: self.send_message() if not e.state & 0x1 else None)
         self.root.bind('<Control-Return>', lambda e: self.input_text.insert(tk.INSERT, '\n'))
+
+    def show_error_dialog(self, title: str, message: str, max_height: int = 400):
+        """
+        显示增强的错误对话框，支持长文本滚动和一键复制
+        
+        Args:
+            title: 对话框标题
+            message: 错误消息（可以很长）
+            max_height: 文本区域最大高度（像素）
+        """
+        # 创建顶层窗口
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 主容器
+        main_frame = ttk.Frame(dialog, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 错误图标和标题
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 错误图标（使用emoji或符号）
+        icon_label = tk.Label(
+            header_frame, 
+            text="❌",
+            font=('Arial', 32),
+            fg='#f44336'
+        )
+        icon_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 标题文本
+        title_label = tk.Label(
+            header_frame,
+            text=title,
+            font=('微软雅黑', 14, 'bold'),
+            fg='#212121'
+        )
+        title_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # 提示标签
+        tip_label = tk.Label(
+            main_frame,
+            text="💡 双击文本区域一键复制全部内容",
+            font=('微软雅黑', 9),
+            fg='#757575'
+        )
+        tip_label.pack(fill=tk.X, pady=(0, 5))
+        
+        # 可滚动的文本区域
+        text_frame = ttk.Frame(main_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 创建滚动文本框
+        text_widget = scrolledtext.ScrolledText(
+            text_frame,
+            wrap=tk.WORD,
+            font=('Consolas', 10),
+            bg='#fff',
+            fg='#212121',
+            relief=tk.SOLID,
+            borderwidth=1,
+            padx=10,
+            pady=10
+        )
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        
+        # 插入错误消息
+        text_widget.insert('1.0', message)
+        text_widget.config(state=tk.DISABLED)  # 设为只读
+        
+        # 双击复制功能
+        def copy_all_text(event):
+            """双击时复制全部文本到剪贴板"""
+            try:
+                # 获取所有文本
+                all_text = text_widget.get('1.0', tk.END).strip()
+                # 复制到剪贴板
+                dialog.clipboard_clear()
+                dialog.clipboard_append(all_text)
+                # 显示反馈
+                tip_label.config(
+                    text="✅ 已复制到剪贴板！",
+                    fg='#4caf50'
+                )
+                # 3秒后恢复原始提示
+                dialog.after(3000, lambda: tip_label.config(
+                    text="💡 双击文本区域一键复制全部内容",
+                    fg='#757575'
+                ))
+            except Exception as e:
+                print(f"复制失败: {e}")
+        
+        text_widget.bind('<Double-Button-1>', copy_all_text)
+        
+        # 按钮区域
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+        
+        # 确定按钮
+        ok_button = ttk.Button(
+            button_frame,
+            text="确定",
+            command=dialog.destroy,
+            width=15
+        )
+        ok_button.pack(side=tk.RIGHT)
+        
+        # 复制按钮
+        def copy_button_click():
+            """点击复制按钮"""
+            all_text = text_widget.get('1.0', tk.END).strip()
+            dialog.clipboard_clear()
+            dialog.clipboard_append(all_text)
+            tip_label.config(
+                text="✅ 已复制到剪贴板！",
+                fg='#4caf50'
+            )
+            dialog.after(3000, lambda: tip_label.config(
+                text="💡 双击文本区域一键复制全部内容",
+                fg='#757575'
+            ))
+        
+        copy_button = ttk.Button(
+            button_frame,
+            text="📋 复制全部",
+            command=copy_button_click,
+            width=15
+        )
+        copy_button.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # 焦点设置到确定按钮，支持回车关闭
+        ok_button.focus_set()
+        dialog.bind('<Return>', lambda e: dialog.destroy())
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
 
     def create_widgets(self):
         """
@@ -1593,7 +1737,7 @@ class EnhancedChatDebugGUI:
                 self.update_status("错误", "red")
                 
                 # 在主线程显示错误消息
-                self.root.after(0, lambda: messagebox.showerror("处理错误", error_msg))
+                self.root.after(0, lambda: self.show_error_dialog("处理错误", error_msg))
 
         import threading
         thread = threading.Thread(target=process_event_thread)
@@ -2191,7 +2335,9 @@ class EnhancedChatDebugGUI:
 
         except Exception as e:
             self.update_status("初始化失败", "red")
-            messagebox.showerror("初始化错误", f"初始化聊天代理时出错：\n{str(e)}")
+            # 使用增强的错误格式
+            error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
+            self.show_error_dialog("初始化错误", f"初始化聊天代理时出错：\n\n{error_msg}")
 
     def update_character_info(self):
         """
@@ -2200,19 +2346,19 @@ class EnhancedChatDebugGUI:
         if self.agent:
             char_info = self.agent.get_character_info()
             # 简化显示文本，主要信息在第一行
-            info_text = f"姓名: {char_info['name']} | 性别: {char_info['gender']} | 身份: {char_info['role']} | 年龄: {char_info['age']}岁\n"
-            info_text += f"性格: {char_info['personality'][:50]}{'...' if len(char_info['personality']) > 50 else ''}"
+            info_text = f"姓名: {char_info['character_name']} | 性别: {char_info['character_gender']} | 身份: {char_info['character_role']} | 年龄: {char_info['character_age']}岁\n"
+            info_text += f"性格: {char_info['character_personality'][:50]}{'...' if len(char_info['character_personality']) > 50 else ''}"
             
             # 完整信息用于工具提示
-            full_info = f"姓名: {char_info['name']}\n"
-            full_info += f"性别: {char_info['gender']}\n"
-            full_info += f"身份: {char_info['role']}\n"
-            full_info += f"年龄: {char_info['age']}岁\n"
-            full_info += f"身高: {char_info['height']}\n"
-            full_info += f"体重: {char_info['weight']}\n"
-            full_info += f"性格: {char_info['personality']}\n"
-            full_info += f"背景: {char_info.get('background', '未设置')}\n"
-            full_info += f"爱好: {char_info.get('hobbies', '未设置')}"
+            full_info = f"姓名: {char_info['character_name']}\n"
+            full_info += f"性别: {char_info['character_gender']}\n"
+            full_info += f"身份: {char_info['character_role']}\n"
+            full_info += f"年龄: {char_info['character_age']}岁\n"
+            full_info += f"身高: {char_info['character_height']}\n"
+            full_info += f"体重: {char_info['character_weight']}\n"
+            full_info += f"性格: {char_info['character_personality']}\n"
+            full_info += f"背景: {char_info.get('character_background', '未设置')}\n"
+            full_info += f"爱好: {char_info.get('character_hobby', '未设置')}"
 
             self.character_label.config(text=info_text)
             
@@ -2310,8 +2456,9 @@ class EnhancedChatDebugGUI:
 
             except Exception as e:
                 debug_logger.log_error('GUI', f'情感分析线程出错: {str(e)}', e)
+                error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
                 self.root.after(0, lambda: self.update_status("分析失败", "red"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"情感分析时出错：\n{str(e)}"))
+                self.root.after(0, lambda: self.show_error_dialog("错误", f"情感分析时出错：\n\n{error_msg}"))
 
         thread = threading.Thread(target=analyze_thread, daemon=True)
         thread.start()
@@ -3262,8 +3409,8 @@ class EnhancedChatDebugGUI:
                 response = self.agent.chat(user_input)
                 self.root.after(0, lambda: self.handle_response(response, old_summary_count))
             except Exception as e:
-                error_msg = f"处理消息时出错: {str(e)}"
-                self.root.after(0, lambda: self.handle_error(error_msg))
+                error_msg = DebugLogger.format_exception_with_location(e, include_traceback=True)
+                self.root.after(0, lambda: self.handle_error(f"处理消息时出错:\n\n{error_msg}"))
 
         thread = threading.Thread(target=process_chat, daemon=True)
         thread.start()
@@ -3344,7 +3491,7 @@ class EnhancedChatDebugGUI:
         处理错误
         """
         self.add_system_message(f"错误: {error_msg}")
-        messagebox.showerror("错误", error_msg)
+        self.show_error_dialog("错误", error_msg)
 
         self.is_processing = False
         self.update_status("出错", "red")

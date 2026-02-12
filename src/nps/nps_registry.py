@@ -28,7 +28,8 @@ class NPSTool:
                  execute_func: Callable,
                  version: str = "1.0.0",
                  author: str = "Unknown",
-                 enabled: bool = True):
+                 enabled: bool = True,
+                 **kwargs):  # 接受额外参数以保持向后兼容
         """
         初始化 NPS 工具
 
@@ -41,6 +42,7 @@ class NPSTool:
             version: 工具版本
             author: 工具作者
             enabled: 是否启用
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         self.tool_id = tool_id
         self.name = name
@@ -102,12 +104,13 @@ class NPSRegistry:
     负责扫描、加载和管理所有 NPS 工具
     """
     
-    def __init__(self, tools_dir: str = None):
+    def __init__(self, tools_dir: str = None, **kwargs):
         """
         初始化工具注册表
 
         Args:
             tools_dir: 工具目录路径，默认为 NPS/tool
+            **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         # 获取当前文件所在目录
         current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -35,12 +35,18 @@ class KnowledgeBase:
     """
 
     def __init__(self,
-                 db_manager: DatabaseManager = None):
+                 db_manager: DatabaseManager = None,
+                 api_key: str = None,
+                 api_url: str = None,
+                 model_name: str = None):
         """
         初始化知识库管理器（使用LangChain架构）
 
         Args:
             db_manager: 数据库管理器实例（如果为None则创建新实例）
+            api_key: API密钥（保留用于向后兼容，实际不使用）
+            api_url: API地址（保留用于向后兼容，实际不使用）
+            model_name: 模型名称（保留用于向后兼容，实际不使用）
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
