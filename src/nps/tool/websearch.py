@@ -17,18 +17,25 @@ def search_web(context: Dict[str, Any] = None) -> Dict[str, Any]:
     使用SerpAPI进行网络搜索
     
     Args:
-        context: 执行上下文，应包含'query'键表示搜索查询
+        context: 执行上下文，应包含'query'或'user_input'键表示搜索查询
         
     Returns:
         包含搜索结果的字典
     """
-    if not context or 'query' not in context:
+    if not context:
         return {
             'error': '缺少搜索查询参数',
             'success': False
         }
     
-    query = context['query']
+    # 支持两种参数格式：'query'（直接调用）或 'user_input'（通过NPSInvoker调用）
+    query = context.get('query') or context.get('user_input')
+    
+    if not query:
+        return {
+            'error': '缺少搜索查询参数（需要query或user_input）',
+            'success': False
+        }
     api_key = os.getenv('SERPAPI_API_KEY', '')
     
     if not api_key:
