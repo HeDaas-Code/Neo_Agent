@@ -1,0 +1,14 @@
+{
+    "websearch": {
+        "api_key": "${SERPAPI_API_KEY}",
+        "engine": "google",
+        "num_results": 5,
+        "language": "zh-cn",
+        "enabled": true
+    },
+    "systime": {
+        "timezone": "Asia/Shanghai",
+        "format": "%Y-%m-%d %H:%M:%S",
+        "enabled": true
+    }
+}
