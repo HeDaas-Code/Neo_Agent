@@ -498,10 +498,13 @@ class KnowledgeBase:
                     return knowledge_list
                 else:
                     print(f"✗ 返回的不是列表格式: {type(knowledge_list)}")
+                    debug_logger.log_error('KnowledgeBase', f'返回的不是列表格式: {type(knowledge_list)}')
                     return None
             except json.JSONDecodeError as e:
                 print(f"✗ JSON解析失败: {e}")
                 print(f"原始内容: {content[:200]}...")
+                debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
+                debug_logger.log_info('KnowledgeBase', '原始内容', {'content': content[:500]})
                 return None
 
         except Exception as e:
@@ -568,6 +571,8 @@ class KnowledgeBase:
             except json.JSONDecodeError as e:
                 print(f"✗ 实体提取JSON解析失败")
                 debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
+                debug_logger.log_info('KnowledgeBase', '无法解析的内容', {'content': content[:500]})
+                print(f"调试信息 - 原始内容: {content[:200]}...")
                 return []
 
         except Exception as e:
