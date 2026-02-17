@@ -171,33 +171,49 @@ categories = kb.get_all_categories()
 
 ### LongTermMemory
 
-长期记忆管理器。
+长期记忆管理器（集成MemU框架）。
 
 ```python
-from src.core.long_term_memory import LongTermMemory
+from src.core.long_term_memory import LongTermMemoryManager
 
 # 创建实例
-ltm = LongTermMemory()
+ltm = LongTermMemoryManager()
 
-# 生成摘要
-summary = ltm.generate_summary(conversation_history)
+# 添加消息到短期记忆
+ltm.add_message('user', '今天天气真好')
+ltm.add_message('assistant', '是的，很适合出去走走')
 
-# 保存摘要
-ltm.save_summary(summary, topic="技术讨论")
+# 获取记忆统计
+stats = ltm.get_statistics()
+print(f"短期记忆: {stats['short_term']['rounds']} 轮")
+print(f"长期记忆: {stats['long_term']['total_summaries']} 个概括")
 
-# 获取所有摘要
-all_summaries = ltm.get_all_summaries()
+# 获取对话历史
+recent_messages = ltm.get_recent_messages(count=10)
 
-# 按主题检索
-tech_summaries = ltm.get_by_topic("技术讨论")
+# 获取长期记忆概括
+summaries = ltm.get_all_summaries()
 ```
 
+**主要特性**:
+- 🔄 **自动归档**: 超过20轮对话自动归档为长期记忆
+- 🧠 **智能总结**: 使用MemU或传统LLM生成对话概括
+- 📚 **知识提取**: 每5轮对话自动提取知识点
+- 💾 **数据库存储**: 所有记忆使用SQLite持久化
+
 **主要方法**:
-- `generate_summary(conversation_history) -> str`: 生成摘要
-- `save_summary(summary, topic)`: 保存摘要
-- `get_all_summaries() -> List[Dict]`: 获取所有摘要
-- `get_by_topic(topic) -> List[Dict]`: 按主题获取
-- `get_timeline() -> List[Dict]`: 获取时间线
+- `add_message(role, content)`: 添加消息到短期记忆
+- `get_recent_messages(count) -> List[Dict]`: 获取最近消息
+- `get_all_summaries() -> List[Dict]`: 获取所有长期记忆概括
+- `get_statistics() -> Dict`: 获取记忆统计信息
+- `clear_all_memory()`: 清空所有记忆
+- `get_context_for_chat() -> str`: 获取聊天上下文
+
+**MemU集成**:
+- 当配置了`USE_MEMU=true`和`OPENAI_API_KEY`时，使用MemU进行记忆总结
+- MemU提供更高效的记忆管理，减少长期运行的token成本
+- 未配置时自动回退到传统LLM总结方式
+- 详见: https://github.com/NevaMind-AI/memU
 
 ---
 

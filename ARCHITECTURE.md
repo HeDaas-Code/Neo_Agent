@@ -75,6 +75,51 @@ DeepAgents库提供高级功能（[详细文档](docs/DEEPAGENTS_INTEGRATION.md)
 - **特点**：支持视觉理解
 - **使用场景**：环境感知、图像理解（预留）
 
+### 5. 记忆系统（集成MemU）
+
+Neo Agent采用分层记忆架构，并集成了MemU框架用于高效记忆管理：
+
+#### 记忆层次
+1. **短期记忆**：保留最近20轮对话的详细内容
+2. **长期记忆**：自动归档的对话概括（使用MemU或LLM总结）
+3. **知识库**：从对话中提取的结构化知识
+4. **基础知识**：不可变的核心知识
+
+#### MemU集成
+- **项目**: [MemU](https://github.com/NevaMind-AI/memU) - 24/7主动智能体的记忆框架
+- **优势**:
+  - 大幅降低长期运行的token成本
+  - 持续捕获和理解用户意图
+  - 更高效的记忆总结和检索
+- **配置**:
+  ```bash
+  # 启用MemU（默认启用）
+  USE_MEMU=true
+  # MemU使用的API密钥
+  OPENAI_API_KEY=your-openai-key
+  # MemU使用的模型（默认gpt-4o-mini）
+  MEMU_MODEL_NAME=gpt-4o-mini
+  ```
+- **回退机制**: 当MemU未配置或失败时，自动回退到传统LLM总结方式
+- **实现**: `src/core/memu_memory_adapter.py` 和 `src/core/long_term_memory.py`
+
+#### 记忆管理器
+```python
+from src.core.long_term_memory import LongTermMemoryManager
+
+# 初始化（自动检测MemU可用性）
+ltm = LongTermMemoryManager()
+
+# 添加消息
+ltm.add_message('user', '你好')
+ltm.add_message('assistant', '你好！')
+
+# 自动功能：
+# - 每20轮自动归档为长期记忆
+# - 每5轮自动提取知识点
+# - 使用MemU进行高效总结（如果可用）
+```
+
 ## 核心组件
 
 ### ModelConfig (model_config.py)
@@ -215,6 +260,11 @@ VISION_MODEL_NAME=Qwen/Qwen3-VL-32B-Instruct
 VISION_MODEL_TEMPERATURE=0.5
 VISION_MODEL_MAX_TOKENS=1000
 
+# MemU记忆管理配置
+USE_MEMU=true
+OPENAI_API_KEY=your-openai-key  # MemU使用
+MEMU_MODEL_NAME=gpt-4o-mini
+
 # 兼容旧配置
 MODEL_NAME=deepseek-ai/DeepSeek-V3
 TEMPERATURE=0.8
@@ -253,9 +303,12 @@ MAX_TOKENS=2000
 3. **流程可视化**：实现对话流程的可视化展示
 4. **性能监控**：添加模型使用统计和性能分析
 5. **动态路由**：根据任务复杂度动态选择模型
+6. **MemU深度集成**：探索MemU的更多高级功能，如主动记忆检索
 
 ## 参考资料
 
 - [LangChain文档](https://docs.langchain.com/)
 - [LangGraph文档](https://langchain-ai.github.io/langgraph/)
+- [DeepAgents文档](https://github.com/aiwaves-cn/agents)
+- [MemU项目](https://github.com/NevaMind-AI/memU)
 - [SiliconFlow API](https://siliconflow.cn/)
