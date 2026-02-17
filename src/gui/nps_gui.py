@@ -10,6 +10,8 @@ from tkinter import ttk, scrolledtext, messagebox, simpledialog, filedialog
 from typing import Dict, Any, List
 from datetime import datetime
 from src.nps.nps_registry import NPSRegistry, NPSTool
+from src.nps.nps_config_manager import NPSConfigManager
+from src.gui.nps_config_dialog import NPSPluginConfigDialog
 
 # 配置常量
 DEFAULT_REFRESH_INTERVAL = 3000  # 默认自动刷新间隔（毫秒）
@@ -31,6 +33,9 @@ class NPSManagerGUI:
         """
         self.parent = parent_frame
         self.registry = nps_registry or NPSRegistry()
+        
+        # 初始化配置管理器
+        self.config_manager = NPSConfigManager()
         
         # 如果注册表为空，扫描并注册工具
         if not self.registry.get_all_tools():
@@ -66,6 +71,7 @@ class NPSManagerGUI:
         ttk.Label(toolbar, text="🔧 NPS工具管理", font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT, padx=5)
         
         ttk.Button(toolbar, text="🔄 刷新", command=self.refresh_tools, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="⚙️ 高级配置", command=self.edit_advanced_config, width=12).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="➕ 创建工具", command=self.create_new_tool, width=12).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📥 导入工具", command=self.import_tool, width=12).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📊 统计信息", command=self.show_statistics, width=12).pack(side=tk.LEFT, padx=2)
@@ -133,6 +139,7 @@ class NPSManagerGUI:
         self.context_menu = tk.Menu(self.tree, tearoff=0)
         self.context_menu.add_command(label="📋 查看详情", command=self.view_tool_details)
         self.context_menu.add_command(label="✏️ 编辑配置", command=self.edit_tool_config)
+        self.context_menu.add_command(label="⚙️ 高级配置", command=self.edit_advanced_config)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="✓ 启用", command=self.enable_tool)
         self.context_menu.add_command(label="✗ 禁用", command=self.disable_tool)
@@ -429,6 +436,34 @@ class NPSManagerGUI:
         
         ttk.Button(btn_frame, text="保存", command=save_config, width=10).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=10).pack(side=tk.LEFT, padx=5)
+
+    def edit_advanced_config(self):
+        """打开高级配置对话框"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选择一个工具")
+            return
+        
+        item = self.tree.item(selection[0])
+        tool_id = item['values'][0]
+        
+        tool = self.registry.get_tool(tool_id)
+        if not tool:
+            return
+        
+        # 打开高级配置对话框
+        dialog = NPSPluginConfigDialog(self.parent, tool, self.config_manager)
+        result = dialog.show()
+        
+        # 如果配置被修改，刷新工具列表
+        if result is not None:
+            # 更新工具的enabled状态
+            if 'enabled' in result:
+                tool.enabled = result['enabled']
+                self._save_tool_enabled_state(tool_id, result['enabled'])
+            
+            self.refresh_tools()
+            messagebox.showinfo("成功", f"工具 {tool.name} 的配置已更新")
 
     def enable_tool(self):
         """启用工具"""
