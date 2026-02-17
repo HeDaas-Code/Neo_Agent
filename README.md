@@ -23,7 +23,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 
 ### 主要特性
 
-- 🧠 **分层记忆系统**: 短期记忆、长期记忆、知识库、基础知识
+- 🧠 **分层记忆系统**: 短期记忆、长期记忆（集成MemU）、知识库、基础知识
 - 💭 **智能对话**: 角色扮演、连续对话、记忆检索、情感理解
 - 📊 **情感分析**: 印象评估、累计评分、关系可视化
 - 🖥️ **现代化GUI**: 基于Tkinter的友好界面
@@ -32,6 +32,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - 📝 **提示词工程**: 模块化Markdown提示词、角色扮演、世界观注入
 - 🤖 **动态多智能体**: 主模型自主编排、并行协作、智能任务分解
 - 🚀 **DeepAgents增强**: 持久化状态、任务规划、大型结果处理、跨会话记忆
+- 🎯 **MemU记忆管理**: 集成24/7主动记忆框架，大幅降低长期运行token成本
 
 ### 快速开始
 
@@ -140,6 +141,19 @@ Neo Agent采用模块化的提示词工程系统，参考了SillyTavern的设计
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
+### 致谢
+
+本项目使用并参考了以下开源项目：
+
+- **[MemU](https://github.com/NevaMind-AI/memU)**: 24/7主动智能体的记忆管理框架（Apache License 2.0）
+- **[LangChain](https://github.com/langchain-ai/langchain)**: 使用LLM构建应用的核心框架（MIT License）
+- **[LangGraph](https://github.com/langchain-ai/langgraph)**: 多智能体系统的状态图管理（MIT License）
+- **[DeepAgents](https://github.com/aiwaves-cn/agents)**: 高级智能体框架（Apache License 2.0）
+
+完整的致谢列表请参见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
+
+感谢所有为这些优秀项目做出贡献的开发者们！
+
 ---
 
 ## English
@@ -231,3 +245,16 @@ Neo_Agent/
 ### License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
+
+### Acknowledgments
+
+This project uses and is inspired by the following open-source projects:
+
+- **[MemU](https://github.com/NevaMind-AI/memU)**: 24/7 Proactive Memory for AI Agents (Apache License 2.0)
+- **[LangChain](https://github.com/langchain-ai/langchain)**: Building applications with LLMs (MIT License)
+- **[LangGraph](https://github.com/langchain-ai/langgraph)**: State graph management for multi-agent systems (MIT License)
+- **[DeepAgents](https://github.com/aiwaves-cn/agents)**: Advanced agent framework (Apache License 2.0)
+
+For a complete list of acknowledgments, please see [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+
+Thank you to all the developers who have contributed to these amazing projects!

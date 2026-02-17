@@ -2,6 +2,11 @@
 长效记忆管理模块
 实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆 + 知识库
 使用数据库替代JSON文件存储
+
+更新说明:
+- 集成MemU框架（https://github.com/NevaMind-AI/memU）用于更高效的记忆管理
+- 当MemU可用时，使用MemU进行记忆总结；否则回退到传统LLM总结
+- 知识库提取功能保持不变
 """
 
 import os
@@ -13,6 +18,13 @@ from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
 from src.core.knowledge_base import KnowledgeBase
+
+# 尝试导入MemU适配器
+try:
+    from src.core.memu_memory_adapter import MemUAdapter
+    MEMU_ENABLED = True
+except ImportError:
+    MEMU_ENABLED = False
 
 load_dotenv()
 
@@ -52,6 +64,23 @@ class LongTermMemoryManager:
         self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
         self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+
+        # 初始化MemU适配器（如果可用）
+        self.use_memu = MEMU_ENABLED and os.getenv('USE_MEMU', 'true').lower() == 'true'
+        self.memu_adapter = None
+        
+        if self.use_memu and MEMU_ENABLED:
+            try:
+                # 尝试初始化MemU
+                openai_key = os.getenv('OPENAI_API_KEY')
+                memu_model = os.getenv('MEMU_MODEL_NAME', 'gpt-4o-mini')
+                self.memu_adapter = MemUAdapter(api_key=openai_key, model_name=memu_model)
+                print(f"✓ MemU记忆管理已启用（模型: {memu_model}）")
+            except Exception as e:
+                print(f"⚠ MemU初始化失败，回退到传统LLM总结: {e}")
+                self.use_memu = False
+        elif not MEMU_ENABLED:
+            print("○ MemU未安装，使用传统LLM总结方式")
 
         # 初始化知识库（共享数据库管理器）
         self.knowledge_base = KnowledgeBase(
@@ -249,7 +278,9 @@ class LongTermMemoryManager:
 
     def _generate_summary(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """
-        使用LLM生成对话概括
+        生成对话概括
+        
+        优先使用MemU进行记忆管理和总结，如果MemU不可用则回退到传统LLM总结
 
         Args:
             messages: 要概括的消息列表
@@ -257,6 +288,20 @@ class LongTermMemoryManager:
         Returns:
             概括文本，失败返回None
         """
+        # 首先尝试使用MemU
+        if self.use_memu and self.memu_adapter:
+            try:
+                print("○ 使用MemU生成对话概括...")
+                summary = self.memu_adapter.generate_summary(messages)
+                if summary:
+                    print(f"✓ MemU生成概括成功")
+                    return summary
+                else:
+                    print("⚠ MemU未返回概括，回退到传统方式")
+            except Exception as e:
+                print(f"⚠ MemU生成概括失败: {e}，回退到传统方式")
+        
+        # 回退到传统LLM总结方式
         try:
             # 构建对话文本
             conversation_text = ""
