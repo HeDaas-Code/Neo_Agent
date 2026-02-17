@@ -21,16 +21,12 @@ aiohttp>=3.9.0
 
 # MemU - 长期记忆管理框架（https://github.com/NevaMind-AI/memU）
 # 用于替代基于LLM的自动记忆总结，提供更高效的记忆管理
-memu-py>=1.4.0
+memu-py>=0.2.2
 
-# MemU的核心依赖
-defusedxml>=0.7.1
-httpx>=0.28.1
-numpy>=2.3.4
-openai>=2.8.0
-pydantic>=2.12.4
-sqlmodel>=0.0.27
-alembic>=1.14.0
-pendulum>=3.1.0
-lazyllm>=0.7.3
+# MemU的额外依赖（部分可能已通过其他依赖安装）
+anthropic>=0.79.0
+azure-ai-inference>=1.0.0b9
+cachetools>=7.0.0
+pydantic-settings>=2.13.0
+PyYAML>=6.0
 

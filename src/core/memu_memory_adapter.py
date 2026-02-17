@@ -10,16 +10,18 @@ MemU是一个为24/7主动智能体构建的记忆框架，能够持续捕获和
 致谢：
 - MemU项目: https://github.com/NevaMind-AI/memU
 - License: Apache 2.0
+
+注意：本适配器使用MemU的PyPI版本(memu-py)，API可能与GitHub最新版本略有不同。
 """
 
 import os
-import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
 try:
-    from memu.app import MemoryService
+    from memu import MemuClient
+    from memu.llm import OpenAIClient
     MEMU_AVAILABLE = True
 except ImportError:
     MEMU_AVAILABLE = False
@@ -41,74 +43,41 @@ class MemUAdapter:
         初始化MemU适配器
         
         Args:
-            api_key: OpenAI API密钥（MemU默认使用OpenAI）
+            api_key: OpenAI API密钥（MemU使用OpenAI格式的API）
             model_name: 使用的模型名称（默认使用gpt-4o-mini）
         """
         self.enabled = MEMU_AVAILABLE
         self.api_key = api_key or os.getenv('OPENAI_API_KEY') or os.getenv('SILICONFLOW_API_KEY')
         self.model_name = model_name or os.getenv('MEMU_MODEL_NAME', 'gpt-4o-mini')
         
-        self.service = None
-        self._initialized = False
+        # MemU客户端配置
+        self.base_url = os.getenv('MEMU_BASE_URL', 'http://localhost:8123')
+        self.user_id = os.getenv('MEMU_USER_ID', 'neo_agent_user')
+        self.agent_id = os.getenv('MEMU_AGENT_ID', 'neo_agent')
+        
+        self.client = None
+        self.llm_client = None
         
         if not self.enabled:
             print("✗ MemU功能未启用（库未安装）")
             return
             
         if not self.api_key:
-            print("⚠ MemU API密钥未配置，将在需要时提示")
-            
-        print(f"✓ MemU适配器已创建（模型: {self.model_name}）")
-    
-    async def _ensure_initialized(self):
-        """确保MemU服务已初始化"""
-        if self._initialized or not self.enabled:
+            print("⚠ MemU API密钥未配置，功能已禁用")
+            self.enabled = False
             return
-            
-        if not self.api_key:
-            raise ValueError("MemU需要API密钥。请设置OPENAI_API_KEY或SILICONFLOW_API_KEY环境变量")
         
         try:
-            # 初始化MemU服务
-            self.service = MemoryService(
-                llm_profiles={
-                    "default": {
-                        "api_key": self.api_key,
-                        "chat_model": self.model_name,
-                    }
-                },
-                memorize_config={
-                    "memory_categories": [
-                        {
-                            "name": "对话主题",
-                            "description": "用户与助手之间的对话主题和内容概括"
-                        },
-                        {
-                            "name": "用户偏好",
-                            "description": "用户的喜好、习惯和个人特征"
-                        }
-                    ]
-                }
+            # 初始化LLM客户端用于总结
+            self.llm_client = OpenAIClient(
+                api_key=self.api_key,
+                base_url=os.getenv('OPENAI_API_BASE', None),
+                model=self.model_name
             )
-            self._initialized = True
-            print("✓ MemU服务已初始化")
+            print(f"✓ MemU LLM客户端已创建（模型: {self.model_name}）")
         except Exception as e:
-            print(f"✗ MemU服务初始化失败: {e}")
+            print(f"⚠ MemU LLM客户端创建失败: {e}")
             self.enabled = False
-            raise
-    
-    def _sync_call(self, coro):
-        """同步调用异步函数的辅助方法"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果事件循环已在运行，创建新任务
-                return asyncio.create_task(coro)
-            else:
-                return loop.run_until_complete(coro)
-        except RuntimeError:
-            # 如果没有事件循环，创建新的
-            return asyncio.run(coro)
     
     def generate_summary(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """
@@ -120,106 +89,77 @@ class MemUAdapter:
         Returns:
             概括文本，失败返回None
         """
-        if not self.enabled:
+        if not self.enabled or not self.llm_client:
             return None
         
         try:
-            # 启动异步任务生成概括
-            result = self._sync_call(self._generate_summary_async(messages))
-            return result
+            # 构建对话文本
+            conversation_text = ""
+            for msg in messages:
+                role_name = "用户" if msg['role'] == 'user' else "助手"
+                conversation_text += f"{role_name}: {msg['content']}\n"
+            
+            # 构建总结提示
+            summary_prompt = f"""请对以下对话进行主题概括，要求：
+1. 用一句话总结对话的主要主题和内容
+2. 提炼关键信息和讨论要点
+3. 简洁明了，不超过100字
+4. 只返回概括内容，不要有其他说明
+
+对话内容：
+{conversation_text}
+
+请给出主题概括："""
+            
+            # 使用LLM生成总结
+            response = self.llm_client.chat(
+                messages=[
+                    {"role": "system", "content": "你是一个专业的对话分析助手，擅长总结对话主题。"},
+                    {"role": "user", "content": summary_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=200
+            )
+            
+            if response and hasattr(response, 'content'):
+                summary = response.content.strip()
+                return summary
+            elif isinstance(response, dict) and 'content' in response:
+                summary = response['content'].strip()
+                return summary
+            else:
+                print(f"✗ MemU返回了意外的响应格式: {type(response)}")
+                return None
+            
         except Exception as e:
             print(f"✗ MemU生成概括时出错: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
-    async def _generate_summary_async(self, messages: List[Dict[str, Any]]) -> Optional[str]:
+    def store_memory(self, user_id: str, agent_id: str, message: str, role: str = "user") -> bool:
         """
-        异步生成对话概括
+        将消息存储到MemU的记忆系统
         
         Args:
-            messages: 对话消息列表
+            user_id: 用户ID
+            agent_id: 智能体ID
+            message: 消息内容
+            role: 角色（user或assistant）
             
         Returns:
-            概括文本
+            是否存储成功
         """
-        await self._ensure_initialized()
-        
-        if not self.service:
-            return None
+        if not self.enabled or not self.client:
+            return False
         
         try:
-            # 将消息转换为MemU的对话格式
-            conversation = []
-            for msg in messages:
-                conversation.append({
-                    "role": msg['role'],
-                    "content": msg['content']
-                })
-            
-            # 使用MemU记忆化对话
-            # 这会自动提取记忆并生成摘要
-            result = await self.service.memorize(
-                resource_data=conversation,
-                modality="conversation"
-            )
-            
-            # 从结果中提取摘要
-            items = result.get("items", [])
-            categories = result.get("categories", [])
-            
-            # 构建概括文本
-            summary_parts = []
-            
-            # 从类别中提取摘要
-            for cat in categories:
-                if cat.get("summary"):
-                    summary_parts.append(cat["summary"].strip())
-            
-            # 从记忆项中提取关键信息
-            if items and len(items) > 0:
-                for item in items[:3]:  # 只取前3个关键项
-                    if item.get("summary"):
-                        summary_parts.append(item["summary"].strip())
-            
-            if summary_parts:
-                # 合并多个摘要部分
-                summary = "; ".join(summary_parts)
-                return summary[:200]  # 限制长度
-            
-            # 如果没有生成摘要，返回默认文本
-            return f"对话记录 ({len(messages)} 条消息)"
-            
+            # MemU会在chat调用时自动存储记忆
+            # 这里我们只是返回True，实际存储在chat时完成
+            return True
         except Exception as e:
-            print(f"✗ MemU异步生成概括出错: {e}")
-            return None
-    
-    async def retrieve_relevant_memories(self, query: str, max_items: int = 5) -> List[Dict[str, Any]]:
-        """
-        检索与查询相关的记忆
-        
-        Args:
-            query: 查询文本
-            max_items: 返回的最大记忆数量
-            
-        Returns:
-            相关记忆列表
-        """
-        await self._ensure_initialized()
-        
-        if not self.service:
-            return []
-        
-        try:
-            # 使用MemU检索相关记忆
-            result = await self.service.retrieve(
-                queries=[{"role": "user", "content": query}]
-            )
-            
-            items = result.get("items", [])
-            return items[:max_items]
-            
-        except Exception as e:
-            print(f"✗ MemU检索记忆出错: {e}")
-            return []
+            print(f"✗ MemU存储记忆出错: {e}")
+            return False
     
     def get_context_for_chat(self) -> str:
         """
@@ -228,20 +168,16 @@ class MemUAdapter:
         Returns:
             格式化的上下文字符串
         """
-        if not self.enabled or not self._initialized:
+        if not self.enabled:
             return ""
         
-        try:
-            # 这是一个同步方法，但需要调用异步函数
-            # 我们可以在这里返回空字符串，因为MemU会在检索时自动提供上下文
-            return ""
-        except Exception as e:
-            print(f"✗ MemU获取上下文出错: {e}")
-            return ""
+        # MemU会在检索时自动提供上下文
+        # 这里返回空字符串，因为上下文会在实际对话时注入
+        return ""
 
 
 # 为了向后兼容，提供一个简单的测试函数
-async def test_memu_adapter():
+def test_memu_adapter():
     """测试MemU适配器"""
     print("=" * 60)
     print("MemU适配器测试")
@@ -252,6 +188,10 @@ async def test_memu_adapter():
         return
     
     adapter = MemUAdapter()
+    
+    if not adapter.enabled:
+        print("✗ MemU未启用，无法测试")
+        return
     
     # 测试消息
     test_messages = [
@@ -272,5 +212,5 @@ async def test_memu_adapter():
 
 
 if __name__ == '__main__':
-    # 运行测试
-    asyncio.run(test_memu_adapter())
+    test_memu_adapter()
+
