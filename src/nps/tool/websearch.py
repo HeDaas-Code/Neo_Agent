@@ -106,11 +106,8 @@ def search_web(context: Dict[str, Any] = None) -> Dict[str, Any]:
                 'description': knowledge_graph.get('description', '')
             }
         
-        # 生成简洁的上下文描述
-        context_desc = f"搜索「{query}」找到{len(results)}个结果"
-        if answer_box:
-            context_desc += f"，答案框显示：{answer_box.get('answer', answer_box.get('snippet', ''))[:100]}"
-        search_result['context'] = context_desc
+        # 使用format_search_results_for_agent生成详细的上下文描述
+        search_result['context'] = format_search_results_for_agent(search_result)
         
         debug_logger.log_info('WebSearch', f'搜索完成，找到{len(results)}个结果')
         return search_result
