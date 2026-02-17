@@ -50,12 +50,12 @@ class MemUAdapter:
         self.api_key = api_key or os.getenv('OPENAI_API_KEY') or os.getenv('SILICONFLOW_API_KEY')
         self.model_name = model_name or os.getenv('MEMU_MODEL_NAME', 'gpt-4o-mini')
         
-        # MemU客户端配置
-        self.base_url = os.getenv('MEMU_BASE_URL', 'http://localhost:8123')
-        self.user_id = os.getenv('MEMU_USER_ID', 'neo_agent_user')
-        self.agent_id = os.getenv('MEMU_AGENT_ID', 'neo_agent')
+        # MemU客户端配置（保留用于未来扩展）
+        # 注意：当前版本主要使用LLM客户端进行总结，未来可能使用完整的MemU服务
+        # self.base_url = os.getenv('MEMU_BASE_URL', 'http://localhost:8123')
+        # self.user_id = os.getenv('MEMU_USER_ID', 'neo_agent_user')
+        # self.agent_id = os.getenv('MEMU_AGENT_ID', 'neo_agent')
         
-        self.client = None
         self.llm_client = None
         
         if not self.enabled:
@@ -137,33 +137,13 @@ class MemUAdapter:
             traceback.print_exc()
             return None
     
-    def store_memory(self, user_id: str, agent_id: str, message: str, role: str = "user") -> bool:
-        """
-        将消息存储到MemU的记忆系统
-        
-        Args:
-            user_id: 用户ID
-            agent_id: 智能体ID
-            message: 消息内容
-            role: 角色（user或assistant）
-            
-        Returns:
-            是否存储成功
-        """
-        if not self.enabled or not self.client:
-            return False
-        
-        try:
-            # MemU会在chat调用时自动存储记忆
-            # 这里我们只是返回True，实际存储在chat时完成
-            return True
-        except Exception as e:
-            print(f"✗ MemU存储记忆出错: {e}")
-            return False
     
     def get_context_for_chat(self) -> str:
         """
         获取用于聊天的上下文（从MemU记忆中提取）
+        
+        注意：当前实现返回空字符串，因为MemU会在检索时自动提供上下文。
+        此方法保留用于未来扩展。
         
         Returns:
             格式化的上下文字符串

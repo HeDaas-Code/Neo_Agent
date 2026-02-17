@@ -175,9 +175,16 @@ categories = kb.get_all_categories()
 
 ```python
 from src.core.long_term_memory import LongTermMemoryManager
+from src.core.database_manager import DatabaseManager
 
-# 创建实例
-ltm = LongTermMemoryManager()
+# 创建实例（可选：提供数据库管理器和API配置）
+db_manager = DatabaseManager()  # 可选，不提供则自动创建
+ltm = LongTermMemoryManager(
+    db_manager=db_manager,
+    api_key=None,  # 可选，不提供则从环境变量读取
+    api_url=None,  # 可选
+    model_name=None  # 可选
+)
 
 # 添加消息到短期记忆
 ltm.add_message('user', '今天天气真好')
