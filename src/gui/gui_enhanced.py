@@ -874,19 +874,29 @@ class EnhancedChatDebugGUI:
         self.short_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.short_term_display.config(state=tk.DISABLED)
 
-        # 选项卡3: 长期记忆
-        long_term_tab = ttk.Frame(notebook)
-        notebook.add(long_term_tab, text="长期记忆")
+        # 选项卡3: MemU记忆系统状态
+        memu_tab = ttk.Frame(notebook)
+        notebook.add(memu_tab, text="🧠 MemU状态")
 
-        self.long_term_display = scrolledtext.ScrolledText(
-            long_term_tab,
+        # MemU状态信息区域
+        status_frame = ttk.LabelFrame(memu_tab, text="MemU系统信息", padding=10)
+        status_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.memu_status_display = scrolledtext.ScrolledText(
+            status_frame,
             wrap=tk.WORD,
-            font=("微软雅黑", 9),
+            font=("Consolas", 9),
             bg="#f9f9f9",
-            relief=tk.FLAT
+            relief=tk.FLAT,
+            height=15
         )
-        self.long_term_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.long_term_display.config(state=tk.DISABLED)
+        self.memu_status_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.memu_status_display.config(state=tk.DISABLED)
+
+        # 刷新按钮
+        btn_frame = ttk.Frame(memu_tab)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(btn_frame, text="🔄 刷新MemU状态", command=self.update_memu_status).pack(side=tk.LEFT, padx=5)
 
         # 选项卡4: 理解阶段
         understanding_tab = ttk.Frame(notebook)
@@ -2410,7 +2420,7 @@ class EnhancedChatDebugGUI:
 
         self.update_memory_status()
         self.update_short_term_display()
-        self.update_long_term_display()
+        self.update_memu_status()
         self.update_understanding_display()  # 新增：更新理解阶段显示
         self.update_knowledge_display()
         self.refresh_environment_display()  # 新增：更新环境显示
@@ -2551,36 +2561,74 @@ class EnhancedChatDebugGUI:
 
         self.update_text_widget(self.short_term_display, "\n".join(text))
 
-    def update_long_term_display(self):
+    def update_memu_status(self):
         """
-        更新长期记忆显示
+        更新MemU记忆系统状态显示
         """
         if not self.agent:
+            self.update_text_widget(self.memu_status_display, "智能体未初始化")
             return
 
-        summaries = self.agent.get_long_term_summaries()
-
-        if not summaries:
-            self.update_text_widget(self.long_term_display, "暂无长期记忆\n对话超过20轮后将自动生成")
-            return
-
-        text = []
-        text.append("=" * 40)
-        text.append(f"长期记忆概括 (共 {len(summaries)} 个主题)")
-        text.append("=" * 40)
-        text.append("")
-
-        for i, summary in enumerate(summaries, 1):
-            text.append(f"【主题 {i}】")
-            text.append(f"UUID: {summary.get('uuid', '')}")
-            text.append(f"时间: {summary.get('created_at', '')[:19]} ~ {summary.get('ended_at', '')[:19]}")
-            text.append(f"对话轮数: {summary.get('rounds', 0)} 轮")
-            text.append(f"消息数量: {summary.get('message_count', 0)} 条")
-            text.append(f"主题概括: {summary.get('summary', '')}")
-            text.append("=" * 40)
+        try:
+            # 获取MemU状态信息
+            memory_manager = self.agent.memory_manager
+            text = []
+            text.append("=" * 60)
+            text.append("MemU记忆系统状态")
+            text.append("=" * 60)
             text.append("")
-
-        self.update_text_widget(self.long_term_display, "\n".join(text))
+            
+            if hasattr(memory_manager, 'memu_adapter') and memory_manager.memu_adapter:
+                adapter = memory_manager.memu_adapter
+                status_info = adapter.get_status_info()
+                
+                text.append(f"✓ 状态: {'已启用' if status_info['enabled'] else '已禁用'}")
+                text.append(f"✓ API配置: {'已配置' if status_info['api_configured'] else '未配置'}")
+                text.append(f"✓ 运行模式: {status_info['mode']}")
+                text.append(f"✓ 模型: {status_info['model']}")
+                text.append("")
+                
+                if status_info['mode'] == 'API服务':
+                    text.append("【API服务配置】")
+                    text.append(f"  API地址: {status_info['api_url']}")
+                    text.append(f"  用户ID: {status_info['user_id']}")
+                    text.append(f"  智能体ID: {status_info['agent_id']}")
+                    text.append("")
+                    text.append("提示: 使用自部署的MemU服务可以获得更强大的记忆功能")
+                else:
+                    text.append("【LLM客户端模式】")
+                    text.append(f"  使用直接LLM调用进行记忆总结")
+                    text.append("")
+                    text.append("提示: 配置MEMU_API_URL可以使用自部署的MemU服务")
+                
+                text.append("")
+                text.append("-" * 60)
+                text.append("")
+                
+                # 显示记忆统计
+                stats = memory_manager.get_statistics()
+                text.append("【记忆统计】")
+                text.append(f"  短期记忆: {stats['short_term']['rounds']} 轮对话")
+                text.append(f"  长期概括: {stats['long_term']['total_summaries']} 个主题")
+                text.append(f"  知识条目: {stats['knowledge_base']['total_knowledge']} 条")
+                text.append("")
+                
+            else:
+                text.append("✗ MemU未启用")
+                text.append("")
+                text.append("原因: MemU适配器未初始化")
+                text.append("")
+                text.append("请检查:")
+                text.append("  1. 是否安装了memu-py包")
+                text.append("  2. 是否配置了USE_MEMU=true")
+                text.append("  3. 是否配置了API密钥")
+            
+            text.append("=" * 60)
+            self.update_text_widget(self.memu_status_display, "\n".join(text))
+            
+        except Exception as e:
+            error_text = f"获取MemU状态时出错:\n{str(e)}"
+            self.update_text_widget(self.memu_status_display, error_text)
 
     def update_understanding_display(self, understanding_result: Dict[str, Any] = None):
         """

@@ -38,25 +38,27 @@ class MemUAdapter:
     提供与原有长期记忆管理器兼容的接口。
     """
     
-    def __init__(self, api_key: str = None, model_name: str = None):
+    def __init__(self, api_key: str = None, model_name: str = None, base_url: str = None):
         """
         初始化MemU适配器
         
         Args:
-            api_key: OpenAI API密钥（MemU使用OpenAI格式的API）
+            api_key: OpenAI API密钥或MemU API密钥
             model_name: 使用的模型名称（默认使用gpt-4o-mini）
+            base_url: MemU API服务器地址（如果使用自部署服务）
         """
         self.enabled = MEMU_AVAILABLE
         self.api_key = api_key or os.getenv('OPENAI_API_KEY') or os.getenv('SILICONFLOW_API_KEY')
         self.model_name = model_name or os.getenv('MEMU_MODEL_NAME', 'gpt-4o-mini')
         
-        # MemU客户端配置（保留用于未来扩展）
-        # 注意：当前版本主要使用LLM客户端进行总结，未来可能使用完整的MemU服务
-        # self.base_url = os.getenv('MEMU_BASE_URL', 'http://localhost:8123')
-        # self.user_id = os.getenv('MEMU_USER_ID', 'neo_agent_user')
-        # self.agent_id = os.getenv('MEMU_AGENT_ID', 'neo_agent')
+        # MemU API服务配置（支持自部署）
+        self.memu_base_url = base_url or os.getenv('MEMU_API_URL', None)
+        self.use_memu_api = self.memu_base_url is not None
+        self.user_id = os.getenv('MEMU_USER_ID', 'neo_agent_user')
+        self.agent_id = os.getenv('MEMU_AGENT_ID', 'neo_agent')
         
         self.llm_client = None
+        self.memu_client = None
         
         if not self.enabled:
             print("✗ MemU功能未启用（库未安装）")
@@ -68,15 +70,23 @@ class MemUAdapter:
             return
         
         try:
-            # 初始化LLM客户端用于总结
-            self.llm_client = OpenAIClient(
-                api_key=self.api_key,
-                base_url=os.getenv('OPENAI_API_BASE', None),
-                model=self.model_name
-            )
-            print(f"✓ MemU LLM客户端已创建（模型: {self.model_name}）")
+            if self.use_memu_api:
+                # 使用自部署的MemU API服务
+                self.memu_client = MemuClient(
+                    base_url=self.memu_base_url,
+                    api_key=self.api_key
+                )
+                print(f"✓ MemU API客户端已创建（服务器: {self.memu_base_url}）")
+            else:
+                # 使用直接LLM客户端进行总结
+                self.llm_client = OpenAIClient(
+                    api_key=self.api_key,
+                    base_url=os.getenv('OPENAI_API_BASE', None),
+                    model=self.model_name
+                )
+                print(f"✓ MemU LLM客户端已创建（模型: {self.model_name}）")
         except Exception as e:
-            print(f"⚠ MemU LLM客户端创建失败: {e}")
+            print(f"⚠ MemU客户端创建失败: {e}")
             self.enabled = False
     
     def generate_summary(self, messages: List[Dict[str, Any]]) -> Optional[str]:
@@ -89,9 +99,70 @@ class MemUAdapter:
         Returns:
             概括文本，失败返回None
         """
-        if not self.enabled or not self.llm_client:
+        if not self.enabled:
             return None
         
+        try:
+            if self.use_memu_api and self.memu_client:
+                # 使用MemU API服务生成总结
+                return self._generate_summary_via_api(messages)
+            elif self.llm_client:
+                # 使用直接LLM客户端生成总结
+                return self._generate_summary_via_llm(messages)
+            else:
+                return None
+            
+        except Exception as e:
+            print(f"✗ MemU生成概括时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _generate_summary_via_api(self, messages: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        通过MemU API服务生成总结
+        
+        Args:
+            messages: 对话消息列表
+            
+        Returns:
+            概括文本
+        """
+        try:
+            # 构建对话文本用于请求
+            last_message = messages[-1]['content'] if messages else "总结对话"
+            
+            # 调用MemU API的chat接口（会自动记忆和总结）
+            response = self.memu_client.chat(
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+                message=f"请总结以下对话的主题：共{len(messages)}条消息",
+                system="你是一个专业的对话分析助手，擅长总结对话主题。",
+                model=self.model_name
+            )
+            
+            if response and hasattr(response, 'message'):
+                return response.message.strip()
+            elif isinstance(response, dict) and 'message' in response:
+                return response['message'].strip()
+            else:
+                print(f"✗ MemU API返回了意外的响应格式: {type(response)}")
+                return None
+                
+        except Exception as e:
+            print(f"✗ 通过MemU API生成总结失败: {e}")
+            return None
+    
+    def _generate_summary_via_llm(self, messages: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        通过直接LLM客户端生成总结
+        
+        Args:
+            messages: 对话消息列表
+            
+        Returns:
+            概括文本
+        """
         try:
             # 构建对话文本
             conversation_text = ""
@@ -128,15 +199,31 @@ class MemUAdapter:
                 summary = response['content'].strip()
                 return summary
             else:
-                print(f"✗ MemU返回了意外的响应格式: {type(response)}")
+                print(f"✗ MemU LLM返回了意外的响应格式: {type(response)}")
                 return None
-            
+                
         except Exception as e:
-            print(f"✗ MemU生成概括时出错: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"✗ 通过LLM生成总结失败: {e}")
             return None
     
+    
+    def get_status_info(self) -> Dict[str, Any]:
+        """
+        获取MemU系统状态信息
+        
+        Returns:
+            包含状态信息的字典
+        """
+        status = {
+            'enabled': self.enabled,
+            'api_configured': self.api_key is not None,
+            'mode': 'API服务' if self.use_memu_api else 'LLM客户端',
+            'model': self.model_name,
+            'api_url': self.memu_base_url if self.use_memu_api else 'N/A',
+            'user_id': self.user_id if self.use_memu_api else 'N/A',
+            'agent_id': self.agent_id if self.use_memu_api else 'N/A',
+        }
+        return status
     
     def get_context_for_chat(self) -> str:
         """

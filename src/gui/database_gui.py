@@ -109,8 +109,8 @@ class DatabaseManagerGUI:
         # 标签页3：短期记忆
         self.create_short_term_tab()
 
-        # 标签页4：长期记忆
-        self.create_long_term_tab()
+        # 标签页4：长期记忆（已由MemU系统接管，移除此tab）
+        # self.create_long_term_tab()
 
         # 标签页5：情感分析历史
         self.create_emotion_tab()
@@ -635,7 +635,7 @@ class DatabaseManagerGUI:
             self.refresh_base_knowledge()
             self.refresh_entities()
             self.refresh_short_term()
-            self.refresh_long_term()
+            # self.refresh_long_term()  # 已废弃，由MemU系统接管
             self.refresh_emotion()
             self.refresh_environments()
             self.refresh_domains()
@@ -773,22 +773,22 @@ class DatabaseManagerGUI:
         if was_at_bottom or len(messages) > 0:
             self.short_term_text.see(tk.END)
 
-    def refresh_long_term(self):
-        """刷新长期记忆显示"""
-        self.long_term_text.config(state=tk.NORMAL)
-        self.long_term_text.delete(1.0, tk.END)
-
-        summaries = self.db.get_long_term_summaries()
-        self.long_term_count_label.config(text=f"概括数: {len(summaries)}")
-
-        for i, summary in enumerate(summaries, 1):
-            self.long_term_text.insert(tk.END, f"━━━━━ 主题 {i} ━━━━━\n", "header")
-            self.long_term_text.insert(tk.END, f"时间: {summary['created_at'][:19]} - {summary['ended_at'][:19]}\n")
-            self.long_term_text.insert(tk.END, f"轮数: {summary.get('rounds', 0)} 轮 | 消息: {summary.get('message_count', 0)} 条\n")
-            self.long_term_text.insert(tk.END, f"\n{summary['summary']}\n\n\n")
-
-        self.long_term_text.config(state=tk.DISABLED)
-
+#     def refresh_long_term(self):
+#         """刷新长期记忆显示"""
+#         self.long_term_text.config(state=tk.NORMAL)
+#         self.long_term_text.delete(1.0, tk.END)
+# 
+#         summaries = self.db.get_long_term_summaries()
+#         self.long_term_count_label.config(text=f"概括数: {len(summaries)}")
+# 
+#         for i, summary in enumerate(summaries, 1):
+#             self.long_term_text.insert(tk.END, f"━━━━━ 主题 {i} ━━━━━\n", "header")
+#             self.long_term_text.insert(tk.END, f"时间: {summary['created_at'][:19]} - {summary['ended_at'][:19]}\n")
+#             self.long_term_text.insert(tk.END, f"轮数: {summary.get('rounds', 0)} 轮 | 消息: {summary.get('message_count', 0)} 条\n")
+#             self.long_term_text.insert(tk.END, f"\n{summary['summary']}\n\n\n")
+# 
+#         self.long_term_text.config(state=tk.DISABLED)
+# 
     def refresh_emotion(self):
         """刷新情感分析历史"""
         # 清空缓存
@@ -1046,14 +1046,14 @@ class DatabaseManagerGUI:
                 self.update_statistics()
                 messagebox.showinfo("成功", "短期记忆已清空")
 
-    def clear_long_term(self):
-        """清空长期记忆"""
-        if messagebox.askyesno("确认", "确定要清空所有长期记忆吗？"):
-            if self.db.clear_long_term_memory():
-                self.refresh_long_term()
-                self.update_statistics()
-                messagebox.showinfo("成功", "长期记忆已清空")
-
+#     def clear_long_term(self):
+#         """清空长期记忆"""
+#         if messagebox.askyesno("确认", "确定要清空所有长期记忆吗？"):
+#             if self.db.clear_long_term_memory():
+#                 self.refresh_long_term()
+#                 self.update_statistics()
+#                 messagebox.showinfo("成功", "长期记忆已清空")
+# 
     def show_statistics(self):
         """显示详细统计信息"""
         stats = self.db.get_statistics()
