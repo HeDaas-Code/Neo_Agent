@@ -9,6 +9,10 @@ langgraph>=0.2.0
 # DeepAgents - 用于子智能体生成、长期记忆和文件系统
 deepagents>=0.4.0
 
+# Cognee - 智能持久化动态AI记忆引擎
+# 将原始数据转化为智能体的持久动态记忆，结合向量搜索和图数据库
+cognee>=0.5.0
+
 # LangChain集成
 langchain-openai>=0.2.0
 
