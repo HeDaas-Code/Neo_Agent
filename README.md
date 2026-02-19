@@ -185,6 +185,8 @@ Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system
 #### 🏗️ Composite Framework Architecture
 - **LangChain**: Core framework providing LLM abstraction and chain invocation
 - **LangGraph**: State graph management for complex conversation flow orchestration
+- **Cognee**: Intelligent persistent and dynamic AI memory engine ([documentation](docs/COGNEE_INTEGRATION.md))
+- **DeepAgents**: Sub-agent generation, long-term memory, and file system ([documentation](docs/DEEPAGENTS_INTEGRATION.md))
 - **Multi-tier Model Architecture**: Intelligent model selection based on task type
   - Main Model (DeepSeek-V3.2): Handles primary conversations and complex reasoning
   - Tool Model (GLM-4.6V): Handles tool invocations, intent recognition, and lightweight tasks
@@ -192,7 +194,8 @@ Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system
 
 ### Key Features
 
-- 🧠 **Hierarchical Memory System**: Short-term memory, long-term memory, knowledge base, base knowledge
+- 🧠 **Cognee Smart Memory**: Persistent and dynamic AI memory based on vector search and graph databases
+- 🌍 **Worldview Builder**: Editable Markdown-based worldview system with AI-assisted generation
 - 💭 **Intelligent Conversation**: Role-playing, continuous dialogue, memory retrieval, emotional understanding
 - 📊 **Emotion Analysis**: Impression assessment, cumulative scoring, relationship visualization
 - 🖥️ **Modern GUI**: User-friendly Tkinter-based interface
@@ -241,6 +244,8 @@ Neo_Agent/
 │   ├── gui/               # GUI modules
 │   ├── tools/             # Utility modules
 │   └── nps/               # NPS tool system
+├── prompts/               # Prompt templates
+│   ├── worldview/         # Worldview settings
 ├── tests/                 # Test files
 ├── examples/              # Example code
 ├── main.py               # Main entry point (recommended)
@@ -252,6 +257,8 @@ Neo_Agent/
 
 ### Core Modules
 
+- **cognee_memory**: Cognee smart memory management
+- **worldview_builder**: Markdown worldview builder
 - **chat_agent**: Conversation agent core
 - **database_manager**: Unified database management
 - **emotion_analyzer**: Emotional relationship analysis
@@ -259,6 +266,16 @@ Neo_Agent/
 - **knowledge_base**: Knowledge base management
 - **long_term_memory**: Long-term memory system
 - **schedule_manager**: Schedule management
+
+### Acknowledgments
+
+Thanks to the following open-source projects for supporting Neo Agent:
+
+- **[Cognee](https://github.com/topoteretes/cognee)** - Open-source knowledge engine for persistent dynamic AI memory
+- **[LangChain](https://github.com/langchain-ai/langchain)** - Powerful framework for building LLM applications
+- **[LangGraph](https://github.com/langchain-ai/langgraph)** - State graph management and multi-agent collaboration
+- **[DeepAgents](https://github.com/deepagents/deepagents)** - Sub-agent generation and persistent state management
+- **[SillyTavern](https://github.com/SillyTavern/SillyTavern)** - Design reference for prompt engineering system
 
 ### License
 
