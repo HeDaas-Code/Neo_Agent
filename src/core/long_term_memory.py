@@ -2,11 +2,13 @@
 长效记忆管理模块
 实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆 + 知识库
 使用数据库替代JSON文件存储
+集成 Cognee 智能记忆系统实现持久动态 AI 记忆
 """
 
 import os
 import json
 import uuid
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -16,19 +18,24 @@ from src.core.knowledge_base import KnowledgeBase
 
 load_dotenv()
 
+# Cognee 集成配置
+COGNEE_ENABLED = os.getenv('COGNEE_ENABLED', 'true').lower() == 'true'
+
 
 class LongTermMemoryManager:
     """
     长效记忆管理器
     负责管理短期详细记忆和长期概括记忆的分层存储
     使用数据库替代JSON文件
+    集成 Cognee 实现持久动态 AI 记忆
     """
 
     def __init__(self,
                  db_manager: DatabaseManager = None,
                  api_key: str = None,
                  api_url: str = None,
-                 model_name: str = None):
+                 model_name: str = None,
+                 enable_cognee: bool = COGNEE_ENABLED):
         """
         初始化长效记忆管理器
 
@@ -37,6 +44,7 @@ class LongTermMemoryManager:
             api_key: API密钥
             api_url: API地址
             model_name: 模型名称
+            enable_cognee: 是否启用 Cognee 智能记忆
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
@@ -61,10 +69,32 @@ class LongTermMemoryManager:
             model_name=self.model_name
         )
 
+        # 初始化 Cognee 智能记忆（如果启用）
+        self.cognee_manager = None
+        self.enable_cognee = enable_cognee
+        if enable_cognee:
+            self._init_cognee()
+
         # 检查是否需要从JSON迁移数据
         self._check_and_migrate_json()
 
-        print(f"✓ 长效记忆管理器已初始化（使用数据库存储）")
+        cognee_status = "Cognee已启用" if self.cognee_manager else "仅数据库存储"
+        print(f"✓ 长效记忆管理器已初始化（{cognee_status}）")
+
+    def _init_cognee(self):
+        """初始化 Cognee 智能记忆系统"""
+        try:
+            from src.core.cognee_memory import CogneeMemoryManager
+            self.cognee_manager = CogneeMemoryManager(api_key=self.api_key)
+            if not self.cognee_manager._initialized:
+                print("⚠ Cognee 初始化失败，将仅使用数据库存储")
+                self.cognee_manager = None
+        except ImportError as e:
+            print(f"⚠ Cognee 模块导入失败: {e}")
+            self.cognee_manager = None
+        except Exception as e:
+            print(f"⚠ Cognee 初始化异常: {e}")
+            self.cognee_manager = None
 
     def _check_and_migrate_json(self):
         """检查并迁移旧的JSON文件"""
@@ -87,6 +117,7 @@ class LongTermMemoryManager:
     def add_message(self, role: str, content: str):
         """
         添加新消息到短期记忆（使用数据库）
+        同时同步到 Cognee 智能记忆系统（如果启用）
 
         Args:
             role: 角色类型 ('user' 或 'assistant')
@@ -94,6 +125,10 @@ class LongTermMemoryManager:
         """
         # 添加到数据库
         self.db.add_short_term_message(role, content)
+
+        # 同步到 Cognee（如果启用）
+        if self.cognee_manager:
+            self._sync_message_to_cognee(role, content)
 
         # 更新元数据
         if role == 'user':
@@ -105,9 +140,45 @@ class LongTermMemoryManager:
             if total_conversations % self.knowledge_extraction_interval == 0:
                 print(f"\n📚 已达到 {total_conversations} 轮对话，开始提取知识...")
                 self._extract_and_save_knowledge()
+                
+                # 每5轮构建一次 Cognee 知识图谱
+                if self.cognee_manager:
+                    self._run_cognee_cognify()
 
         # 检查是否需要归档
         self._check_and_archive()
+
+    def _sync_message_to_cognee(self, role: str, content: str):
+        """
+        同步消息到 Cognee
+        
+        Args:
+            role: 角色类型
+            content: 消息内容
+        """
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # 格式化为对话记忆
+            role_name = "用户" if role == "user" else "助手"
+            formatted_content = f"{role_name}: {content}"
+            
+            loop.run_until_complete(
+                self.cognee_manager.add_memory(formatted_content, "conversation")
+            )
+        except Exception as e:
+            print(f"⚠ 同步到 Cognee 失败: {e}")
+
+    def _run_cognee_cognify(self):
+        """运行 Cognee 知识图谱构建"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.cognee_manager.cognify())
+            print("✓ Cognee 知识图谱已更新")
+        except Exception as e:
+            print(f"⚠ Cognee 知识图谱构建失败: {e}")
 
     def _check_and_archive(self):
         """
@@ -371,6 +442,11 @@ class LongTermMemoryManager:
         # 获取知识库详细统计
         kb_stats = self.knowledge_base.get_statistics()
 
+        # 获取 Cognee 统计信息
+        cognee_stats = {}
+        if self.cognee_manager:
+            cognee_stats = self.cognee_manager.get_statistics()
+
         return {
             'short_term': {
                 'total_messages': len(short_term_messages),
@@ -390,18 +466,53 @@ class LongTermMemoryManager:
                 'total_definitions': kb_stats['total_definitions'],
                 'total_related_info': kb_stats['total_related_info']
             },
+            'cognee': cognee_stats,  # Cognee 智能记忆统计
             'total_conversations': self.db.get_metadata('total_conversations', 0),
             'database_size_kb': db_stats.get('db_size_kb', 0)
         }
 
     def clear_all_memory(self):
         """
-        清空所有记忆（短期、长期）
+        清空所有记忆（短期、长期、Cognee）
         """
         self.db.clear_short_term_memory()
         self.db.clear_long_term_memory()
         self.db.set_metadata('total_conversations', 0)
+        
+        # 清空 Cognee 记忆
+        if self.cognee_manager:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.cognee_manager.clear_all_memory())
+            except Exception as e:
+                print(f"⚠ 清空 Cognee 记忆失败: {e}")
+        
         print("✓ 所有记忆已清空")
+
+    def search_cognee_memory(self, query: str, memory_type: str = None) -> List[Dict[str, Any]]:
+        """
+        搜索 Cognee 智能记忆
+        
+        Args:
+            query: 搜索查询
+            memory_type: 记忆类型过滤
+            
+        Returns:
+            搜索结果列表
+        """
+        if not self.cognee_manager:
+            return []
+        
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(
+                self.cognee_manager.search(query, memory_type=memory_type)
+            )
+        except Exception as e:
+            print(f"⚠ 搜索 Cognee 记忆失败: {e}")
+            return []
 
     def get_context_for_chat(self, recent_count: int = 10) -> str:
         """

@@ -15,6 +15,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 #### 🏗️ 复合框架架构
 - **LangChain**: 核心框架，提供LLM抽象和链式调用
 - **LangGraph**: 状态图管理，实现复杂对话流程编排和动态多智能体协作
+- **Cognee**: 智能持久化动态AI记忆引擎（[查看详情](docs/COGNEE_INTEGRATION.md)）
 - **DeepAgents**: 子智能体生成、长期记忆和文件系统（[查看详情](docs/DEEPAGENTS_INTEGRATION.md)）
 - **多层模型架构**: 根据任务类型智能选择模型
   - 主模型 (DeepSeek-V3.2): 处理主要对话、复杂推理和任务编排
@@ -23,7 +24,8 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 
 ### 主要特性
 
-- 🧠 **分层记忆系统**: 短期记忆、长期记忆、知识库、基础知识
+- 🧠 **Cognee智能记忆**: 基于向量搜索和图数据库的持久动态AI记忆
+- 🌍 **世界观构建**: 基于Markdown的可编辑世界观系统，支持AI辅助生成
 - 💭 **智能对话**: 角色扮演、连续对话、记忆检索、情感理解
 - 📊 **情感分析**: 印象评估、累计评分、关系可视化
 - 🖥️ **现代化GUI**: 基于Tkinter的友好界面
@@ -135,6 +137,36 @@ Neo Agent采用模块化的提示词工程系统，参考了SillyTavern的设计
 - 🛡️ **后备机制**: 模板失败时自动降级到硬编码提示词
 
 详见 `prompts/README.md` 获取完整说明。
+
+### Cognee 智能记忆系统
+
+Neo Agent 集成了 [Cognee](https://docs.cognee.ai/) 作为智能记忆引擎：
+
+- 🧠 **持久动态记忆**: 将原始数据转化为智能体的持久动态AI记忆
+- 🔗 **知识图谱**: 自动构建实体关系图，使知识相互关联
+- 🔍 **语义搜索**: 基于向量的语义检索，按含义搜索记忆
+- 📊 **模块化知识**: 支持自定义知识块和记忆类型
+
+### 世界观构建系统
+
+基于Markdown的智能体世界观构建系统：
+
+- 📝 **直接编辑**: 直接编辑Markdown源文件管理世界观
+- 🤖 **AI生成**: 使用自然语言描述，AI辅助生成详细世界观
+- 🔄 **知识同步**: 自动同步到Cognee记忆和知识库
+- 📁 **模块化**: 将世界观解析为模块化知识块
+
+世界观文件位于 `prompts/worldview/` 目录。
+
+### 鸣谢
+
+感谢以下开源项目对 Neo Agent 的支持：
+
+- **[Cognee](https://github.com/topoteretes/cognee)** - 开源知识引擎，将原始数据转化为持久动态AI记忆
+- **[LangChain](https://github.com/langchain-ai/langchain)** - 构建LLM应用的强大框架
+- **[LangGraph](https://github.com/langchain-ai/langgraph)** - 状态图管理和多智能体协作
+- **[DeepAgents](https://github.com/deepagents/deepagents)** - 子智能体生成和持久化状态管理
+- **[SillyTavern](https://github.com/SillyTavern/SillyTavern)** - 提示词工程系统的设计参考
 
 ### 许可证
 

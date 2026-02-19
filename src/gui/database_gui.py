@@ -1,11 +1,12 @@
 """
 数据库管理GUI组件
 提供可视化界面管理数据库内容
+集成 Cognee 智能记忆和世界观构建功能
 """
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from src.core.database_manager import DatabaseManager
 from src.tools.tooltip_utils import create_treeview_tooltip
 
@@ -16,16 +17,21 @@ class DatabaseManagerGUI:
     提供数据库的可视化管理、编辑功能
     """
 
-    def __init__(self, parent_frame, db_manager: DatabaseManager):
+    def __init__(self, parent_frame, db_manager: DatabaseManager, 
+                 cognee_manager=None, worldview_builder=None):
         """
         初始化数据库管理GUI
 
         Args:
             parent_frame: 父容器
             db_manager: 数据库管理器实例
+            cognee_manager: Cognee 记忆管理器实例（可选）
+            worldview_builder: 世界观构建器实例（可选）
         """
         self.parent = parent_frame
         self.db = db_manager
+        self.cognee_manager = cognee_manager
+        self.worldview_builder = worldview_builder
 
         # 自动刷新相关
         self.auto_refresh_enabled = True
@@ -124,8 +130,11 @@ class DatabaseManagerGUI:
         # 标签页8：日程管理
         self.create_schedules_tab()
         
-        # 标签页8：日程管理
-        self.create_schedules_tab()
+        # 标签页9：Cognee 智能记忆（新增）
+        self.create_cognee_memory_tab()
+        
+        # 标签页10：世界观构建（新增）
+        self.create_worldview_tab()
 
     def create_base_knowledge_tab(self):
         """
@@ -1756,3 +1765,159 @@ class DatabaseManagerGUI:
             
         except Exception as e:
             messagebox.showerror("错误", f"删除失败:\n{str(e)}")
+
+    # ==================== Cognee 智能记忆标签页 ====================
+    
+    def create_cognee_memory_tab(self):
+        """
+        创建 Cognee 智能记忆管理标签页
+        """
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="🧠 Cognee记忆")
+        
+        # 检查 Cognee 是否可用
+        if self.cognee_manager is None:
+            # 显示未配置提示
+            info_frame = ttk.Frame(tab)
+            info_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            
+            ttk.Label(
+                info_frame,
+                text="🧠 Cognee 智能记忆系统",
+                font=("微软雅黑", 14, "bold")
+            ).pack(pady=20)
+            
+            info_text = """
+Cognee 是一个开源的知识引擎，将原始数据转化为
+智能体的持久动态记忆。它结合向量搜索和图数据库，
+使文档既可以按语义搜索，又能通过关系相互关联。
+
+功能特性：
+• 对话记忆：存储和检索对话历史
+• 知识图谱：自动构建实体关系图谱
+• 语义搜索：基于含义的智能检索
+• 模块化知识：支持自定义知识块
+
+要启用 Cognee 记忆系统，请：
+1. 安装 cognee: pip install cognee
+2. 在 .env 中配置 COGNEE_ENABLED=true
+3. 配置 LLM_API_KEY 或 SILICONFLOW_API_KEY
+
+官方文档: https://docs.cognee.ai/
+            """
+            
+            ttk.Label(
+                info_frame,
+                text=info_text,
+                font=("微软雅黑", 10),
+                justify=tk.LEFT
+            ).pack(pady=10)
+            
+            return
+        
+        # 如果 Cognee 可用，加载完整的 GUI
+        try:
+            from src.gui.cognee_gui import CogneeMemoryGUI
+            self.cognee_gui = CogneeMemoryGUI(tab, self.cognee_manager)
+        except ImportError as e:
+            ttk.Label(
+                tab,
+                text=f"加载 Cognee GUI 失败: {str(e)}",
+                font=("微软雅黑", 10),
+                foreground="red"
+            ).pack(pady=20)
+
+    # ==================== 世界观构建标签页 ====================
+    
+    def create_worldview_tab(self):
+        """
+        创建世界观构建标签页
+        """
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="🌍 世界观")
+        
+        # 检查世界观构建器是否可用
+        if self.worldview_builder is None:
+            # 显示未配置提示
+            info_frame = ttk.Frame(tab)
+            info_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            
+            ttk.Label(
+                info_frame,
+                text="🌍 世界观构建系统",
+                font=("微软雅黑", 14, "bold")
+            ).pack(pady=20)
+            
+            info_text = """
+世界观构建系统允许您创建和管理智能体的虚拟世界设定。
+
+功能特性：
+• 基于 Markdown 的世界观文件管理
+• 直接编辑源文本
+• 自然语言创建世界观
+• AI 辅助生成详细设定
+• 与 Cognee 记忆系统集成
+• 同步到知识库
+
+世界观文件位于: prompts/worldview/
+
+您可以直接编辑 Markdown 文件，或使用此界面管理。
+            """
+            
+            ttk.Label(
+                info_frame,
+                text=info_text,
+                font=("微软雅黑", 10),
+                justify=tk.LEFT
+            ).pack(pady=10)
+            
+            # 提供基础功能按钮
+            btn_frame = ttk.Frame(info_frame)
+            btn_frame.pack(pady=20)
+            
+            ttk.Button(
+                btn_frame,
+                text="📁 打开世界观目录",
+                command=self._open_worldview_directory,
+                width=20
+            ).pack(pady=5)
+            
+            return
+        
+        # 如果世界观构建器可用，加载完整的 GUI
+        try:
+            from src.gui.cognee_gui import WorldviewBuilderGUI
+            self.worldview_gui = WorldviewBuilderGUI(tab, self.worldview_builder)
+        except ImportError as e:
+            ttk.Label(
+                tab,
+                text=f"加载世界观 GUI 失败: {str(e)}",
+                font=("微软雅黑", 10),
+                foreground="red"
+            ).pack(pady=20)
+    
+    def _open_worldview_directory(self):
+        """打开世界观文件目录"""
+        import os
+        import subprocess
+        import platform
+        from pathlib import Path
+        
+        # 获取世界观目录路径
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent
+        worldview_dir = project_root / "prompts" / "worldview"
+        
+        if not worldview_dir.exists():
+            worldview_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 根据操作系统打开目录
+        try:
+            if platform.system() == "Windows":
+                os.startfile(str(worldview_dir))
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", str(worldview_dir)])
+            else:  # Linux
+                subprocess.run(["xdg-open", str(worldview_dir)])
+        except Exception as e:
+            messagebox.showerror("错误", f"无法打开目录: {str(e)}")
