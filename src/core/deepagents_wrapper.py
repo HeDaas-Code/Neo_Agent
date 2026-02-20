@@ -1,6 +1,7 @@
 """
 DeepAgents 集成模块
 使用 deepagents 库实现高级子智能体生成、长期记忆和文件系统功能
+增强版：集成技能系统，支持全能代理的技能配置和自主学习
 """
 
 import os
@@ -19,6 +20,12 @@ load_dotenv()
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
 
+# 技能路径常量（与 skill_registry.py 保持一致）
+SKILL_PATH_BUILTIN = "/skills/builtin/"
+SKILL_PATH_LEARNED = "/skills/learned/"
+SKILL_PATH_USER = "/skills/user/"
+ALL_SKILL_PATHS = [SKILL_PATH_BUILTIN, SKILL_PATH_LEARNED, SKILL_PATH_USER]
+
 
 class DeepSubAgentWrapper:
     """
@@ -28,6 +35,7 @@ class DeepSubAgentWrapper:
     2. 没有持久化状态管理 -> 使用MemorySaver和store
     3. 无法处理大型工具结果 -> 使用FilesystemMiddleware
     4. 缺乏任务规划能力 -> 使用内置的todo list功能
+    5. 缺乏技能系统 -> 使用deepagents skills参数注入技能文件
     """
 
     def __init__(
@@ -40,6 +48,8 @@ class DeepSubAgentWrapper:
         memory_paths: List[str] = None,
         enable_filesystem: bool = True,
         enable_memory: bool = True,
+        skill_names: Optional[List[str]] = None,
+        skill_paths: Optional[List[str]] = None,
         **kwargs  # 接受额外参数以保持向后兼容
     ):
         """
@@ -54,12 +64,16 @@ class DeepSubAgentWrapper:
             memory_paths: 记忆文件路径列表
             enable_filesystem: 是否启用文件系统功能
             enable_memory: 是否启用长期记忆功能
+            skill_names: 要加载的技能名称列表（None表示加载所有技能）
+            skill_paths: deepagents skills路径列表（如["/skills/builtin/", "/skills/learned/"]）
             **kwargs: 其他参数（用于向后兼容，会被忽略）
         """
         self.agent_id = agent_id
         self.role = role
         self.description = description
         self.tools = tools or []
+        self.skill_names = skill_names
+        self.skill_paths = skill_paths or ALL_SKILL_PATHS
         
         # 构建系统提示词
         if system_prompt is None:
@@ -71,7 +85,8 @@ class DeepSubAgentWrapper:
 你可以：
 1. 使用write_todos管理待办事项，规划任务步骤
 2. 使用文件系统工具（ls, read_file, write_file等）处理大型结果
-3. 保持状态跨会话持久化
+3. 读取/skills/目录下的技能文件，获取可用技能指导
+4. 保持状态跨会话持久化
 """
         
         self.system_prompt = system_prompt
@@ -94,6 +109,12 @@ class DeepSubAgentWrapper:
             except Exception as e:
                 debug_logger.log_error('DeepSubAgentWrapper', f'启用长期记忆失败: {str(e)}', e)
         
+        # 技能文件缓存（延迟加载）
+        # 注意：调用 learn_skill() 会使此缓存失效。
+        # 外部对 SkillRegistry 的直接修改不会自动刷新缓存；
+        # 如需生效请创建新的 DeepSubAgentWrapper 实例。
+        self._skill_files: Optional[Dict[str, str]] = None
+        
         # 创建LLM（使用工具模型）
         try:
             llm_wrapper = LangChainLLM(ModelType.TOOL)
@@ -112,7 +133,7 @@ class DeepSubAgentWrapper:
                 temperature=0.7
             )
         
-        # 创建深度智能体
+        # 创建深度智能体（传入skills路径，deepagents会自动加载虚拟文件系统中的技能文件）
         try:
             self.agent = create_deep_agent(
                 model=model,
@@ -121,6 +142,7 @@ class DeepSubAgentWrapper:
                 middleware=middleware,
                 checkpointer=self.checkpointer,  # 启用状态持久化
                 backend=StateBackend,  # 使用状态后端（内存中的文件系统）
+                skills=self.skill_paths,  # 技能路径，在invoke时通过files传入技能内容
                 name=agent_id
             )
             
@@ -129,7 +151,8 @@ class DeepSubAgentWrapper:
                 'has_checkpointer': True,
                 'has_filesystem': enable_filesystem,
                 'has_memory': enable_memory and bool(self.memory_paths),
-                'tools_count': len(self.tools)
+                'tools_count': len(self.tools),
+                'skill_paths': self.skill_paths
             })
             
         except Exception as e:
@@ -144,7 +167,7 @@ class DeepSubAgentWrapper:
         files: Optional[Dict[str, str]] = None
     ) -> str:
         """
-        执行任务（带状态持久化和文件系统支持）
+        执行任务（带状态持久化、文件系统支持和技能注入）
 
         Args:
             task_description: 任务描述
@@ -174,6 +197,11 @@ class DeepSubAgentWrapper:
                 }
             }
             
+            # 合并技能文件和用户文件
+            merged_files = self._get_skill_files()
+            if files:
+                merged_files.update(files)
+            
             # 准备输入
             input_data = {
                 "messages": [
@@ -187,16 +215,17 @@ class DeepSubAgentWrapper:
 请完成这个任务。你可以使用以下工具：
 1. write_todos - 规划任务步骤，管理待办事项
 2. 文件系统工具（ls, read_file, write_file等）- 处理大型数据
-3. 其他可用工具
+3. 读取/skills/目录下的技能文件（如read_file /skills/builtin/task_decomposition.md）
+4. 其他可用工具
 
 开始执行吧！"""
                     }
                 ]
             }
             
-            # 如果有文件，添加到输入
-            if files:
-                input_data["files"] = files
+            # 注入文件（含技能文件）
+            if merged_files:
+                input_data["files"] = merged_files
             
             # 调用智能体
             result = self.agent.invoke(input_data, config=config)
@@ -222,6 +251,67 @@ class DeepSubAgentWrapper:
             debug_logger.log_error('DeepSubAgentWrapper', f'智能体[{self.role}]执行失败: {str(e)}', e)
             return f"【执行失败】{str(e)}"
     
+    def _get_skill_files(self) -> Dict[str, str]:
+        """
+        获取要注入的技能文件（延迟加载，避免循环导入）
+
+        Returns:
+            {虚拟路径: 内容} 的字典
+        """
+        if self._skill_files is not None:
+            return self._skill_files
+
+        try:
+            from src.core.skill_registry import get_skill_registry
+            registry = get_skill_registry()
+            self._skill_files = registry.get_skills_for_agent(skill_names=self.skill_names)
+            debug_logger.log_info('DeepSubAgentWrapper', f'已加载技能文件', {
+                'count': len(self._skill_files),
+                'agent': self.agent_id
+            })
+        except Exception as e:
+            debug_logger.log_error('DeepSubAgentWrapper', f'加载技能文件失败: {str(e)}', e)
+            self._skill_files = {}
+
+        return self._skill_files
+
+    def learn_skill(
+        self,
+        skill_name: str,
+        skill_content: str,
+        description: str = "",
+        source_task: str = ""
+    ) -> bool:
+        """
+        自主学习：将任务经验保存为新技能
+
+        Args:
+            skill_name: 技能名称（小写下划线格式）
+            skill_content: 技能内容描述
+            description: 简短描述
+            source_task: 来源任务描述
+
+        Returns:
+            是否成功保存
+        """
+        try:
+            from src.core.skill_registry import get_skill_registry
+            registry = get_skill_registry()
+            success = registry.learn_skill(
+                name=skill_name,
+                content=skill_content,
+                description=description,
+                source_task=source_task
+            )
+            if success:
+                # 使缓存失效，下次执行时重新加载
+                self._skill_files = None
+                debug_logger.log_info('DeepSubAgentWrapper', f'智能体[{self.role}]学习了新技能: {skill_name}')
+            return success
+        except Exception as e:
+            debug_logger.log_error('DeepSubAgentWrapper', f'学习技能失败: {str(e)}', e)
+            return False
+
     def _format_context(self, context: Dict[str, Any]) -> str:
         """
         格式化上下文信息

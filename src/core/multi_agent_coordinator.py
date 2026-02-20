@@ -172,7 +172,8 @@ def create_sub_agent(
     agent_id: str,
     role: str,
     description: str,
-    use_deep_agents: bool = USE_DEEP_AGENTS
+    use_deep_agents: bool = USE_DEEP_AGENTS,
+    skill_names: list = None
 ) -> 'SubAgent':
     """
     工厂函数：创建子智能体
@@ -183,6 +184,7 @@ def create_sub_agent(
         role: 角色名称
         description: 角色描述
         use_deep_agents: 是否使用deepagents（默认从环境变量读取）
+        skill_names: 要加载的技能名称列表（None表示加载所有内置+已学习技能）
 
     Returns:
         SubAgent或DeepSubAgentWrapper实例
@@ -193,7 +195,8 @@ def create_sub_agent(
             return DeepSubAgentWrapper(
                 agent_id=agent_id,
                 role=role,
-                description=description
+                description=description,
+                skill_names=skill_names
             )
         except Exception as e:
             debug_logger.log_error('SubAgentFactory', 

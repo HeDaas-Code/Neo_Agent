@@ -1,7 +1,7 @@
 """
 动态多智能体协作图模块
 基于LangGraph实现自主编排的多智能体协作系统
-增强版：集成DeepAgents长期记忆和跨会话状态管理
+增强版：集成DeepAgents长期记忆、跨会话状态管理和技能系统
 """
 
 import os
@@ -20,6 +20,8 @@ debug_logger = get_debug_logger()
 
 # 是否启用长期记忆和跨会话状态管理
 ENABLE_PERSISTENT_STATE = os.getenv('ENABLE_PERSISTENT_STATE', 'true').lower() == 'true'
+# 是否在任务完成后触发全能代理自主学习
+ENABLE_GRAPH_LEARNING = os.getenv('ENABLE_AUTO_LEARNING', 'true').lower() == 'true'
 
 
 class AgentState(TypedDict):
@@ -464,7 +466,7 @@ class DynamicMultiAgentGraph:
     
     def _execute_agent(self, agent_state: AgentState, state: MultiAgentState) -> Dict[str, Any]:
         """
-        执行单个智能体任务
+        执行单个智能体任务（技能感知版本）
         
         Args:
             agent_state: 智能体状态
@@ -475,10 +477,18 @@ class DynamicMultiAgentGraph:
         """
         from src.core.multi_agent_coordinator import create_sub_agent
         
+        # 根据角色获取推荐的技能名称
+        try:
+            from src.core.omni_agent import _get_skills_for_role
+            skill_names = _get_skills_for_role(agent_state['role'])
+        except Exception:
+            skill_names = None
+        
         agent = create_sub_agent(
             agent_id=agent_state['agent_id'],
             role=agent_state['role'],
-            description=agent_state['description']
+            description=agent_state['description'],
+            skill_names=skill_names
         )
         
         # 构建上下文，包含依赖的智能体结果
@@ -693,13 +703,23 @@ class DynamicMultiAgentGraph:
                     'requires_delivery_confirmation': True  # 需要确认结果已交付
                 }
             
-            return {
+            # 任务成功完成后，触发自主学习
+            final_result_text = final_state.get('final_result', '')
+            learned_skills = self._post_task_learning(
+                task_event=task_event,
+                final_result=final_result_text
+            )
+            
+            result_dict = {
                 'success': True,
-                'result': final_state.get('final_result', '任务完成'),
+                'result': final_result_text,
                 'orchestration_plan': orchestration_plan,
                 'agent_results': final_state.get('agent_results', {}),
                 'collaboration_logs': final_state.get('collaboration_logs', [])
             }
+            if learned_skills:
+                result_dict['learned_skills'] = learned_skills
+            return result_dict
             
         except Exception as e:
             debug_logger.log_error('DynamicMultiAgentGraph', f'任务处理失败: {str(e)}', e)
@@ -710,3 +730,82 @@ class DynamicMultiAgentGraph:
                 'agent_results': initial_state.get('agent_results', {}),
                 'collaboration_logs': initial_state.get('collaboration_logs', [])
             }
+
+    def _post_task_learning(
+        self,
+        task_event: TaskEvent,
+        final_result: str
+    ) -> List[str]:
+        """
+        任务完成后触发自主学习（在后台异步执行，不阻塞主流程）
+
+        Args:
+            task_event: 已完成的任务事件
+            final_result: 最终结果
+
+        Returns:
+            新学习到的技能名称列表（可能为空）
+        """
+        if not ENABLE_GRAPH_LEARNING:
+            return []
+
+        try:
+            from src.core.skill_registry import get_skill_registry
+            from src.core.langchain_llm import LangChainLLM, ModelType
+            from src.core.omni_agent import LEARNING_MIN_OUTPUT_LEN, _LEARNING_RESULT_PREVIEW_LEN
+            import re as _re
+            import json as _json
+
+            # 仅对有足够内容的任务进行学习
+            if len(final_result) < LEARNING_MIN_OUTPUT_LEN:
+                return []
+
+            llm = LangChainLLM(ModelType.TOOL)
+            registry = get_skill_registry()
+
+            prompt = (
+                f"你是一个技能提炼专家。分析以下任务和结果，判断是否有值得保存的可复用方法。\n\n"
+                f"任务标题：{task_event.title}\n"
+                f"任务描述：{task_event.description[:_LEARNING_RESULT_PREVIEW_LEN]}\n"
+                f"结果摘要：{final_result[:_LEARNING_RESULT_PREVIEW_LEN]}\n\n"
+                "如果有值得保存的技能，用JSON格式输出（否则返回[]）：\n"
+                '[{"name":"skill_name","description":"一句话描述","content":"## 技能名\\n\\n## 步骤\\n1. ..."}]\n\n'
+                "只输出JSON，不要其他内容。"
+            )
+
+            messages = [
+                {"role": "system", "content": "你是技能提炼专家，只输出JSON。"},
+                {"role": "user", "content": prompt}
+            ]
+
+            response = llm.chat(messages).strip()
+            if response.startswith('```'):
+                lines = response.split('\n')
+                response = '\n'.join(lines[1:-1])
+
+            skills_data = _json.loads(response)
+            if not isinstance(skills_data, list):
+                return []
+
+            learned = []
+            for skill_info in skills_data:
+                name = skill_info.get("name", "").strip()
+                if not name or not _re.match(r'^[a-z][a-z0-9_]*$', name):
+                    continue
+                content = skill_info.get("content", "")
+                desc = skill_info.get("description", "")
+                if content and registry.learn_skill(
+                    name=name,
+                    content=content,
+                    description=desc,
+                    source_task=task_event.title
+                ):
+                    learned.append(name)
+                    debug_logger.log_info('DynamicMultiAgentGraph', f'任务后学习技能: {name}')
+
+            return learned
+
+        except Exception as e:
+            # 学习失败不影响主流程
+            debug_logger.log_error('DynamicMultiAgentGraph', f'任务后自主学习失败（非致命）: {str(e)}', e)
+            return []

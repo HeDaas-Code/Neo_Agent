@@ -245,11 +245,12 @@ class TestFactoryFunction(unittest.TestCase):
             use_deep_agents=True
         )
         
-        # 验证
+        # 验证（包含新增的 skill_names 参数，默认为None）
         mock_wrapper.assert_called_once_with(
             agent_id='test',
             role='测试',
-            description='测试描述'
+            description='测试描述',
+            skill_names=None
         )
         self.assertEqual(agent, mock_instance)
 
