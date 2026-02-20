@@ -5,9 +5,7 @@ Cognee 智能记忆系统和世界观构建系统测试
 import os
 import sys
 import unittest
-import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,8 +16,19 @@ class TestCogneeMemoryManager(unittest.TestCase):
     
     def setUp(self):
         """测试前设置"""
+        # 记录原始环境变量值，避免污染其他测试
+        self._old_cognee_enabled = os.environ.get('COGNEE_ENABLED')
         # 禁用 Cognee 以避免依赖问题
         os.environ['COGNEE_ENABLED'] = 'false'
+    
+    def tearDown(self):
+        """测试后恢复环境变量"""
+        if self._old_cognee_enabled is None:
+            # 原来未设置，则删除
+            os.environ.pop('COGNEE_ENABLED', None)
+        else:
+            # 恢复原始值
+            os.environ['COGNEE_ENABLED'] = self._old_cognee_enabled
     
     def test_import_cognee_memory(self):
         """测试导入 Cognee 记忆模块"""

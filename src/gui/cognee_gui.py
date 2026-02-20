@@ -8,16 +8,13 @@ Cognee 智能记忆系统 GUI
 3. 知识图谱可视化 - 展示记忆关联
 """
 
-import os
 import asyncio
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
+from tkinter import ttk, scrolledtext, messagebox, simpledialog
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-from pathlib import Path
+from typing import Dict, Any, List
 
 from src.tools.debug_logger import get_debug_logger
-from src.tools.tooltip_utils import ToolTip, create_treeview_tooltip
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
@@ -953,6 +950,7 @@ class WorldviewBuilderGUI:
             messagebox.showwarning("警告", "Cognee 管理器未配置")
             return
         
+        loop = None
         try:
             # 运行异步方法
             loop = asyncio.new_event_loop()
@@ -968,6 +966,10 @@ class WorldviewBuilderGUI:
                 
         except Exception as e:
             messagebox.showerror("错误", f"同步时出错: {str(e)}")
+        finally:
+            # 确保事件循环在使用后被关闭，避免资源泄漏
+            if loop is not None and not loop.is_closed():
+                loop.close()
     
     def _sync_to_knowledge_base(self):
         """同步到知识库"""

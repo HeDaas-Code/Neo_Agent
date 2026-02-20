@@ -156,9 +156,9 @@ class LongTermMemoryManager:
             role: 角色类型
             content: 消息内容
         """
+        loop: Optional[asyncio.AbstractEventLoop] = None
         try:
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             
             # 格式化为对话记忆
             role_name = "用户" if role == "user" else "助手"
@@ -169,16 +169,24 @@ class LongTermMemoryManager:
             )
         except Exception as e:
             print(f"⚠ 同步到 Cognee 失败: {e}")
+        finally:
+            # 确保事件循环被正确关闭，避免资源泄漏
+            if loop is not None and not loop.is_closed():
+                loop.close()
 
     def _run_cognee_cognify(self):
         """运行 Cognee 知识图谱构建"""
+        loop: Optional[asyncio.AbstractEventLoop] = None
         try:
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             loop.run_until_complete(self.cognee_manager.cognify())
             print("✓ Cognee 知识图谱已更新")
         except Exception as e:
             print(f"⚠ Cognee 知识图谱构建失败: {e}")
+        finally:
+            # 确保事件循环被正确关闭，避免资源泄漏
+            if loop is not None and not loop.is_closed():
+                loop.close()
 
     def _check_and_archive(self):
         """
@@ -481,12 +489,16 @@ class LongTermMemoryManager:
         
         # 清空 Cognee 记忆
         if self.cognee_manager:
+            loop: Optional[asyncio.AbstractEventLoop] = None
             try:
                 loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
                 loop.run_until_complete(self.cognee_manager.clear_all_memory())
             except Exception as e:
                 print(f"⚠ 清空 Cognee 记忆失败: {e}")
+            finally:
+                # 确保事件循环被正确关闭，避免资源泄漏
+                if loop is not None and not loop.is_closed():
+                    loop.close()
         
         print("✓ 所有记忆已清空")
 
@@ -504,15 +516,19 @@ class LongTermMemoryManager:
         if not self.cognee_manager:
             return []
         
+        loop: Optional[asyncio.AbstractEventLoop] = None
         try:
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             return loop.run_until_complete(
                 self.cognee_manager.search(query, memory_type=memory_type)
             )
         except Exception as e:
             print(f"⚠ 搜索 Cognee 记忆失败: {e}")
             return []
+        finally:
+            # 确保事件循环被正确关闭，避免资源泄漏
+            if loop is not None and not loop.is_closed():
+                loop.close()
 
     def get_context_for_chat(self, recent_count: int = 10) -> str:
         """

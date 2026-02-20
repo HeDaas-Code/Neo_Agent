@@ -11,14 +11,13 @@
 
 import os
 import re
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
 from src.tools.debug_logger import get_debug_logger
-from src.core.prompt_manager import PromptManager, get_prompt_manager
+from src.core.prompt_manager import get_prompt_manager
 from src.core.database_manager import DatabaseManager
 
 load_dotenv()
@@ -246,9 +245,9 @@ class WorldviewBuilder:
         """
         modules = []
         
-        # 解析一级和二级标题作为模块分隔
+        # 解析二级和三级标题作为模块分隔
         # 匹配 ## 标题 或 ### 标题
-        sections = re.split(r'\n(?=##\s+)', content)
+        sections = re.split(r'\n(?=#{2,3}\s+)', content)
         
         current_category = "general"
         
@@ -256,8 +255,8 @@ class WorldviewBuilder:
             if not section.strip():
                 continue
             
-            # 提取标题
-            title_match = re.match(r'^##\s+(.+?)(?:\n|$)', section)
+            # 提取标题（支持 ## 和 ###）
+            title_match = re.match(r'^#{2,3}\s+(.+?)(?:\n|$)', section)
             if title_match:
                 title = title_match.group(1).strip()
                 section_content = section[title_match.end():].strip()
@@ -300,11 +299,12 @@ class WorldviewBuilder:
         """
         title_lower = title.lower()
         
+        # 关键字全部小写，确保匹配一致性
         category_keywords = {
             "general": ["基本", "简介", "概述", "世界", "背景"],
             "rules": ["规则", "法则", "限制", "物理", "魔法"],
             "locations": ["地点", "场所", "位置", "环境", "地理"],
-            "characters": ["角色", "人物", "NPC", "种族"],
+            "characters": ["角色", "人物", "npc", "种族"],
             "events": ["事件", "历史", "时间", "故事"],
             "items": ["物品", "道具", "装备", "物体"],
             "culture": ["文化", "习俗", "社会", "传统"],

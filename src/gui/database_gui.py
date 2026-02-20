@@ -6,7 +6,7 @@
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from src.core.database_manager import DatabaseManager
 from src.tools.tooltip_utils import create_treeview_tooltip
 

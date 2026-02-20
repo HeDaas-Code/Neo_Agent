@@ -21,7 +21,8 @@ debug_logger = get_debug_logger()
 
 # Cognee 配置
 COGNEE_ENABLED = os.getenv('COGNEE_ENABLED', 'true').lower() == 'true'
-COGNEE_LLM_API_KEY = os.getenv('LLM_API_KEY') or os.getenv('SILICONFLOW_API_KEY')
+# 优先使用 SILICONFLOW_API_KEY，然后是 LLM_API_KEY
+COGNEE_LLM_API_KEY = os.getenv('SILICONFLOW_API_KEY') or os.getenv('LLM_API_KEY')
 
 
 class CogneeMemoryManager:
@@ -314,7 +315,8 @@ class CogneeMemoryManager:
                 formatted_results.append({
                     "index": i + 1,
                     "content": str(result),
-                    "relevance": 1.0 - (i * 0.1)  # 简单的相关性递减
+                    # 相关度从 1.0 递减，每步 0.1，并在 0.0 处做下限裁剪，避免出现负数
+                    "relevance": max(0.0, 1.0 - (i * 0.1))
                 })
             
             debug_logger.log_info('CogneeMemoryManager', f'搜索完成: {query}', {
