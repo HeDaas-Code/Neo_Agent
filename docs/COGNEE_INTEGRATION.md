@@ -33,16 +33,31 @@ pip install cognee>=0.5.0
 
 ### 2. 配置环境变量
 
+Neo Agent 会自动使用 SiliconFlow API 作为 Cognee 的 LLM 提供者（OpenAI 兼容端点）。
+
 在 `.env` 文件中添加以下配置：
 
 ```env
 # 是否启用 Cognee 记忆系统（默认True）
 COGNEE_ENABLED=true
 
-# LLM API 密钥（Cognee 使用 LLM 进行知识提取）
-# 默认使用 SILICONFLOW_API_KEY
-LLM_API_KEY=your-api-key
+# SiliconFlow API 配置（Cognee 会自动使用这些配置）
+SILICONFLOW_API_KEY=your-api-key
+SILICONFLOW_API_URL=https://api.siliconflow.cn/v1/chat/completions
+
+# 可选：指定 Cognee 使用的模型
+# COGNEE_LLM_MODEL=Qwen/Qwen2.5-7B-Instruct
+# COGNEE_EMBEDDING_MODEL=BAAI/bge-large-zh-v1.5
 ```
+
+### 3. 自定义 LLM 提供者
+
+Cognee 配置为使用 SiliconFlow 作为自定义 LLM 提供者：
+- **LLM_PROVIDER**: `custom`（使用 OpenAI 兼容端点）
+- **LLM_ENDPOINT**: SiliconFlow API URL
+- **LLM_MODEL**: `openai/{model_name}` 格式
+
+这样配置后，Cognee 会使用 SiliconFlow 而不是默认的 OpenAI API。
 
 ## 使用方式
 
