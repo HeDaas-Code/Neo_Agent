@@ -26,10 +26,12 @@ COGNEE_ENABLED = os.getenv('COGNEE_ENABLED', 'true').lower() == 'true'
 COGNEE_LLM_API_KEY = os.getenv('SILICONFLOW_API_KEY') or os.getenv('LLM_API_KEY')
 # SiliconFlow API URL (OpenAI兼容格式)
 SILICONFLOW_API_URL = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-# 从URL中提取基础端点
+# 从URL中提取基础端点 - LiteLLM需要不带 /chat/completions 的URL
 SILICONFLOW_BASE_URL = SILICONFLOW_API_URL.replace('/chat/completions', '') if SILICONFLOW_API_URL else 'https://api.siliconflow.cn/v1'
 # Cognee 使用的模型（使用工具模型或主模型）
 COGNEE_LLM_MODEL = os.getenv('COGNEE_LLM_MODEL') or os.getenv('TOOL_MODEL_NAME') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+# Cognee 使用的 Embedding 模型
+COGNEE_EMBEDDING_MODEL = os.getenv('COGNEE_EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
 
 
 def _format_exception(e: Exception) -> str:
@@ -90,24 +92,30 @@ class CogneeMemoryManager:
         try:
             import cognee
             
+            # 验证 API 密钥
+            if not self.api_key:
+                debug_logger.log_warning('CogneeMemoryManager', 
+                    'API 密钥未设置，Cognee 功能可能受限。请设置 SILICONFLOW_API_KEY 或 LLM_API_KEY')
+            
             # 配置 Cognee 使用 SiliconFlow（OpenAI兼容的自定义端点）
             # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
             
             # 设置环境变量让 Cognee 使用自定义 LLM 提供者
+            # LiteLLM 使用 openai/ 前缀来路由到 OpenAI 兼容的端点
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            # 使用 openai/ 前缀表示 OpenAI 兼容的 API
+            # openai/ 前缀告诉 LiteLLM 使用 OpenAI 兼容的 API 格式
             os.environ['LLM_MODEL'] = f'openai/{COGNEE_LLM_MODEL}'
             
-            # 同时配置 Embedding 提供者（避免默认使用 OpenAI）
-            # SiliconFlow 也支持 Embedding API
+            # 配置 Embedding 提供者（SiliconFlow 也支持 Embedding API）
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
-            # 使用 SiliconFlow 支持的 Embedding 模型
-            embedding_model = os.getenv('COGNEE_EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
-            os.environ['EMBEDDING_MODEL'] = f'openai/{embedding_model}'
+            os.environ['EMBEDDING_MODEL'] = f'openai/{COGNEE_EMBEDDING_MODEL}'
+            
+            # 设置较长的超时时间以适应网络延迟
+            os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '60')
             
             # 使用 cognee.config 进行配置（更可靠的方式）
             try:
@@ -119,11 +127,12 @@ class CogneeMemoryManager:
                 debug_logger.log_info('CogneeMemoryManager', 'Cognee LLM 配置完成', {
                     'provider': 'custom',
                     'endpoint': SILICONFLOW_BASE_URL,
-                    'model': COGNEE_LLM_MODEL
+                    'model': COGNEE_LLM_MODEL,
+                    'embedding_model': COGNEE_EMBEDDING_MODEL
                 })
             except Exception as config_error:
                 debug_logger.log_info('CogneeMemoryManager', 
-                    f'使用环境变量配置（cognee.config 不可用）: {str(config_error)}')
+                    f'使用环境变量配置（cognee.config 方法不可用）: {str(config_error)}')
             
             self._cognee = cognee
             self._initialized = True
@@ -138,7 +147,7 @@ class CogneeMemoryManager:
             self._initialized = False
         except Exception as e:
             debug_logger.log_error('CogneeMemoryManager', 
-                f'Cognee 初始化失败: {str(e)}', e)
+                f'Cognee 初始化失败: {_format_exception(e)}', e)
             self.enabled = False
             self._initialized = False
     
