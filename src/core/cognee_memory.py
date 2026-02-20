@@ -99,40 +99,51 @@ class CogneeMemoryManager:
             
             # 配置 Cognee 使用 SiliconFlow（OpenAI兼容的自定义端点）
             # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
+            # 参考: https://docs.litellm.ai/docs/providers
             
-            # 设置环境变量让 Cognee 使用自定义 LLM 提供者
-            # LiteLLM 使用 openai/ 前缀来路由到 OpenAI 兼容的端点
+            # 对于 SiliconFlow 这样的 OpenAI 兼容 API，使用 custom_openai 提供者
+            # LiteLLM 格式: openai/<model_name> 配合 api_base 参数
+            
+            # 设置环境变量让 Cognee/LiteLLM 使用自定义端点
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            # openai/ 前缀告诉 LiteLLM 使用 OpenAI 兼容的 API 格式
+            # LiteLLM 使用 openai/<model> 格式来路由到 OpenAI 兼容 API
             os.environ['LLM_MODEL'] = f'openai/{COGNEE_LLM_MODEL}'
             
-            # 配置 Embedding 提供者（SiliconFlow 也支持 Embedding API）
+            # Embedding 配置 - 使用 SiliconFlow 的 embedding API
+            # 或者禁用 embedding（使用 fastembed 本地模型）
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
             os.environ['EMBEDDING_MODEL'] = f'openai/{COGNEE_EMBEDDING_MODEL}'
             
             # 设置较长的超时时间以适应网络延迟
-            os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '60')
+            os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
             
-            # 使用 cognee.config 进行配置（更可靠的方式）
+            # 禁用多用户访问控制（简化配置）
+            os.environ['ENABLE_BACKEND_ACCESS_CONTROL'] = 'false'
+            
+            # 使用 cognee.config.set_llm_config 进行完整配置
             try:
-                cognee.config.set_llm_provider('custom')
-                cognee.config.set_llm_api_key(self.api_key or '')
-                cognee.config.set_llm_endpoint(SILICONFLOW_BASE_URL)
-                cognee.config.set_llm_model(f'openai/{COGNEE_LLM_MODEL}')
+                # 使用 set_llm_config 一次性配置所有参数
+                cognee.config.set_llm_config({
+                    'llm_provider': 'custom',
+                    'llm_api_key': self.api_key or '',
+                    'llm_endpoint': SILICONFLOW_BASE_URL,
+                    'llm_model': f'openai/{COGNEE_LLM_MODEL}',
+                    'llm_temperature': 0.0,
+                })
                 
                 debug_logger.log_info('CogneeMemoryManager', 'Cognee LLM 配置完成', {
                     'provider': 'custom',
                     'endpoint': SILICONFLOW_BASE_URL,
-                    'model': COGNEE_LLM_MODEL,
-                    'embedding_model': COGNEE_EMBEDDING_MODEL
+                    'model': f'openai/{COGNEE_LLM_MODEL}',
+                    'embedding_model': f'openai/{COGNEE_EMBEDDING_MODEL}'
                 })
             except Exception as config_error:
                 debug_logger.log_info('CogneeMemoryManager', 
-                    f'使用环境变量配置（cognee.config 方法不可用）: {str(config_error)}')
+                    f'使用环境变量配置: {str(config_error)}')
             
             self._cognee = cognee
             self._initialized = True
