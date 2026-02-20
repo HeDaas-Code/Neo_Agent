@@ -8,6 +8,7 @@ Cognee: https://docs.cognee.ai/
 
 import os
 import asyncio
+import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -29,6 +30,21 @@ SILICONFLOW_API_URL = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.
 SILICONFLOW_BASE_URL = SILICONFLOW_API_URL.replace('/chat/completions', '') if SILICONFLOW_API_URL else 'https://api.siliconflow.cn/v1'
 # Cognee 使用的模型（使用工具模型或主模型）
 COGNEE_LLM_MODEL = os.getenv('COGNEE_LLM_MODEL') or os.getenv('TOOL_MODEL_NAME') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+
+
+def _format_exception(e: Exception) -> str:
+    """格式化异常信息，确保即使 str(e) 为空也能获取有用信息"""
+    error_type = type(e).__name__
+    error_msg = str(e)
+    if not error_msg:
+        # 尝试获取更多信息
+        if hasattr(e, 'message'):
+            error_msg = e.message
+        elif hasattr(e, 'args') and e.args:
+            error_msg = str(e.args[0]) if e.args[0] else repr(e.args)
+        else:
+            error_msg = repr(e)
+    return f"[{error_type}] {error_msg}"
 
 
 class CogneeMemoryManager:
@@ -164,7 +180,8 @@ class CogneeMemoryManager:
             return True
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'添加记忆失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', 
+                f'添加记忆失败: {_format_exception(e)}', e)
             return False
     
     async def add_conversation(
@@ -201,7 +218,8 @@ class CogneeMemoryManager:
             return await self.add_memory(conversation_text, "conversation", metadata)
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'添加对话失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', 
+                f'添加对话失败: {_format_exception(e)}', e)
             return False
     
     async def add_knowledge(
@@ -238,7 +256,7 @@ class CogneeMemoryManager:
             return await self.add_memory(content, "knowledge", metadata)
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'添加知识失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'添加知识失败: {_format_exception(e)}', e)
             return False
     
     async def add_worldview(
@@ -268,7 +286,7 @@ class CogneeMemoryManager:
             return await self.add_memory(worldview_content, "worldview", metadata)
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'添加世界观失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'添加世界观失败: {_format_exception(e)}', e)
             return False
     
     async def cognify(self) -> bool:
@@ -291,7 +309,7 @@ class CogneeMemoryManager:
             return True
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'构建知识图谱失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'构建知识图谱失败: {_format_exception(e)}', e)
             return False
     
     async def memify(self) -> bool:
@@ -313,7 +331,7 @@ class CogneeMemoryManager:
             return True
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'应用记忆算法失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'应用记忆算法失败: {_format_exception(e)}', e)
             return False
     
     async def search(
@@ -363,7 +381,7 @@ class CogneeMemoryManager:
             return formatted_results
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'搜索失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'搜索失败: {_format_exception(e)}', e)
             return []
     
     async def search_conversations(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
@@ -402,7 +420,7 @@ class CogneeMemoryManager:
             
         except Exception as e:
             debug_logger.log_error('CogneeMemoryManager', 
-                f'获取相关知识失败: {str(e)}', e)
+                f'获取相关知识失败: {_format_exception(e)}', e)
             return []
     
     async def process_and_store(
@@ -438,7 +456,7 @@ class CogneeMemoryManager:
             
         except Exception as e:
             debug_logger.log_error('CogneeMemoryManager', 
-                f'一站式处理失败: {str(e)}', e)
+                f'一站式处理失败: {_format_exception(e)}', e)
             return False
     
     async def clear_all_memory(self) -> bool:
@@ -462,7 +480,7 @@ class CogneeMemoryManager:
             return True
             
         except Exception as e:
-            debug_logger.log_error('CogneeMemoryManager', f'清空记忆失败: {str(e)}', e)
+            debug_logger.log_error('CogneeMemoryManager', f'清空记忆失败: {_format_exception(e)}', e)
             return False
     
     def get_statistics(self) -> Dict[str, Any]:
