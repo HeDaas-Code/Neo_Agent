@@ -104,15 +104,16 @@ class CogneeMemoryManager:
             # 参考: https://docs.litellm.ai/docs/providers
             
             # 设置环境变量作为后备配置
+            # SiliconFlow 模型格式: Qwen/Qwen2.5-7B-Instruct (不需要 openai/ 前缀)
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['LLM_MODEL'] = f'openai/{COGNEE_LLM_MODEL}'
+            os.environ['LLM_MODEL'] = COGNEE_LLM_MODEL  # 直接使用模型名，如 Qwen/Qwen2.5-7B-Instruct
             
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['EMBEDDING_MODEL'] = f'openai/{COGNEE_EMBEDDING_MODEL}'
+            os.environ['EMBEDDING_MODEL'] = COGNEE_EMBEDDING_MODEL  # 直接使用模型名
             
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
@@ -122,12 +123,14 @@ class CogneeMemoryManager:
             
             # 使用 Cognee 的 Config 类进行配置
             # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
+            # SiliconFlow 是 OpenAI 兼容 API，模型名格式为 Qwen/Qwen2.5-7B-Instruct
             try:
                 # 配置 LLM - 使用 LLMConfig 类
+                # 对于 OpenAI 兼容的自定义端点，不需要 openai/ 前缀
                 llm_config = LLMConfig(
                     llm_api_key=self.api_key or '',
                     llm_provider='custom',
-                    llm_model=f'openai/{COGNEE_LLM_MODEL}',
+                    llm_model=COGNEE_LLM_MODEL,  # 直接使用模型名，如 Qwen/Qwen2.5-7B-Instruct
                     llm_endpoint=SILICONFLOW_BASE_URL,
                     llm_temperature=0.0,
                 )
@@ -137,7 +140,7 @@ class CogneeMemoryManager:
                 embedding_config = EmbeddingConfig(
                     embedding_api_key=self.api_key or '',
                     embedding_provider='custom',
-                    embedding_model=f'openai/{COGNEE_EMBEDDING_MODEL}',
+                    embedding_model=COGNEE_EMBEDDING_MODEL,  # 直接使用模型名，如 BAAI/bge-large-zh-v1.5
                     embedding_endpoint=SILICONFLOW_BASE_URL,
                     embedding_dimensions=1024,  # BAAI/bge-large-zh-v1.5 的维度
                 )
@@ -146,9 +149,9 @@ class CogneeMemoryManager:
                 debug_logger.log_info('CogneeMemoryManager', 'Cognee 配置完成', {
                     'llm_provider': 'custom',
                     'llm_endpoint': SILICONFLOW_BASE_URL,
-                    'llm_model': f'openai/{COGNEE_LLM_MODEL}',
+                    'llm_model': COGNEE_LLM_MODEL,
                     'embedding_provider': 'custom',
-                    'embedding_model': f'openai/{COGNEE_EMBEDDING_MODEL}'
+                    'embedding_model': COGNEE_EMBEDDING_MODEL
                 })
             except ImportError as ie:
                 # 如果无法导入 Config 类，使用环境变量配置
