@@ -91,6 +91,8 @@ class CogneeMemoryManager:
         """配置 Cognee 环境，使用 SiliconFlow 作为自定义 LLM 提供者"""
         try:
             import cognee
+            from cognee.infrastructure.llm import LLMConfig
+            from cognee.infrastructure.databases.vector import EmbeddingConfig
             
             # 验证 API 密钥
             if not self.api_key:
@@ -101,18 +103,12 @@ class CogneeMemoryManager:
             # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
             # 参考: https://docs.litellm.ai/docs/providers
             
-            # 对于 SiliconFlow 这样的 OpenAI 兼容 API，使用 custom_openai 提供者
-            # LiteLLM 格式: openai/<model_name> 配合 api_base 参数
-            
-            # 设置环境变量让 Cognee/LiteLLM 使用自定义端点
+            # 设置环境变量作为后备配置
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            # LiteLLM 使用 openai/<model> 格式来路由到 OpenAI 兼容 API
             os.environ['LLM_MODEL'] = f'openai/{COGNEE_LLM_MODEL}'
             
-            # Embedding 配置 - 使用 SiliconFlow 的 embedding API
-            # 或者禁用 embedding（使用 fastembed 本地模型）
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
@@ -124,26 +120,43 @@ class CogneeMemoryManager:
             # 禁用多用户访问控制（简化配置）
             os.environ['ENABLE_BACKEND_ACCESS_CONTROL'] = 'false'
             
-            # 使用 cognee.config.set_llm_config 进行完整配置
+            # 使用 Cognee 的 Config 类进行配置
+            # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
             try:
-                # 使用 set_llm_config 一次性配置所有参数
-                cognee.config.set_llm_config({
+                # 配置 LLM - 使用 LLMConfig 类
+                llm_config = LLMConfig(
+                    llm_api_key=self.api_key or '',
+                    llm_provider='custom',
+                    llm_model=f'openai/{COGNEE_LLM_MODEL}',
+                    llm_endpoint=SILICONFLOW_BASE_URL,
+                    llm_temperature=0.0,
+                )
+                cognee.config.set_llm_config(llm_config)
+                
+                # 配置 Embedding - 使用 EmbeddingConfig 类
+                embedding_config = EmbeddingConfig(
+                    embedding_api_key=self.api_key or '',
+                    embedding_provider='custom',
+                    embedding_model=f'openai/{COGNEE_EMBEDDING_MODEL}',
+                    embedding_endpoint=SILICONFLOW_BASE_URL,
+                    embedding_dimensions=1024,  # BAAI/bge-large-zh-v1.5 的维度
+                )
+                cognee.config.set_embedding_config(embedding_config)
+                
+                debug_logger.log_info('CogneeMemoryManager', 'Cognee 配置完成', {
                     'llm_provider': 'custom',
-                    'llm_api_key': self.api_key or '',
                     'llm_endpoint': SILICONFLOW_BASE_URL,
                     'llm_model': f'openai/{COGNEE_LLM_MODEL}',
-                    'llm_temperature': 0.0,
-                })
-                
-                debug_logger.log_info('CogneeMemoryManager', 'Cognee LLM 配置完成', {
-                    'provider': 'custom',
-                    'endpoint': SILICONFLOW_BASE_URL,
-                    'model': f'openai/{COGNEE_LLM_MODEL}',
+                    'embedding_provider': 'custom',
                     'embedding_model': f'openai/{COGNEE_EMBEDDING_MODEL}'
                 })
+            except ImportError as ie:
+                # 如果无法导入 Config 类，使用环境变量配置
+                debug_logger.log_warning('CogneeMemoryManager', 
+                    f'无法导入 Config 类，使用环境变量配置: {str(ie)}')
             except Exception as config_error:
-                debug_logger.log_info('CogneeMemoryManager', 
-                    f'使用环境变量配置: {str(config_error)}')
+                debug_logger.log_warning('CogneeMemoryManager', 
+                    f'配置 Config 类失败，使用环境变量配置: {str(config_error)}')
             
             self._cognee = cognee
             self._initialized = True
