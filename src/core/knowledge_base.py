@@ -6,6 +6,7 @@
 
 import os
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -19,6 +20,99 @@ load_dotenv()
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
+
+
+def robust_json_parse(content: str, context: str = "JSON解析") -> Optional[Any]:
+    """
+    鲁棒性JSON解析，尝试多种方式解析LLM返回的JSON内容
+    
+    Args:
+        content: 要解析的内容
+        context: 上下文描述（用于日志）
+        
+    Returns:
+        解析后的JSON对象，失败返回None
+    """
+    if not content or not content.strip():
+        debug_logger.log_info('JSONParser', f'{context}: 内容为空')
+        return None
+    
+    original_content = content
+    content = content.strip()
+    
+    # 尝试1：直接解析
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    
+    # 尝试2：清理markdown代码块
+    if '```' in content:
+        try:
+            # 提取代码块内容
+            code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+            if code_blocks:
+                for block in code_blocks:
+                    try:
+                        return json.loads(block.strip())
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+    
+    # 尝试3：提取JSON数组或对象
+    try:
+        # 寻找JSON数组 [...]
+        array_match = re.search(r'\[[\s\S]*\]', content)
+        if array_match:
+            try:
+                return json.loads(array_match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        # 寻找JSON对象 {...}
+        object_match = re.search(r'\{[\s\S]*\}', content)
+        if object_match:
+            try:
+                return json.loads(object_match.group())
+            except json.JSONDecodeError:
+                pass
+    except Exception:
+        pass
+    
+    # 尝试4：修复常见的JSON格式问题
+    try:
+        # 替换单引号为双引号
+        fixed_content = content.replace("'", '"')
+        return json.loads(fixed_content)
+    except json.JSONDecodeError:
+        pass
+    
+    # 尝试5：处理可能的尾随逗号
+    try:
+        # 移除数组或对象末尾的逗号
+        fixed_content = re.sub(r',\s*([}\]])', r'\1', content)
+        return json.loads(fixed_content)
+    except json.JSONDecodeError:
+        pass
+    
+    # 尝试6：处理无引号的键名
+    try:
+        # 为无引号的键名添加引号
+        fixed_content = re.sub(r'(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', content)
+        return json.loads(fixed_content)
+    except json.JSONDecodeError:
+        pass
+    
+    # 所有尝试都失败，记录原始输出到debug日志
+    debug_logger.log_raw_output(
+        'JSONParser', 
+        context, 
+        original_content, 
+        f'{context}失败：无法解析为有效的JSON'
+    )
+    
+    return None
 
 
 class KnowledgeBase:
@@ -482,33 +576,26 @@ class KnowledgeBase:
                 max_tokens=1500
             )
             
-            content = content.strip()
-
-            # 尝试解析JSON
-            # 清理可能的markdown代码块标记
-            if content.startswith('```'):
-                content = content.split('```')[1]
-                if content.startswith('json'):
-                    content = content[4:]
-            content = content.strip()
-
-            try:
-                knowledge_list = json.loads(content)
-                if isinstance(knowledge_list, list):
-                    return knowledge_list
-                else:
-                    print(f"✗ 返回的不是列表格式: {type(knowledge_list)}")
-                    debug_logger.log_error('KnowledgeBase', f'返回的不是列表格式: {type(knowledge_list)}')
-                    return None
-            except json.JSONDecodeError as e:
-                print(f"✗ JSON解析失败: {e}")
-                print(f"原始内容: {content[:200]}...")
-                debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
-                debug_logger.log_info('KnowledgeBase', '原始内容', {'content': content[:500]})
+            # 使用鲁棒性JSON解析
+            knowledge_list = robust_json_parse(content, '知识提取')
+            
+            if knowledge_list is None:
+                return None
+            
+            if isinstance(knowledge_list, list):
+                return knowledge_list
+            else:
+                debug_logger.log_raw_output(
+                    'KnowledgeBase', 
+                    '知识提取', 
+                    content, 
+                    f'返回的不是列表格式: {type(knowledge_list).__name__}'
+                )
                 return None
 
         except Exception as e:
             print(f"✗ 提取知识时出错: {e}")
+            debug_logger.log_error('KnowledgeBase', '提取知识时出错', e)
             return None
 
     def extract_entities_from_query(self, query: str) -> List[str]:
@@ -547,32 +634,27 @@ class KnowledgeBase:
                 max_tokens=500
             )
             
-            content = content.strip()
-
-            # 清理markdown代码块
-            if content.startswith('```'):
-                content = content.split('```')[1]
-                if content.startswith('json'):
-                    content = content[4:]
-            content = content.strip()
-
-            try:
-                entities = json.loads(content)
-                if isinstance(entities, list):
-                    result = [e for e in entities if isinstance(e, str)]
-                    debug_logger.log_info('KnowledgeBase', '实体提取成功', {
-                        'query': query,
-                        'entities': result
-                    })
-                    return result
-                else:
-                    debug_logger.log_info('KnowledgeBase', '实体提取结果不是列表', {'content': content})
-                    return []
-            except json.JSONDecodeError as e:
-                print(f"✗ 实体提取JSON解析失败")
-                debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
-                debug_logger.log_info('KnowledgeBase', '无法解析的内容', {'content': content[:500]})
-                print(f"调试信息 - 原始内容: {content[:200]}...")
+            # 使用鲁棒性JSON解析
+            entities = robust_json_parse(content, '实体提取')
+            
+            if entities is None:
+                debug_logger.log_info('KnowledgeBase', '未识别到实体', {'query': query})
+                return []
+            
+            if isinstance(entities, list):
+                result = [e for e in entities if isinstance(e, str)]
+                debug_logger.log_info('KnowledgeBase', '实体提取成功', {
+                    'query': query,
+                    'entities': result
+                })
+                return result
+            else:
+                debug_logger.log_raw_output(
+                    'KnowledgeBase', 
+                    '实体提取', 
+                    content, 
+                    f'实体提取结果不是列表，而是 {type(entities).__name__}'
+                )
                 return []
 
         except Exception as e:

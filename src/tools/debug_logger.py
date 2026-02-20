@@ -326,6 +326,49 @@ class DebugLogger:
         self._write_to_file(log_message)
         self._notify_listeners(log_entry)
 
+    def log_raw_output(self, module_name: str, context: str, raw_content: str, error_message: str = None):
+        """
+        记录原始LLM输出（用于调试JSON解析失败等问题）
+
+        Args:
+            module_name: 模块名称
+            context: 上下文描述（如"实体提取"、"知识提取"等）
+            raw_content: 完整的原始输出内容
+            error_message: 可选的错误消息
+        """
+        if not self.debug_mode:
+            return
+
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'type': 'raw_output',
+            'module': module_name,
+            'context': context,
+            'raw_content': raw_content,
+            'error_message': error_message
+        }
+
+        self.logs.append(log_entry)
+        # 统计到info类型
+        self.log_stats['info'] += 1
+
+        # 控制台输出摘要
+        display_content = raw_content[:200] + "..." if len(raw_content) > 200 else raw_content
+        log_message = f"[{log_entry['timestamp']}] [RAW_OUTPUT] {module_name} | {context}"
+        if error_message:
+            log_message += f"\n  错误: {error_message}"
+        log_message += f"\n  内容预览: {display_content}"
+
+        print(log_message)
+        
+        # 写入完整内容到文件（便于排查问题）
+        self._write_to_file(log_message)
+        self._write_to_file(f"  ===== 完整原始输出开始 =====")
+        self._write_to_file(raw_content)
+        self._write_to_file(f"  ===== 完整原始输出结束 =====\n")
+        
+        self._notify_listeners(log_entry)
+
     def get_logs(self, log_type: str = None, module_name: str = None, limit: int = None) -> List[Dict[str, Any]]:
         """
         获取日志列表
