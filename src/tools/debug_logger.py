@@ -326,6 +326,38 @@ class DebugLogger:
         self._write_to_file(log_message)
         self._notify_listeners(log_entry)
 
+    def log_warning(self, module_name: str, message: str, data: Any = None):
+        """
+        记录警告信息
+
+        Args:
+            module_name: 模块名称
+            message: 警告内容
+            data: 附加数据
+        """
+        if not self.debug_mode:
+            return
+
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'type': 'warning',
+            'module': module_name,
+            'message': message,
+            'data': data
+        }
+
+        self.logs.append(log_entry)
+        # 统计到info类型（或可以新增warning统计）
+        self.log_stats['info'] += 1
+
+        log_message = f"[{log_entry['timestamp']}] [WARNING] {module_name} | {message}"
+        if data:
+            log_message += f"\n  数据: {json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)}"
+
+        print(log_message)
+        self._write_to_file(log_message)
+        self._notify_listeners(log_entry)
+
     def log_raw_output(self, module_name: str, context: str, raw_content: str, error_message: str = None):
         """
         记录原始LLM输出（用于调试JSON解析失败等问题）
