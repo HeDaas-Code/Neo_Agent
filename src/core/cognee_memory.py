@@ -32,6 +32,10 @@ SILICONFLOW_BASE_URL = SILICONFLOW_API_URL.replace('/chat/completions', '') if S
 COGNEE_LLM_MODEL = os.getenv('COGNEE_LLM_MODEL') or os.getenv('TOOL_MODEL_NAME') or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 # Cognee 使用的 Embedding 模型
 COGNEE_EMBEDDING_MODEL = os.getenv('COGNEE_EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
+# LiteLLM 模型前缀（用于路由请求到正确的 provider）
+# 常见前缀: openai/ (OpenAI兼容API), hosted_vllm/ (vLLM), openrouter/ (OpenRouter), lm_studio/ (LM Studio)
+# 参考: https://docs.litellm.ai/docs/providers
+COGNEE_MODEL_PREFIX = os.getenv('COGNEE_MODEL_PREFIX', 'openai/')
 
 
 def _format_exception(e: Exception) -> str:
@@ -100,24 +104,25 @@ class CogneeMemoryManager:
             # 参考: https://docs.litellm.ai/docs/providers
             
             # 在导入 cognee 之前设置环境变量（这是 Cognee 推荐的配置方式）
-            # 根据 LiteLLM 文档，使用自定义 OpenAI 兼容端点时需要 openai/ 前缀
-            # 参考: https://docs.litellm.ai/docs/providers/openai_compatible
-            # 格式: openai/<model_name> + 自定义 endpoint
+            # 根据 LiteLLM 文档，使用自定义端点时需要添加 provider 前缀
+            # 参考: https://docs.litellm.ai/docs/providers
+            # 常见前缀: openai/ (OpenAI兼容), hosted_vllm/ (vLLM), openrouter/ (OpenRouter)
+            # 用户可以通过 COGNEE_MODEL_PREFIX 环境变量自定义前缀
             
-            # LLM 配置 - 使用 openai/ 前缀让 LiteLLM 知道使用 OpenAI 兼容 API
-            llm_model_with_prefix = f"openai/{COGNEE_LLM_MODEL}"
-            embedding_model_with_prefix = f"openai/{COGNEE_EMBEDDING_MODEL}"
+            # LLM 配置 - 使用可配置的前缀
+            llm_model_with_prefix = f"{COGNEE_MODEL_PREFIX}{COGNEE_LLM_MODEL}"
+            embedding_model_with_prefix = f"{COGNEE_MODEL_PREFIX}{COGNEE_EMBEDDING_MODEL}"
             
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['LLM_MODEL'] = llm_model_with_prefix  # 如 openai/Qwen/Qwen2.5-7B-Instruct
+            os.environ['LLM_MODEL'] = llm_model_with_prefix
             
-            # Embedding 配置 - 同样使用 openai/ 前缀
+            # Embedding 配置 - 同样使用可配置的前缀
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['EMBEDDING_MODEL'] = embedding_model_with_prefix  # 如 openai/BAAI/bge-large-zh-v1.5
+            os.environ['EMBEDDING_MODEL'] = embedding_model_with_prefix
             
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
@@ -128,9 +133,10 @@ class CogneeMemoryManager:
             debug_logger.log_info('CogneeMemoryManager', 'Cognee 环境变量配置完成', {
                 'llm_provider': 'custom',
                 'llm_endpoint': SILICONFLOW_BASE_URL,
-                'llm_model': llm_model_with_prefix,  # 显示带前缀的完整模型名
+                'llm_model': llm_model_with_prefix,
+                'model_prefix': COGNEE_MODEL_PREFIX,
                 'embedding_provider': 'custom',
-                'embedding_model': embedding_model_with_prefix  # 显示带前缀的完整模型名
+                'embedding_model': embedding_model_with_prefix
             })
             
             # 导入 cognee（环境变量必须在此之前设置）
