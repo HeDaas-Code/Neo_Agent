@@ -100,16 +100,24 @@ class CogneeMemoryManager:
             # 参考: https://docs.litellm.ai/docs/providers
             
             # 在导入 cognee 之前设置环境变量（这是 Cognee 推荐的配置方式）
-            # SiliconFlow 模型格式: Qwen/Qwen2.5-7B-Instruct (不需要 openai/ 前缀)
+            # 根据 LiteLLM 文档，使用自定义 OpenAI 兼容端点时需要 openai/ 前缀
+            # 参考: https://docs.litellm.ai/docs/providers/openai_compatible
+            # 格式: openai/<model_name> + 自定义 endpoint
+            
+            # LLM 配置 - 使用 openai/ 前缀让 LiteLLM 知道使用 OpenAI 兼容 API
+            llm_model_with_prefix = f"openai/{COGNEE_LLM_MODEL}"
+            embedding_model_with_prefix = f"openai/{COGNEE_EMBEDDING_MODEL}"
+            
             os.environ['LLM_PROVIDER'] = 'custom'
             os.environ['LLM_API_KEY'] = self.api_key or ''
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['LLM_MODEL'] = COGNEE_LLM_MODEL  # 直接使用模型名，如 Qwen/Qwen2.5-7B-Instruct
+            os.environ['LLM_MODEL'] = llm_model_with_prefix  # 如 openai/Qwen/Qwen2.5-7B-Instruct
             
+            # Embedding 配置 - 同样使用 openai/ 前缀
             os.environ['EMBEDDING_PROVIDER'] = 'custom'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
-            os.environ['EMBEDDING_MODEL'] = COGNEE_EMBEDDING_MODEL  # 直接使用模型名
+            os.environ['EMBEDDING_MODEL'] = embedding_model_with_prefix  # 如 openai/BAAI/bge-large-zh-v1.5
             
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
@@ -120,9 +128,9 @@ class CogneeMemoryManager:
             debug_logger.log_info('CogneeMemoryManager', 'Cognee 环境变量配置完成', {
                 'llm_provider': 'custom',
                 'llm_endpoint': SILICONFLOW_BASE_URL,
-                'llm_model': COGNEE_LLM_MODEL,
+                'llm_model': llm_model_with_prefix,  # 显示带前缀的完整模型名
                 'embedding_provider': 'custom',
-                'embedding_model': COGNEE_EMBEDDING_MODEL
+                'embedding_model': embedding_model_with_prefix  # 显示带前缀的完整模型名
             })
             
             # 导入 cognee（环境变量必须在此之前设置）
