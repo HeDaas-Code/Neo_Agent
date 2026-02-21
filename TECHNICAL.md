@@ -139,7 +139,7 @@ pip install -e .
 
 ```bash
 # 复制环境变量模板
-cp example.env .env
+cp .env .env
 
 # 编辑 .env 文件，设置必要的配置
 # - API密钥

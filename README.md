@@ -44,7 +44,7 @@ pip install -r requirements.txt
 #### 配置环境
 
 ```bash
-cp example.env .env
+cp .env .env
 # 编辑 .env 文件，填入你的API密钥和配置
 ```
 
@@ -178,7 +178,7 @@ pip install -r requirements.txt
 #### Configure Environment
 
 ```bash
-cp example.env .env
+cp .env .env
 # Edit .env file with your API keys and configuration
 ```
 
