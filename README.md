@@ -32,6 +32,9 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - 📝 **提示词工程**: 模块化Markdown提示词、角色扮演、世界观注入
 - 🤖 **动态多智能体**: 主模型自主编排、并行协作、智能任务分解
 - 🚀 **DeepAgents增强**: 持久化状态、任务规划、大型结果处理、跨会话记忆
+- 🛠️ **技能系统**: SQLite持久化技能注册表，内置5种通用技能，支持用户自定义
+- 🎓 **自主学习**: 任务完成后自动提炼经验，将成功方法保存为可复用技能
+- 🌐 **全能代理**: OmniAgent具备所有技能，可动态派生专业子智能体
 
 ### 快速开始
 
@@ -93,8 +96,10 @@ Neo_Agent/
 ### 核心模块
 
 - **prompt_manager**: 提示词管理，支持Markdown模板加载和渲染
-- **dynamic_multi_agent_graph**: 基于LangGraph的动态多智能体协作系统（支持持久化状态）
-- **deepagents_wrapper**: DeepAgents集成，提供增强的子智能体和知识管理
+- **dynamic_multi_agent_graph**: 基于LangGraph的动态多智能体协作系统（支持持久化状态、技能感知调度）
+- **omni_agent**: 全能代理，拥有所有技能，可派生专业子智能体，支持自主学习
+- **skill_registry**: 技能注册表，SQLite持久化，管理内置/学习/用户技能
+- **deepagents_wrapper**: DeepAgents集成，提供增强的子智能体、知识管理和技能注入
 - **enhanced_knowledge_base**: 增强的知识库，集成DeepAgents长期记忆和文件系统
 - **model_config**: 多层模型配置管理
 - **langchain_llm**: LangChain LLM封装，支持模型路由
@@ -107,7 +112,7 @@ Neo_Agent/
 - **knowledge_base**: 知识库管理（使用工具模型）
 - **long_term_memory**: 长期记忆系统
 - **schedule_manager**: 日程管理
-- **multi_agent_coordinator**: 多智能体协作（支持动态/传统模式，DeepAgents增强）
+- **multi_agent_coordinator**: 多智能体协作（支持动态/传统模式，DeepAgents增强，技能感知）
 
 ### 动态多智能体协作
 
@@ -119,10 +124,12 @@ Neo Agent实现了基于LangGraph的动态多智能体协作系统：
 - 📊 **状态管理**: LangGraph提供清晰的状态追踪和流程控制
 - 💾 **持久化状态**: DeepAgents MemorySaver实现跨会话状态管理
 - 🛡️ **容错设计**: 失败自动降级到传统固定流程
+- 🛠️ **技能感知调度**: 根据角色自动推荐并注入对应技能集
+- 🎓 **任务后自主学习**: 成功任务后自动提炼经验保存为可复用技能
 
 详见：
 - 源码: `src/core/dynamic_multi_agent_graph.py`
-- 文档: [DeepAgents集成文档](docs/DEEPAGENTS_INTEGRATION.md)
+- 文档: [DeepAgents集成文档](docs/DEEPAGENTS_INTEGRATION.md) | [技能系统文档](docs/SKILL_SYSTEM.md)
 
 ### 提示词系统
 
@@ -166,6 +173,9 @@ Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system
 - 🖥️ **Modern GUI**: User-friendly Tkinter-based interface
 - 📅 **Event-Driven**: Notification events, task events, schedule management
 - 🗄️ **Data Management**: SQLite storage, data migration, backup and recovery
+- 🛠️ **Skill System**: SQLite-backed skill registry with 5 built-in skills; user-extensible
+- 🎓 **Autonomous Learning**: Automatically extracts reusable procedures from successful tasks
+- 🌐 **OmniAgent**: All-skills agent that dynamically spawns specialized sub-agents
 
 ### Quick Start
 
@@ -227,6 +237,10 @@ Neo_Agent/
 - **knowledge_base**: Knowledge base management
 - **long_term_memory**: Long-term memory system
 - **schedule_manager**: Schedule management
+- **skill_registry**: SQLite-backed skill registry (builtin / learned / user categories)
+- **omni_agent**: OmniAgent — all-skills agent with sub-agent spawning and autonomous learning
+- **dynamic_multi_agent_graph**: Skill-aware multi-agent orchestration with post-task learning
+- **deepagents_wrapper**: DeepAgents integration with skill file injection
 
 ### License
 

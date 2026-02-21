@@ -42,16 +42,37 @@ DeepAgents库提供高级功能（[详细文档](docs/DEEPAGENTS_INTEGRATION.md)
 - **长期记忆**: AGENTS.md文件系统
 - **虚拟文件系统**: 处理大型工具结果
 - **任务规划**: 内置write_todos工具
+- **技能注入**: 通过`skills=`参数和`invoke(files={...})`注入技能文件
 
 **核心模块**：
-- `deepagents_wrapper.py`: DeepSubAgentWrapper, DeepAgentsKnowledgeManager
+- `deepagents_wrapper.py`: DeepSubAgentWrapper（含技能注入）, DeepAgentsKnowledgeManager
 - `enhanced_knowledge_base.py`: EnhancedKnowledgeBase
 
 **向后兼容**：
 - 通过工厂函数和环境变量控制
 - 失败时自动降级到传统模式
 
-### 4. 多层模型架构
+### 4. 技能系统与全能代理
+
+参考openclaw的全能代理设计（[详细文档](docs/SKILL_SYSTEM.md)）：
+
+- **SkillRegistry**: SQLite持久化的技能注册表，管理三类技能（builtin/learned/user）
+- **OmniAgent**: 全能代理，拥有所有技能，可派生专业子智能体，任务后自主学习
+- **技能感知调度**: DynamicMultiAgentGraph根据智能体角色自动推荐并注入技能集
+
+**技能分类**：
+
+| 类别 | 路径 | 说明 |
+|------|------|------|
+| `builtin` | `/skills/builtin/` | 系统内置，不可覆盖 |
+| `learned` | `/skills/learned/` | 智能体从任务中自主学习 |
+| `user` | `/skills/user/` | 用户手动添加 |
+
+**核心模块**：
+- `skill_registry.py`: SkillRegistry，全局单例，SQLite存储
+- `omni_agent.py`: OmniAgent，全能代理，自主学习入口
+
+### 5. 多层模型架构
 
 根据任务类型智能选择合适的模型：
 
@@ -184,10 +205,12 @@ response = llm.chat(messages, task_type='tool')  # 使用工具模型
 以下模块已更新为使用新架构：
 
 1. **chat_agent.py**: SiliconFlowLLM作为兼容层
-2. **multi_agent_coordinator.py**: SubAgent使用工具模型
+2. **multi_agent_coordinator.py**: SubAgent使用工具模型；`create_sub_agent()`新增`skill_names`参数
 3. **emotion_analyzer.py**: 使用LLMHelper调用工具模型
 4. **knowledge_base.py**: 使用LLMHelper进行知识提取
-5. **其他工具模块**: 保持原有接口，内部使用新架构
+5. **dynamic_multi_agent_graph.py**: 技能感知调度；任务后自主学习
+6. **deepagents_wrapper.py**: 新增技能注入（`skill_names`/`skill_paths`参数）；新增`learn_skill()`
+7. **其他工具模块**: 保持原有接口，内部使用新架构
 
 ## 配置说明
 
@@ -219,6 +242,12 @@ VISION_MODEL_MAX_TOKENS=1000
 MODEL_NAME=deepseek-ai/DeepSeek-V3
 TEMPERATURE=0.8
 MAX_TOKENS=2000
+
+# 技能系统与全能代理
+USE_OMNI_AGENT=true              # 启用全能代理（默认true）
+ENABLE_AUTO_LEARNING=true         # 启用任务后自主学习（默认true）
+LEARNING_MIN_OUTPUT_LEN=200       # 触发学习的最小输出长度
+SKILL_DB_PATH=skill_registry.db  # 技能注册表数据库路径
 ```
 
 ## 使用指南
@@ -253,9 +282,14 @@ MAX_TOKENS=2000
 3. **流程可视化**：实现对话流程的可视化展示
 4. **性能监控**：添加模型使用统计和性能分析
 5. **动态路由**：根据任务复杂度动态选择模型
+6. **技能共享**：多用户/多实例之间共享技能知识库
+7. **知识图谱**：基于技能依赖关系构建可视化知识图谱
+8. **技能评级**：基于成功率自动排序推荐技能
 
 ## 参考资料
 
 - [LangChain文档](https://docs.langchain.com/)
 - [LangGraph文档](https://langchain-ai.github.io/langgraph/)
 - [SiliconFlow API](https://siliconflow.cn/)
+- [技能系统文档](docs/SKILL_SYSTEM.md)
+- [DeepAgents集成文档](docs/DEEPAGENTS_INTEGRATION.md)

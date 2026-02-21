@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 本文件记录项目的所有重要变更。
 
+## [3.0.0] - 2026-02-21
+
+### 重大更新 🎉 Major Update
+
+#### 技能系统与全能代理 / Skill System & OmniAgent
+
+参考openclaw的全能代理设计，为多智能体系统引入技能管理和自主学习能力：
+
+**SkillRegistry（技能注册表）**
+- SQLite持久化的技能注册表，管理三类技能（builtin/learned/user）
+- 5个内置技能：`task_decomposition`、`result_synthesis`、`information_retrieval`、`error_recovery`、`knowledge_extraction`
+- 技能以虚拟文件系统路径注入 DeepAgents（`/skills/builtin/`、`/skills/learned/`、`/skills/user/`）
+- 支持技能使用统计和成功率追踪
+
+**OmniAgent（全能代理）**
+- 拥有所有已注册技能，通过 deepagents `SubAgent` 规格列表动态派生专业子智能体
+- 任务成功后调用工具模型自动提炼可复用方法，保存为 `learned` 类别技能
+- 支持跨会话状态持久化（MemorySaver）
+
+**DynamicMultiAgentGraph 升级**
+- 技能感知调度：`_execute_agent` 根据角色自动推荐并注入对应技能集
+- 任务后自主学习：`_post_task_learning()` 在成功任务后提炼技能
+
+**DeepSubAgentWrapper 升级**
+- 新增 `skill_names`/`skill_paths` 参数，技能文件延迟加载注入
+- 新增 `learn_skill()` 方法，调用后自动使技能缓存失效
+
+### Added / 新增
+
+- **SkillRegistry** (`src/core/skill_registry.py`): 全局技能注册表（SQLite），含内置技能初始化
+- **OmniAgent** (`src/core/omni_agent.py`): 全能代理，自主学习入口
+- **tests/test_skill_system.py**: 28个技能系统测试用例
+- **docs/SKILL_SYSTEM.md**: 技能系统与全能代理完整文档（中英双语）
+
+### Changed / 变更
+
+- **deepagents_wrapper.py**: 新增技能注入支持，`DeepSubAgentWrapper` 增加 `skill_names`/`skill_paths`/`learn_skill()` / 技能文件缓存
+- **dynamic_multi_agent_graph.py**: 技能感知调度 + 任务后自主学习 (`_post_task_learning`)
+- **multi_agent_coordinator.py**: `create_sub_agent()` 新增 `skill_names` 参数
+- **example.env**: 新增 `USE_OMNI_AGENT`、`ENABLE_AUTO_LEARNING`、`LEARNING_MIN_OUTPUT_LEN`、`SKILL_DB_PATH`
+- **ARCHITECTURE.md**: 新增技能系统架构章节
+- **docs/DEEPAGENTS_INTEGRATION.md**: 更新技能集成说明
+
+### Configuration / 配置
+
+```bash
+USE_OMNI_AGENT=true               # 启用全能代理（默认true）
+ENABLE_AUTO_LEARNING=true          # 启用自主学习（默认true）
+LEARNING_MIN_OUTPUT_LEN=200        # 触发学习的最小输出长度
+SKILL_DB_PATH=skill_registry.db   # 技能数据库路径
+```
+
+---
+
 ## [2.0.0] - 2026-02-09
 
 ### 重大更新 🎉 Major Update
