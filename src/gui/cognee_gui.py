@@ -1005,10 +1005,427 @@ class WorldviewBuilderGUI:
             self.modified_label.config(text="● 未保存")
 
 
+class CogneeLogViewerGUI:
+    """
+    Cognee 日志查看器 GUI
+    读取并展示 Cognee 系统日志
+    """
+    
+    def __init__(self, parent_frame):
+        """
+        初始化日志查看器 GUI
+        
+        Args:
+            parent_frame: 父容器
+        """
+        self.parent = parent_frame
+        self.log_files = []
+        self.current_log = None
+        
+        # 自动刷新
+        self.auto_refresh = False
+        self.refresh_job = None
+        
+        # 创建界面
+        self.create_widgets()
+        
+        # 加载日志列表
+        self._refresh_log_list()
+        
+        debug_logger.log_info('CogneeLogViewerGUI', 'Cognee 日志查看器 GUI 已初始化')
+    
+    def create_widgets(self):
+        """创建所有 GUI 组件"""
+        # 主分割面板
+        self.paned = ttk.PanedWindow(self.parent, orient=tk.HORIZONTAL)
+        self.paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 左侧：日志文件列表
+        self._create_log_list_panel()
+        
+        # 右侧：日志内容
+        self._create_log_content_panel()
+    
+    def _create_log_list_panel(self):
+        """创建日志文件列表面板"""
+        left_frame = ttk.Frame(self.paned)
+        self.paned.add(left_frame, weight=1)
+        
+        # 标题
+        header = ttk.Frame(left_frame)
+        header.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(
+            header, 
+            text="📋 Cognee 日志文件", 
+            font=("微软雅黑", 10, "bold")
+        ).pack(side=tk.LEFT)
+        
+        # 工具栏
+        toolbar = ttk.Frame(left_frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(
+            toolbar, 
+            text="🔄 刷新", 
+            command=self._refresh_log_list,
+            width=8
+        ).pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(
+            toolbar, 
+            text="📂 打开目录", 
+            command=self._open_log_directory,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # 日志文件列表
+        list_frame = ttk.Frame(left_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.log_listbox = tk.Listbox(
+            list_frame,
+            font=("微软雅黑", 9),
+            selectmode=tk.SINGLE
+        )
+        
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.log_listbox.yview)
+        self.log_listbox.configure(yscrollcommand=scrollbar.set)
+        
+        self.log_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 绑定选择事件
+        self.log_listbox.bind('<<ListboxSelect>>', self._on_log_select)
+        
+        # 文件统计
+        self.log_stats_label = ttk.Label(left_frame, text="共 0 个日志文件", font=("微软雅黑", 9))
+        self.log_stats_label.pack(fill=tk.X, padx=5, pady=5)
+    
+    def _create_log_content_panel(self):
+        """创建日志内容面板"""
+        right_frame = ttk.Frame(self.paned)
+        self.paned.add(right_frame, weight=3)
+        
+        # 标题栏
+        header = ttk.Frame(right_frame)
+        header.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.log_title_label = ttk.Label(
+            header, 
+            text="选择一个日志文件查看", 
+            font=("微软雅黑", 10, "bold")
+        )
+        self.log_title_label.pack(side=tk.LEFT)
+        
+        # 工具栏
+        toolbar = ttk.Frame(right_frame)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(
+            toolbar, 
+            text="🔄 重新加载", 
+            command=self._reload_log,
+            width=10
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # 自动刷新开关
+        self.auto_refresh_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            toolbar,
+            text="自动刷新",
+            variable=self.auto_refresh_var,
+            command=self._toggle_auto_refresh
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # 过滤级别
+        ttk.Label(toolbar, text="过滤:").pack(side=tk.LEFT, padx=(20, 5))
+        self.filter_var = tk.StringVar(value="all")
+        filter_combo = ttk.Combobox(
+            toolbar, 
+            textvariable=self.filter_var,
+            values=["all", "error", "warning", "info", "debug"],
+            width=10,
+            state="readonly"
+        )
+        filter_combo.pack(side=tk.LEFT, padx=2)
+        filter_combo.bind('<<ComboboxSelected>>', lambda e: self._apply_filter())
+        
+        # 搜索框
+        ttk.Label(toolbar, text="搜索:").pack(side=tk.LEFT, padx=(20, 5))
+        self.search_entry = ttk.Entry(toolbar, width=20)
+        self.search_entry.pack(side=tk.LEFT, padx=2)
+        self.search_entry.bind('<Return>', lambda e: self._search_log())
+        
+        ttk.Button(
+            toolbar,
+            text="🔍",
+            command=self._search_log,
+            width=3
+        ).pack(side=tk.LEFT, padx=2)
+        
+        # 日志内容
+        content_frame = ttk.LabelFrame(right_frame, text="日志内容", padding=5)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.log_text = scrolledtext.ScrolledText(
+            content_frame,
+            font=("Consolas", 9),
+            wrap=tk.NONE,
+            state=tk.DISABLED
+        )
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 水平滚动条
+        h_scrollbar = ttk.Scrollbar(content_frame, orient=tk.HORIZONTAL, command=self.log_text.xview)
+        self.log_text.configure(xscrollcommand=h_scrollbar.set)
+        h_scrollbar.pack(fill=tk.X)
+        
+        # 配置文本标签（颜色高亮）
+        self.log_text.tag_configure("error", foreground="red")
+        self.log_text.tag_configure("warning", foreground="orange")
+        self.log_text.tag_configure("info", foreground="blue")
+        self.log_text.tag_configure("debug", foreground="gray")
+        self.log_text.tag_configure("highlight", background="yellow")
+    
+    def _get_log_directory(self):
+        """获取 Cognee 日志目录"""
+        import sys
+        import os
+        
+        # 尝试多个可能的日志目录
+        possible_dirs = []
+        
+        # 1. site-packages/logs
+        for path in sys.path:
+            if 'site-packages' in path:
+                logs_dir = os.path.join(os.path.dirname(path), 'site-packages', 'logs')
+                possible_dirs.append(logs_dir)
+                # 也检查直接在 site-packages 下的 logs
+                logs_dir2 = os.path.join(path, 'logs')
+                possible_dirs.append(logs_dir2)
+        
+        # 2. .venv/Lib/site-packages/logs (Windows)
+        venv_logs = os.path.join(os.getcwd(), '.venv', 'Lib', 'site-packages', 'logs')
+        possible_dirs.append(venv_logs)
+        
+        # 3. .venv/lib/python*/site-packages/logs (Linux/Mac)
+        import glob
+        linux_pattern = os.path.join(os.getcwd(), '.venv', 'lib', 'python*', 'site-packages', 'logs')
+        possible_dirs.extend(glob.glob(linux_pattern))
+        
+        # 4. cognee 包内部的 logs 目录
+        try:
+            import cognee
+            cognee_path = os.path.dirname(cognee.__file__)
+            possible_dirs.append(os.path.join(os.path.dirname(cognee_path), 'logs'))
+            possible_dirs.append(os.path.join(cognee_path, '..', 'logs'))
+        except ImportError:
+            pass
+        
+        # 查找存在的目录
+        for logs_dir in possible_dirs:
+            if os.path.isdir(logs_dir):
+                return logs_dir
+        
+        return None
+    
+    def _refresh_log_list(self):
+        """刷新日志文件列表"""
+        import os
+        
+        self.log_listbox.delete(0, tk.END)
+        self.log_files = []
+        
+        log_dir = self._get_log_directory()
+        
+        if log_dir and os.path.isdir(log_dir):
+            # 获取所有 .log 文件
+            log_files = [f for f in os.listdir(log_dir) if f.endswith('.log')]
+            # 按时间倒序排列（最新的在前）
+            log_files.sort(reverse=True)
+            
+            for log_file in log_files:
+                self.log_listbox.insert(tk.END, log_file)
+                self.log_files.append(os.path.join(log_dir, log_file))
+            
+            self.log_stats_label.config(text=f"共 {len(log_files)} 个日志文件 ({log_dir})")
+        else:
+            self.log_stats_label.config(text="未找到 Cognee 日志目录")
+    
+    def _on_log_select(self, event):
+        """日志文件选择事件"""
+        selection = self.log_listbox.curselection()
+        if selection:
+            index = selection[0]
+            if index < len(self.log_files):
+                self.current_log = self.log_files[index]
+                self._load_log_content()
+    
+    def _load_log_content(self):
+        """加载日志内容"""
+        import os
+        
+        if not self.current_log or not os.path.isfile(self.current_log):
+            return
+        
+        try:
+            with open(self.current_log, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            # 更新标题
+            self.log_title_label.config(text=os.path.basename(self.current_log))
+            
+            # 显示内容
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.delete(1.0, tk.END)
+            
+            # 按行添加并高亮
+            for line in content.split('\n'):
+                self._insert_log_line(line)
+            
+            self.log_text.config(state=tk.DISABLED)
+            
+            # 滚动到末尾
+            self.log_text.see(tk.END)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"读取日志失败: {str(e)}")
+    
+    def _insert_log_line(self, line):
+        """插入日志行并应用颜色"""
+        line_lower = line.lower()
+        
+        if '[error' in line_lower or 'error]' in line_lower or 'exception' in line_lower:
+            tag = "error"
+        elif '[warning' in line_lower or 'warning]' in line_lower:
+            tag = "warning"
+        elif '[info' in line_lower or 'info]' in line_lower:
+            tag = "info"
+        elif '[debug' in line_lower or 'debug]' in line_lower:
+            tag = "debug"
+        else:
+            tag = None
+        
+        if tag:
+            self.log_text.insert(tk.END, line + '\n', tag)
+        else:
+            self.log_text.insert(tk.END, line + '\n')
+    
+    def _reload_log(self):
+        """重新加载当前日志"""
+        if self.current_log:
+            self._load_log_content()
+    
+    def _toggle_auto_refresh(self):
+        """切换自动刷新"""
+        if self.auto_refresh_var.get():
+            self._start_auto_refresh()
+        else:
+            self._stop_auto_refresh()
+    
+    def _start_auto_refresh(self):
+        """启动自动刷新"""
+        self.auto_refresh = True
+        self._do_auto_refresh()
+    
+    def _stop_auto_refresh(self):
+        """停止自动刷新"""
+        self.auto_refresh = False
+        if self.refresh_job:
+            self.parent.after_cancel(self.refresh_job)
+            self.refresh_job = None
+    
+    def _do_auto_refresh(self):
+        """执行自动刷新"""
+        if self.auto_refresh and self.current_log:
+            self._load_log_content()
+            self.refresh_job = self.parent.after(2000, self._do_auto_refresh)
+    
+    def _apply_filter(self):
+        """应用过滤"""
+        if not self.current_log:
+            return
+        
+        import os
+        
+        filter_level = self.filter_var.get()
+        
+        try:
+            with open(self.current_log, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.delete(1.0, tk.END)
+            
+            for line in content.split('\n'):
+                line_lower = line.lower()
+                
+                # 根据过滤级别筛选
+                if filter_level == "all":
+                    self._insert_log_line(line)
+                elif filter_level == "error" and ('[error' in line_lower or 'error]' in line_lower or 'exception' in line_lower):
+                    self._insert_log_line(line)
+                elif filter_level == "warning" and ('[warning' in line_lower or 'warning]' in line_lower):
+                    self._insert_log_line(line)
+                elif filter_level == "info" and ('[info' in line_lower or 'info]' in line_lower):
+                    self._insert_log_line(line)
+                elif filter_level == "debug" and ('[debug' in line_lower or 'debug]' in line_lower):
+                    self._insert_log_line(line)
+            
+            self.log_text.config(state=tk.DISABLED)
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"过滤日志失败: {str(e)}")
+    
+    def _search_log(self):
+        """搜索日志"""
+        search_text = self.search_entry.get().strip()
+        if not search_text or not self.current_log:
+            return
+        
+        # 移除之前的高亮
+        self.log_text.tag_remove("highlight", "1.0", tk.END)
+        
+        # 搜索并高亮
+        start_pos = "1.0"
+        while True:
+            pos = self.log_text.search(search_text, start_pos, stopindex=tk.END, nocase=True)
+            if not pos:
+                break
+            
+            end_pos = f"{pos}+{len(search_text)}c"
+            self.log_text.tag_add("highlight", pos, end_pos)
+            start_pos = end_pos
+        
+        # 滚动到第一个匹配
+        first_match = self.log_text.tag_nextrange("highlight", "1.0")
+        if first_match:
+            self.log_text.see(first_match[0])
+    
+    def _open_log_directory(self):
+        """打开日志目录"""
+        import os
+        import subprocess
+        import platform
+        
+        log_dir = self._get_log_directory()
+        
+        if log_dir and os.path.isdir(log_dir):
+            if platform.system() == 'Windows':
+                os.startfile(log_dir)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.run(['open', log_dir])
+            else:  # Linux
+                subprocess.run(['xdg-open', log_dir])
+        else:
+            messagebox.showwarning("警告", "未找到 Cognee 日志目录")
+
+
 class CogneeWorldviewManagerGUI:
     """
     Cognee 记忆与世界观管理综合 GUI
-    整合 Cognee 记忆管理和世界观构建功能
+    整合 Cognee 记忆管理、世界观构建和日志查看功能
     """
     
     def __init__(self, parent_frame, cognee_manager=None, worldview_builder=None):
@@ -1037,5 +1454,10 @@ class CogneeWorldviewManagerGUI:
         worldview_frame = ttk.Frame(self.notebook)
         self.notebook.add(worldview_frame, text="🌍 世界观构建")
         self.worldview_gui = WorldviewBuilderGUI(worldview_frame, worldview_builder)
+        
+        # 日志查看标签页（新增）
+        log_frame = ttk.Frame(self.notebook)
+        self.notebook.add(log_frame, text="📋 Cognee 日志")
+        self.log_gui = CogneeLogViewerGUI(log_frame)
         
         debug_logger.log_info('CogneeWorldviewManagerGUI', 'Cognee 与世界观管理 GUI 已初始化')

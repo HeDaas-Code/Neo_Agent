@@ -146,49 +146,32 @@ class CogneeMemoryManager:
             huggingface_tokenizer = os.getenv('HUGGINGFACE_TOKENIZER', embedding_model)
             os.environ['HUGGINGFACE_TOKENIZER'] = huggingface_tokenizer
             
-            # 4. 注册 embedding 模型的 tokenizer 映射
-            model_variants = [
-                embedding_model,                              # BAAI/bge-large-zh-v1.5
-                f"openai/{embedding_model}",                  # openai/BAAI/bge-large-zh-v1.5
-            ]
-            # 添加不带组织前缀的变体
-            if '/' in embedding_model:
-                base_name = embedding_model.split('/')[-1]
-                model_variants.append(base_name)              # bge-large-zh-v1.5
-                model_variants.append(f"openai/{base_name}")  # openai/bge-large-zh-v1.5
-            
-            # 移除重复项
-            model_variants = list(set(filter(None, model_variants)))
-            
-            # 在 tiktoken 中注册（使用 cl100k_base 作为回退）
+            # 4. 配置 HuggingFace AutoTokenizer（完全替代 tiktoken）
+            # HuggingFace 分词器更好地支持中文 embedding 模型
             try:
-                import tiktoken.model
-                for variant in model_variants:
-                    if variant not in tiktoken.model.MODEL_TO_ENCODING:
-                        tiktoken.model.MODEL_TO_ENCODING[variant] = "cl100k_base"
-                        debug_logger.log_info('CogneeMemoryManager', 
-                            f'已注册 tiktoken 映射: {variant} -> cl100k_base')
+                # 尝试预加载 HuggingFace tokenizer
+                from transformers import AutoTokenizer
+                
+                # 为常用中文 embedding 模型配置 tokenizer
+                tokenizer_model = huggingface_tokenizer
+                debug_logger.log_info('CogneeMemoryManager', 
+                    f'使用 HuggingFace AutoTokenizer: {tokenizer_model}')
+                
+                # 尝试加载 tokenizer 以验证配置
+                try:
+                    _ = AutoTokenizer.from_pretrained(tokenizer_model, trust_remote_code=True)
+                    debug_logger.log_info('CogneeMemoryManager', 
+                        f'HuggingFace tokenizer 加载成功: {tokenizer_model}')
+                except Exception as load_err:
+                    debug_logger.log_warning('CogneeMemoryManager', 
+                        f'预加载 tokenizer 失败（将在使用时重试）: {load_err}')
+                        
             except ImportError:
                 debug_logger.log_warning('CogneeMemoryManager', 
-                    'tiktoken 未安装，无法注册模型映射')
+                    'transformers 未安装，请运行: pip install transformers')
             except Exception as e:
                 debug_logger.log_warning('CogneeMemoryManager', 
-                    f'注册 tiktoken 映射失败: {e}')
-            
-            # 在 LiteLLM 中注册
-            try:
-                import litellm
-                for variant in model_variants:
-                    if variant not in litellm.embedding_model_tokenizer_mapping:
-                        litellm.embedding_model_tokenizer_mapping[variant] = "cl100k_base"
-                        debug_logger.log_info('CogneeMemoryManager', 
-                            f'已注册 LiteLLM tokenizer 映射: {variant} -> cl100k_base')
-            except ImportError:
-                debug_logger.log_warning('CogneeMemoryManager', 
-                    'LiteLLM 未安装，无法注册 tokenizer 映射')
-            except Exception as e:
-                debug_logger.log_warning('CogneeMemoryManager', 
-                    f'注册 LiteLLM tokenizer 映射失败: {e}')
+                    f'配置 HuggingFace tokenizer 失败: {e}')
             
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
