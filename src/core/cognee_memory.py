@@ -123,6 +123,13 @@ class CogneeMemoryManager:
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
             os.environ['EMBEDDING_MODEL'] = COGNEE_EMBEDDING_MODEL  # 直接使用模型名
             
+            # 设置 HuggingFace tokenizer 用于 embedding 模型
+            # 解决 "Could not automatically map xxx to a tokeniser" 错误
+            # 参考: https://docs.litellm.ai/docs/embedding/supported_embedding
+            # 使用 cl100k_base 作为默认 tokenizer（GPT-4 和 text-embedding 模型使用的 tokenizer）
+            huggingface_tokenizer = os.getenv('HUGGINGFACE_TOKENIZER', 'cl100k_base')
+            os.environ['HUGGINGFACE_TOKENIZER'] = huggingface_tokenizer
+            
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
             
