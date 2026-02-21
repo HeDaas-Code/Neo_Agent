@@ -123,16 +123,30 @@ class CogneeMemoryManager:
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
             os.environ['EMBEDDING_MODEL'] = COGNEE_EMBEDDING_MODEL  # 直接使用模型名
             
-            # 设置 HuggingFace tokenizer 用于 embedding 模型
+            # 配置 HuggingFace tokenizer
             # 解决 "Could not automatically map xxx to a tokeniser" 错误
-            # 参考: https://docs.litellm.ai/docs/embedding/supported_embedding
-            # 使用 cl100k_base 作为默认 tokenizer（GPT-4 和 text-embedding 模型使用的 tokenizer）
-            huggingface_tokenizer = os.getenv('HUGGINGFACE_TOKENIZER', 'cl100k_base')
+            # 使用 HuggingFace AutoTokenizer 替代 tiktoken，更好地支持中文 embedding 模型
+            
+            # 1. 处理中国大陆 HuggingFace SSL 问题
+            # 设置环境变量禁用 SSL 验证（可选，解决 SSL 证书问题）
+            if os.getenv('HF_HUB_DISABLE_SSL_VERIFY', '0') == '1':
+                os.environ['CURL_CA_BUNDLE'] = ''
+                os.environ['REQUESTS_CA_BUNDLE'] = ''
+                debug_logger.log_info('CogneeMemoryManager', '已禁用 HuggingFace SSL 验证')
+            
+            # 2. 设置 HuggingFace 镜像站点（中国大陆加速）
+            hf_endpoint = os.getenv('HF_ENDPOINT', '')
+            if hf_endpoint:
+                os.environ['HF_ENDPOINT'] = hf_endpoint
+                debug_logger.log_info('CogneeMemoryManager', f'使用 HuggingFace 镜像: {hf_endpoint}')
+            
+            # 3. 配置 tokenizer
+            # 优先使用 HuggingFace tokenizer，如果模型不支持则回退到 cl100k_base
+            embedding_model = COGNEE_EMBEDDING_MODEL
+            huggingface_tokenizer = os.getenv('HUGGINGFACE_TOKENIZER', embedding_model)
             os.environ['HUGGINGFACE_TOKENIZER'] = huggingface_tokenizer
             
-            # 注册 embedding 模型的 tokenizer 映射
-            # 需要同时在 tiktoken 和 LiteLLM 中注册，因为不同的代码路径使用不同的映射
-            embedding_model = COGNEE_EMBEDDING_MODEL
+            # 4. 注册 embedding 模型的 tokenizer 映射
             model_variants = [
                 embedding_model,                              # BAAI/bge-large-zh-v1.5
                 f"openai/{embedding_model}",                  # openai/BAAI/bge-large-zh-v1.5
@@ -146,14 +160,14 @@ class CogneeMemoryManager:
             # 移除重复项
             model_variants = list(set(filter(None, model_variants)))
             
-            # 1. 在 tiktoken 中注册（解决 tiktoken.model.encoding_name_for_model 错误）
+            # 在 tiktoken 中注册（使用 cl100k_base 作为回退）
             try:
                 import tiktoken.model
                 for variant in model_variants:
                     if variant not in tiktoken.model.MODEL_TO_ENCODING:
-                        tiktoken.model.MODEL_TO_ENCODING[variant] = huggingface_tokenizer
+                        tiktoken.model.MODEL_TO_ENCODING[variant] = "cl100k_base"
                         debug_logger.log_info('CogneeMemoryManager', 
-                            f'已注册 tiktoken 映射: {variant} -> {huggingface_tokenizer}')
+                            f'已注册 tiktoken 映射: {variant} -> cl100k_base')
             except ImportError:
                 debug_logger.log_warning('CogneeMemoryManager', 
                     'tiktoken 未安装，无法注册模型映射')
@@ -161,14 +175,14 @@ class CogneeMemoryManager:
                 debug_logger.log_warning('CogneeMemoryManager', 
                     f'注册 tiktoken 映射失败: {e}')
             
-            # 2. 在 LiteLLM 中注册（解决 LiteLLM embedding tokenizer 错误）
+            # 在 LiteLLM 中注册
             try:
                 import litellm
                 for variant in model_variants:
                     if variant not in litellm.embedding_model_tokenizer_mapping:
-                        litellm.embedding_model_tokenizer_mapping[variant] = huggingface_tokenizer
+                        litellm.embedding_model_tokenizer_mapping[variant] = "cl100k_base"
                         debug_logger.log_info('CogneeMemoryManager', 
-                            f'已注册 LiteLLM tokenizer 映射: {variant} -> {huggingface_tokenizer}')
+                            f'已注册 LiteLLM tokenizer 映射: {variant} -> cl100k_base')
             except ImportError:
                 debug_logger.log_warning('CogneeMemoryManager', 
                     'LiteLLM 未安装，无法注册 tokenizer 映射')
