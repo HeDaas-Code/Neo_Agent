@@ -116,6 +116,10 @@ class CogneeMemoryManager:
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
             
+            # 设置 Instructor 模式（控制 LLM 的响应类型）
+            # 参考: https://python.useinstructor.com/modes-comparison/
+            os.environ['LLM_INSTRUCTOR_MODE'] = os.getenv('LLM_INSTRUCTOR_MODE', 'json_mode')
+            
             # 禁用多用户访问控制（简化配置）
             os.environ['ENABLE_BACKEND_ACCESS_CONTROL'] = 'false'
             
