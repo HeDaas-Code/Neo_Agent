@@ -130,6 +130,38 @@ class CogneeMemoryManager:
             huggingface_tokenizer = os.getenv('HUGGINGFACE_TOKENIZER', 'cl100k_base')
             os.environ['HUGGINGFACE_TOKENIZER'] = huggingface_tokenizer
             
+            # 直接在 LiteLLM 中注册 embedding 模型的 tokenizer 映射
+            # 这是解决 "Could not automatically map xxx to a tokeniser" 的正确方式
+            try:
+                import litellm
+                # 为 embedding 模型注册多个名称变体的 tokenizer 映射
+                embedding_model = COGNEE_EMBEDDING_MODEL
+                model_variants = [
+                    embedding_model,                              # BAAI/bge-large-zh-v1.5
+                    f"openai/{embedding_model}",                  # openai/BAAI/bge-large-zh-v1.5
+                    embedding_model.split('/')[-1] if '/' in embedding_model else embedding_model,  # bge-large-zh-v1.5
+                ]
+                # 添加不带组织前缀的变体
+                if '/' in embedding_model:
+                    base_name = embedding_model.split('/')[-1]
+                    model_variants.append(base_name)
+                    model_variants.append(f"openai/{base_name}")
+                
+                # 移除重复项
+                model_variants = list(set(model_variants))
+                
+                for variant in model_variants:
+                    if variant and variant not in litellm.embedding_model_tokenizer_mapping:
+                        litellm.embedding_model_tokenizer_mapping[variant] = huggingface_tokenizer
+                        debug_logger.log_info('CogneeMemoryManager', 
+                            f'已注册 tokenizer 映射: {variant} -> {huggingface_tokenizer}')
+            except ImportError:
+                debug_logger.log_warning('CogneeMemoryManager', 
+                    'LiteLLM 未安装，无法注册 tokenizer 映射')
+            except Exception as e:
+                debug_logger.log_warning('CogneeMemoryManager', 
+                    f'注册 tokenizer 映射失败: {e}')
+            
             # 设置较长的超时时间以适应网络延迟
             os.environ['LLM_TIMEOUT'] = os.getenv('LLM_TIMEOUT', '120')
             
