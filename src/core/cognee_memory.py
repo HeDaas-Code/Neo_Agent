@@ -98,18 +98,28 @@ class CogneeMemoryManager:
             # 配置 Cognee 使用 SiliconFlow（OpenAI兼容的自定义端点）
             # 参考: https://docs.cognee.ai/setup-configuration/llm-providers
             # 
-            # 对于 Custom Providers，设置 LLM_PROVIDER="custom" 并指定端点，
-            # 模型名称直接使用服务商的格式，无需添加额外前缀
+            # SiliconFlow 是 OpenAI 兼容的 API 端点
+            # 参考 LiteLLM 文档: https://docs.litellm.ai/docs/providers/openai_compatible
+            # 
+            # 对于 OpenAI 兼容的端点，需要：
+            # 1. 使用 openai 作为 provider（因为 SiliconFlow 兼容 OpenAI API 格式）
+            # 2. 设置 OPENAI_API_BASE 指向 SiliconFlow 端点
+            # 3. 设置 OPENAI_API_KEY 为 SiliconFlow API Key
+            # 4. 模型名称直接使用 SiliconFlow 格式（如 Qwen/Qwen2.5-7B-Instruct）
             
             # 在导入 cognee 之前设置环境变量（这是 Cognee 推荐的配置方式）
-            os.environ['LLM_PROVIDER'] = 'custom'
+            # 使用 OpenAI 兼容模式
+            os.environ['LLM_PROVIDER'] = 'openai'
             os.environ['LLM_API_KEY'] = self.api_key or ''
+            os.environ['OPENAI_API_KEY'] = self.api_key or ''  # LiteLLM 也会检查这个
+            os.environ['OPENAI_API_BASE'] = SILICONFLOW_BASE_URL  # 关键：设置基础URL
             os.environ['LLM_ENDPOINT'] = SILICONFLOW_BASE_URL
             os.environ['LLM_MODEL'] = COGNEE_LLM_MODEL  # 直接使用模型名，如 Qwen/Qwen2.5-7B-Instruct
             
-            # Embedding 配置
-            os.environ['EMBEDDING_PROVIDER'] = 'custom'
+            # Embedding 配置 - 同样使用 OpenAI 兼容模式
+            os.environ['EMBEDDING_PROVIDER'] = 'openai'
             os.environ['EMBEDDING_API_KEY'] = self.api_key or ''
+            os.environ['OPENAI_EMBEDDING_API_KEY'] = self.api_key or ''  # 备用
             os.environ['EMBEDDING_ENDPOINT'] = SILICONFLOW_BASE_URL
             os.environ['EMBEDDING_MODEL'] = COGNEE_EMBEDDING_MODEL  # 直接使用模型名
             
@@ -124,10 +134,10 @@ class CogneeMemoryManager:
             os.environ['ENABLE_BACKEND_ACCESS_CONTROL'] = 'false'
             
             debug_logger.log_info('CogneeMemoryManager', 'Cognee 环境变量配置完成', {
-                'llm_provider': 'custom',
-                'llm_endpoint': SILICONFLOW_BASE_URL,
+                'llm_provider': 'openai',
+                'openai_api_base': SILICONFLOW_BASE_URL,
                 'llm_model': COGNEE_LLM_MODEL,
-                'embedding_provider': 'custom',
+                'embedding_provider': 'openai',
                 'embedding_model': COGNEE_EMBEDDING_MODEL
             })
             
