@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 本文件记录项目的所有重要变更。
 
+## [2.1.0] - 2026-02-22
+
+### 项目结构优化 / Project Structure Optimization
+- **清理临时文件 / Removed temporary files**
+  - 删除版本号文件（=0.2.0, =0.3.0, =3.9.0）
+  - 删除比较文件（VISUAL_COMPARISON.txt）
+- **文档归档 / Documentation Archiving**
+  - 将所有非核心md文件移动到docs目录
+  - 保留README.md、CHANGELOG.md和LICENSE在根目录
+  - 归档的文档包括：API.md、ARCHITECTURE.md、CONTRIBUTING.md等
+
+### 文档更新 / Documentation Updates
+- **重写README.md**，更新架构描述和特性列表
+- **优化文档结构**，提高可读性和维护性
+- **统一文档风格**，确保一致性
+
+### 改进 / Improved
+- ✅ 项目结构更加清晰整洁
+- ✅ 文档管理更加规范
+- ✅ 代码库更加易于维护
+
 ## [2.0.0] - 2026-02-09
 
 ### 重大更新 🎉 Major Update
