@@ -1,8 +1,8 @@
-# Neo Agent 复合框架架构文档
+# Neo Agent 架构文档
 
 ## 概述
 
-Neo Agent已从单一的LangChain框架升级为复合框架架构，引入LangChain、LangGraph和多层模型系统，实现更智能、更高效的对话代理。
+Neo Agent 是一个基于 LangChain 的智能对话代理系统，采用多层模型架构，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
 
 ## 架构组成
 
@@ -14,25 +14,7 @@ LangChain作为核心框架，提供：
 - 链式调用支持
 - 模板和输出解析
 
-### 2. LangGraph状态管理
-
-LangGraph用于管理复杂对话流程：
-- 状态图定义和编译
-- 节点和边的管理
-- 条件分支支持
-- 流程可视化（未来计划）
-
-**当前实现**：
-- `conversation_graph.py`：定义了基础的对话流程框架
-- 节点包括：理解、知识检索、视觉检查、日程检查、NPS工具、生成回复、情感分析
-- 支持条件边，根据状态决定是否进行情感分析
-
-**未来计划**：
-- 完全集成到ChatAgent的chat方法
-- 添加更多复杂的流程节点
-- 实现流程可视化
-
-### 3. 多层模型架构
+### 2. 多层模型架构
 
 根据任务类型智能选择合适的模型：
 
@@ -48,7 +30,6 @@ LangGraph用于管理复杂对话流程：
   - 情感分析
   - 知识提取
   - 实体识别
-  - 子智能体任务
   - 意图识别
 
 #### 多模态模型 (Qwen/Qwen3-VL-32B-Instruct)
@@ -127,20 +108,6 @@ response = LLMHelper.call_main_model(
 )
 ```
 
-### ConversationGraph (conversation_graph.py)
-
-使用LangGraph管理对话流程：
-
-```python
-from src.core.conversation_graph import ConversationGraph
-
-# 创建对话流程图（需要chat_agent实例）
-graph = ConversationGraph(chat_agent)
-
-# 处理对话
-final_state = graph.process(user_input, messages)
-```
-
 ## 兼容性设计
 
 为保持向后兼容，所有更改都采用了兼容层设计：
@@ -165,10 +132,9 @@ response = llm.chat(messages, task_type='tool')  # 使用工具模型
 以下模块已更新为使用新架构：
 
 1. **chat_agent.py**: SiliconFlowLLM作为兼容层
-2. **multi_agent_coordinator.py**: SubAgent使用工具模型
-3. **emotion_analyzer.py**: 使用LLMHelper调用工具模型
-4. **knowledge_base.py**: 使用LLMHelper进行知识提取
-5. **其他工具模块**: 保持原有接口，内部使用新架构
+2. **emotion_analyzer.py**: 使用LLMHelper调用工具模型
+3. **knowledge_base.py**: 使用LLMHelper进行知识提取
+4. **其他工具模块**: 保持原有接口，内部使用新架构
 
 ## 配置说明
 
@@ -227,16 +193,7 @@ MAX_TOKENS=2000
 3. **质量保证**：主要对话使用大模型，保证质量
 4. **灵活扩展**：易于添加新的模型类型
 
-## 未来计划
-
-1. **完全集成LangGraph**：将对话流程完全迁移到LangGraph
-2. **深度集成deepagents**：探索更高级的智能体协作模式
-3. **流程可视化**：实现对话流程的可视化展示
-4. **性能监控**：添加模型使用统计和性能分析
-5. **动态路由**：根据任务复杂度动态选择模型
-
 ## 参考资料
 
 - [LangChain文档](https://docs.langchain.com/)
-- [LangGraph文档](https://langchain-ai.github.io/langgraph/)
 - [SiliconFlow API](https://siliconflow.cn/)

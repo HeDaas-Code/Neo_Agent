@@ -35,12 +35,18 @@ class KnowledgeBase:
     """
 
     def __init__(self,
-                 db_manager: DatabaseManager = None):
+                 db_manager: DatabaseManager = None,
+                 api_key: str = None,
+                 api_url: str = None,
+                 model_name: str = None):
         """
         初始化知识库管理器（使用LangChain架构）
 
         Args:
             db_manager: 数据库管理器实例（如果为None则创建新实例）
+            api_key: API密钥（保留用于向后兼容，实际不使用）
+            api_url: API地址（保留用于向后兼容，实际不使用）
+            model_name: 模型名称（保留用于向后兼容，实际不使用）
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
@@ -492,10 +498,13 @@ class KnowledgeBase:
                     return knowledge_list
                 else:
                     print(f"✗ 返回的不是列表格式: {type(knowledge_list)}")
+                    debug_logger.log_error('KnowledgeBase', f'返回的不是列表格式: {type(knowledge_list)}')
                     return None
             except json.JSONDecodeError as e:
                 print(f"✗ JSON解析失败: {e}")
                 print(f"原始内容: {content[:200]}...")
+                debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
+                debug_logger.log_info('KnowledgeBase', '原始内容', {'content': content[:500]})
                 return None
 
         except Exception as e:
@@ -562,6 +571,8 @@ class KnowledgeBase:
             except json.JSONDecodeError as e:
                 print(f"✗ 实体提取JSON解析失败")
                 debug_logger.log_error('KnowledgeBase', 'JSON解析失败', e)
+                debug_logger.log_info('KnowledgeBase', '无法解析的内容', {'content': content[:500]})
+                print(f"调试信息 - 原始内容: {content[:200]}...")
                 return []
 
         except Exception as e:

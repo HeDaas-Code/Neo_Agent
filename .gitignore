@@ -8,6 +8,12 @@ knowledge_base.json
 base_knowledge.json
 emotion_data.json
 
+# NPS插件配置（可能包含API keys）
+configs/nps_plugins/plugins_config.json
+# 但允许示例文件和文档
+!configs/nps_plugins/*.example
+!configs/nps_plugins/README.md
+
 # API密钥和敏感信息
 .env
 .env.local

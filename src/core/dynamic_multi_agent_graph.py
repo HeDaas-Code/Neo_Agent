@@ -1,12 +1,15 @@
 """
 动态多智能体协作图模块
 基于LangGraph实现自主编排的多智能体协作系统
+增强版：集成DeepAgents长期记忆和跨会话状态管理
 """
 
+import os
 import json
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 import operator
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.tools.debug_logger import get_debug_logger
@@ -14,6 +17,9 @@ from src.core.event_manager import TaskEvent
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
+
+# 是否启用长期记忆和跨会话状态管理
+ENABLE_PERSISTENT_STATE = os.getenv('ENABLE_PERSISTENT_STATE', 'true').lower() == 'true'
 
 
 class AgentState(TypedDict):
@@ -66,21 +72,34 @@ class DynamicMultiAgentGraph:
     """
     动态多智能体协作图
     使用LangGraph实现主模型自主编排的多智能体协作
+    增强版：支持长期记忆和跨会话状态管理
     """
     
-    def __init__(self, question_tool=None, progress_callback=None):
+    def __init__(self, question_tool=None, progress_callback=None, enable_persistent_state=ENABLE_PERSISTENT_STATE):
         """
         初始化动态多智能体协作图
         
         Args:
             question_tool: 中断性提问工具
             progress_callback: 进度回调函数
+            enable_persistent_state: 是否启用持久化状态管理
         """
         self.question_tool = question_tool
         self.progress_callback = progress_callback
+        self.enable_persistent_state = enable_persistent_state
+        
+        # 启用持久化状态管理
+        if self.enable_persistent_state:
+            self.checkpointer = MemorySaver()
+            debug_logger.log_info('DynamicMultiAgentGraph', '已启用持久化状态管理（checkpointer）')
+        else:
+            self.checkpointer = None
+        
         self.graph = self._build_graph()
         
-        debug_logger.log_module('DynamicMultiAgentGraph', '动态多智能体协作图初始化完成', {})
+        debug_logger.log_module('DynamicMultiAgentGraph', '动态多智能体协作图初始化完成', {
+            'enable_persistent_state': self.enable_persistent_state
+        })
     
     def _build_graph(self) -> StateGraph:
         """
@@ -454,9 +473,9 @@ class DynamicMultiAgentGraph:
         Returns:
             执行结果
         """
-        from src.core.multi_agent_coordinator import SubAgent
+        from src.core.multi_agent_coordinator import create_sub_agent
         
-        agent = SubAgent(
+        agent = create_sub_agent(
             agent_id=agent_state['agent_id'],
             role=agent_state['role'],
             description=agent_state['description']
@@ -596,21 +615,88 @@ class DynamicMultiAgentGraph:
             'next_action': 'orchestrate'
         }
         
-        # 执行工作流
+        # 执行工作流（使用checkpointer支持跨会话状态管理）
         try:
-            final_state = self.graph.invoke(initial_state)
+            if self.enable_persistent_state and self.checkpointer:
+                # 使用事件ID作为线程ID，实现跨会话状态管理
+                thread_id = f"task_{task_event.event_id}"
+                config = {
+                    "configurable": {
+                        "thread_id": thread_id
+                    }
+                }
+                
+                debug_logger.log_info('DynamicMultiAgentGraph', '使用持久化状态', {
+                    'thread_id': thread_id
+                })
+                
+                final_state = self.graph.invoke(initial_state, config=config)
+            else:
+                # 无状态执行
+                final_state = self.graph.invoke(initial_state)
             
             if final_state.get('error'):
                 return {
                     'success': False,
                     'error': final_state['error'],
+                    'orchestration_plan': final_state.get('orchestration_plan'),
+                    'agent_results': final_state.get('agent_results', {}),
                     'collaboration_logs': final_state.get('collaboration_logs', [])
+                }
+            
+            # 检查智能体执行状态，判断任务是否真正成功
+            orchestration_plan = final_state.get('orchestration_plan', {})
+            agents = orchestration_plan.get('agents', [])
+            strategy = orchestration_plan.get('execution_strategy', '')
+            
+            if agents:
+                # 统计成功和失败的智能体数量
+                successful_agents = [a for a in agents if a.get('status') == 'completed']
+                failed_agents = [a for a in agents if a.get('status') == 'failed']
+                
+                # 如果所有智能体都失败，任务失败
+                if failed_agents and not successful_agents:
+                    error_details = []
+                    for agent in failed_agents:
+                        error_msg = agent.get('error', '未知错误')
+                        error_details.append(f"[{agent.get('role', '未知')}]: {error_msg}")
+                    
+                    return {
+                        'success': False,
+                        'error': f"所有智能体执行失败。详情：\n" + "\n".join(error_details),
+                        'result': final_state.get('final_result', '任务执行失败'),
+                        'orchestration_plan': orchestration_plan,
+                        'agent_results': final_state.get('agent_results', {}),
+                        'collaboration_logs': final_state.get('collaboration_logs', []),
+                        'failed_agents_count': len(failed_agents),
+                        'successful_agents_count': len(successful_agents)
+                    }
+                
+                # 如果有部分智能体失败，在结果中说明但仍标记为成功（部分成功）
+                if failed_agents:
+                    debug_logger.log_warning('DynamicMultiAgentGraph', 
+                        f'任务部分完成：{len(successful_agents)}/{len(agents)}个智能体成功', {
+                        'successful': len(successful_agents),
+                        'failed': len(failed_agents)
+                    })
+            
+            # 对于simple策略，返回结果但标记为需要用户确认
+            # 避免在计划生成后立即标记为完成
+            if strategy == 'simple':
+                return {
+                    'success': True,
+                    'result': final_state.get('final_result', '任务完成'),
+                    'orchestration_plan': orchestration_plan,
+                    'agent_results': final_state.get('agent_results', {}),
+                    'collaboration_logs': final_state.get('collaboration_logs', []),
+                    'is_simple_result': True,  # 标记为简单结果，需要延迟状态更新
+                    'requires_delivery_confirmation': True  # 需要确认结果已交付
                 }
             
             return {
                 'success': True,
                 'result': final_state.get('final_result', '任务完成'),
-                'orchestration_plan': final_state.get('orchestration_plan'),
+                'orchestration_plan': orchestration_plan,
                 'agent_results': final_state.get('agent_results', {}),
                 'collaboration_logs': final_state.get('collaboration_logs', [])
             }
@@ -620,5 +706,7 @@ class DynamicMultiAgentGraph:
             return {
                 'success': False,
                 'error': f'任务处理失败: {str(e)}',
+                'orchestration_plan': initial_state.get('orchestration_plan'),
+                'agent_results': initial_state.get('agent_results', {}),
                 'collaboration_logs': initial_state.get('collaboration_logs', [])
             }

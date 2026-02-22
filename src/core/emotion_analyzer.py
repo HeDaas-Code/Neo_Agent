@@ -40,6 +40,9 @@ class EmotionRelationshipAnalyzer:
         """
         # 使用共享的数据库管理器
         self.db = db_manager or DatabaseManager()
+        
+        # 初始化模型名称（用于日志记录）
+        self.model_name = os.getenv('TOOL_MODEL_NAME', 'zai-org/GLM-4.6V')
 
         # 检查是否需要从JSON迁移数据
         if os.path.exists('emotion_data.json'):

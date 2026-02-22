@@ -41,7 +41,7 @@ cd Neo_Agent
 pip install -r requirements.txt
 
 # 配置环境变量
-cp example.env .env
+cp .env .env
 # 编辑 .env 填入配置
 
 # 运行测试
@@ -112,7 +112,7 @@ cd Neo_Agent
 pip install -r requirements.txt
 
 # Configure environment
-cp example.env .env
+cp .env .env
 # Edit .env with your configuration
 
 # Run tests

@@ -1327,18 +1327,45 @@ class ChatAgent:
             f"处理结果: {result.get('message', '未知')}"
         )
 
-        # 任务执行完成后，直接标记为已完成，不进行评价
-        # 将结果提交给用户
-        self.event_manager.update_event_status(
-            event.event_id,
-            EventStatus.COMPLETED,
-            '任务执行完成，结果已提交给用户'
-        )
-
-        debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
-            'event_id': event.event_id,
-            'success': result.get('success', False)
-        })
+        # 根据实际执行结果更新事件状态
+        # 只有在任务真正执行完成后才更新为COMPLETED
+        # 如果只是生成了计划但未执行，或执行失败，则不更新为COMPLETED
+        # 对于simple策略任务，不立即更新为COMPLETED，保持PROCESSING状态
+        if result.get('success'):
+            # 检查是否是simple策略的结果（需要延迟状态更新）
+            if result.get('is_simple_result') or result.get('requires_delivery_confirmation'):
+                # Simple策略任务：结果已生成但不标记为COMPLETED
+                # 状态保持PROCESSING，等待结果真正交付给用户后再更新
+                debug_logger.log_info('ChatAgent', '任务结果已生成（simple策略），保持PROCESSING状态', {
+                    'event_id': event.event_id,
+                    'strategy': 'simple',
+                    'result_ready': True
+                })
+                # 注意：状态不更新为COMPLETED，GUI收到结果后由用户或GUI来确认
+            else:
+                # 非simple策略：任务真正执行完成，更新为COMPLETED
+                self.event_manager.update_event_status(
+                    event.event_id,
+                    EventStatus.COMPLETED,
+                    '任务执行完成，结果已提交给用户'
+                )
+                debug_logger.log_info('ChatAgent', '任务型事件处理完成', {
+                    'event_id': event.event_id,
+                    'success': True
+                })
+        else:
+            # 任务执行失败
+            error_msg = result.get('error', result.get('message', '任务执行失败'))
+            self.event_manager.update_event_status(
+                event.event_id,
+                EventStatus.FAILED,
+                f'任务执行失败：{error_msg}'
+            )
+            debug_logger.log_info('ChatAgent', '任务型事件处理失败', {
+                'event_id': event.event_id,
+                'success': False,
+                'error': error_msg
+            })
 
         return result
 
@@ -1381,11 +1408,29 @@ class ChatAgent:
                     last_result = result['execution_results'][-1]
                     final_output = last_result.get('output', '')
                     
+                    # 如果输出为空，尝试构建更详细的反馈
+                    if not final_output:
+                        # 检查是否有错误
+                        if 'error' in last_result:
+                            final_output = f"❌ 任务执行失败：{last_result['error']}"
+                        elif 'step' in last_result:
+                            # 有步骤信息但无输出
+                            final_output = f"✅ 任务步骤「{last_result['step']}」已完成，但未返回具体内容"
+                        else:
+                            # 使用result中的message
+                            final_output = result.get('message', '任务执行完成但未返回具体内容')
+                    
                     # 使用正常的智能体回复模式，直接返回最后的执行结果
-                    return final_output if final_output else result.get('message', '任务已完成')
+                    return final_output
                 else:
-                    # 如果没有执行结果，返回基本消息
-                    return result.get('message', '任务已完成')
+                    # 如果没有执行结果，检查是否有错误信息
+                    if 'error' in result:
+                        return f"❌ 任务执行失败：{result['error']}"
+                    elif result.get('success') == False:
+                        return f"❌ 任务执行未成功：{result.get('message', '未知原因')}"
+                    else:
+                        # 返回基本消息或默认消息
+                        return result.get('message', '⚠️ 任务执行未产生结果，请检查任务配置')
 
             else:
                 return f"❌ 错误：未知的事件类型 {event.event_type.value}"

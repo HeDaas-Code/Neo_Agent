@@ -17,7 +17,7 @@ def test_export():
     db_manager = DatabaseManager(db_path="test_agent.db")
     
     # 创建迁移管理器
-    migration = SettingsMigration(db_manager=db_manager, env_path="example.env")
+    migration = SettingsMigration(db_manager=db_manager, env_path=".env")
     
     # 测试导出（选择部分类别）
     selected_categories = [
