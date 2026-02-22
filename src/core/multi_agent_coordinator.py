@@ -13,11 +13,15 @@ import requests
 from src.core.event_manager import TaskEvent
 from src.tools.interrupt_question_tool import InterruptQuestionTool
 from src.tools.debug_logger import get_debug_logger
+from src.core.deepagents_wrapper import DeepSubAgentWrapper
 
 load_dotenv()
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
+
+# 标志：是否使用deepagents增强的子智能体
+USE_DEEP_AGENTS = os.getenv('USE_DEEP_AGENTS', 'true').lower() == 'true'
 
 
 class SubAgent:
@@ -30,28 +34,19 @@ class SubAgent:
         self,
         agent_id: str,
         role: str,
-        description: str,
-        api_key: str,
-        api_url: str,
-        model_name: str
+        description: str
     ):
         """
-        初始化子智能体
+        初始化子智能体（使用LangChain）
 
         Args:
             agent_id: 智能体ID
             role: 智能体角色
             description: 角色描述
-            api_key: API密钥
-            api_url: API地址
-            model_name: 模型名称
         """
         self.agent_id = agent_id
         self.role = role
         self.description = description
-        self.api_key = api_key
-        self.api_url = api_url
-        self.model_name = model_name
 
     def execute_task(
         self,
@@ -60,7 +55,7 @@ class SubAgent:
         tools: List[Dict[str, Any]] = None
     ) -> str:
         """
-        执行任务
+        执行任务（使用提示词模板）
 
         Args:
             task_description: 任务描述
@@ -75,7 +70,79 @@ class SubAgent:
             'task_length': len(task_description)
         })
 
-        # 构建系统提示词
+        try:
+            # 尝试使用提示词模板
+            from src.core.prompt_manager import get_prompt_manager
+            prompt_manager = get_prompt_manager()
+            
+            # 构建工具描述
+            tools_description = ""
+            if tools:
+                tools_description = "\n可用工具：\n"
+                for tool in tools:
+                    tools_description += f"- {tool['name']}: {tool['description']}\n"
+            
+            # 准备变量
+            variables = {
+                'agent_role': self.role,
+                'agent_description': self.description,
+                'task_description': task_description,
+                'context': json.dumps(context, ensure_ascii=False, indent=2),
+                'tools_description': tools_description or "无可用工具"
+            }
+            
+            # 加载并渲染任务提示词
+            system_prompt = prompt_manager.get_task_prompt('sub_agent_task', variables)
+            
+        except Exception as e:
+            # 如果模板加载失败，使用后备的硬编码提示词
+            debug_logger.log_error('SubAgent', f'加载提示词模板失败，使用后备提示词: {str(e)}', e)
+            system_prompt = self._build_fallback_prompt(task_description, context, tools)
+
+        # 使用LangChain LLM执行任务
+        try:
+            from src.core.langchain_llm import LangChainLLM, ModelType
+            
+            # 子智能体使用工具模型（小模型）
+            llm = LangChainLLM(ModelType.TOOL)
+            
+            messages = [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': f'请完成任务：{task_description}'}
+            ]
+            
+            debug_logger.log_module('SubAgent', f'使用工具模型执行任务', {
+                'model_name': llm.model_name
+            })
+            
+            output = llm.chat(messages)
+            
+            debug_logger.log_info('SubAgent', f'智能体[{self.role}]任务完成', {
+                'output_length': len(output)
+            })
+            return output
+
+        except Exception as e:
+            debug_logger.log_error('SubAgent', f'智能体[{self.role}]执行失败: {str(e)}', e)
+            return f"【执行失败】{str(e)}"
+
+    def _build_fallback_prompt(
+        self,
+        task_description: str,
+        context: Dict[str, Any],
+        tools: List[Dict[str, Any]] = None
+    ) -> str:
+        """
+        构建后备提示词（兼容性）
+
+        Args:
+            task_description: 任务描述
+            context: 上下文信息
+            tools: 可用工具列表
+
+        Returns:
+            提示词
+        """
         system_prompt = f"""你是一个{self.role}。
 
 你的职责：{self.description}
@@ -98,85 +165,95 @@ class SubAgent:
 请按照任务要求完成你的工作，如有需要可以使用可用的工具。
 输出格式：直接输出你的工作结果，简洁明了。"""
 
-        # 调用API
+        return system_prompt
+
+
+def create_sub_agent(
+    agent_id: str,
+    role: str,
+    description: str,
+    use_deep_agents: bool = USE_DEEP_AGENTS
+) -> 'SubAgent':
+    """
+    工厂函数：创建子智能体
+    根据配置选择使用传统SubAgent或DeepAgents增强版本
+
+    Args:
+        agent_id: 智能体ID
+        role: 角色名称
+        description: 角色描述
+        use_deep_agents: 是否使用deepagents（默认从环境变量读取）
+
+    Returns:
+        SubAgent或DeepSubAgentWrapper实例
+    """
+    if use_deep_agents:
         try:
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'model': self.model_name,
-                'messages': [
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': f'请完成任务：{task_description}'}
-                ],
-                'temperature': 0.7,
-                'max_tokens': 2000,
-                'stream': False
-            }
-
-            debug_logger.log_request('SubAgent', self.api_url, payload, headers)
-
-            start_time = time.time()
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=60
+            debug_logger.log_info('SubAgentFactory', f'创建DeepAgents增强子智能体: {role}')
+            return DeepSubAgentWrapper(
+                agent_id=agent_id,
+                role=role,
+                description=description
             )
-            elapsed_time = time.time() - start_time
-
-            response.raise_for_status()
-            result = response.json()
-
-            debug_logger.log_response('SubAgent', result, response.status_code, elapsed_time)
-
-            if 'choices' in result and len(result['choices']) > 0:
-                output = result['choices'][0]['message']['content']
-                debug_logger.log_info('SubAgent', f'智能体[{self.role}]任务完成', {
-                    'output_length': len(output),
-                    'elapsed_time': elapsed_time
-                })
-                return output
-            else:
-                return "【执行失败】未收到有效响应"
-
         except Exception as e:
-            debug_logger.log_error('SubAgent', f'智能体[{self.role}]执行失败: {str(e)}', e)
-            return f"【执行失败】{str(e)}"
+            debug_logger.log_error('SubAgentFactory', 
+                f'创建DeepAgents子智能体失败，降级到传统模式: {str(e)}', e)
+            # 降级到传统SubAgent
+            return SubAgent(agent_id, role, description)
+    else:
+        debug_logger.log_info('SubAgentFactory', f'创建传统子智能体: {role}')
+        return SubAgent(agent_id, role, description)
 
 
 class MultiAgentCoordinator:
     """
     多智能体协调器
     负责协调多个智能体完成复杂任务
+    支持传统的固定流程和新的动态流程
     """
 
     def __init__(
         self,
         question_tool: InterruptQuestionTool,
-        progress_callback: Optional[Callable[[str], None]] = None
+        progress_callback: Optional[Callable[[str], None]] = None,
+        use_dynamic_graph: bool = True
     ):
         """
-        初始化多智能体协调器
+        初始化多智能体协调器（使用LangChain架构）
 
         Args:
             question_tool: 中断性提问工具
             progress_callback: 进度回调函数
+            use_dynamic_graph: 是否使用动态协作图（默认True）
         """
         self.question_tool = question_tool
         self.progress_callback = progress_callback
-        
-        # 从环境变量获取API配置
-        self.api_key = os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
-        self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
+        self.use_dynamic_graph = use_dynamic_graph
         
         # 协作日志记录
         self.collaboration_logs = []
         
-        debug_logger.log_module('MultiAgentCoordinator', '多智能体协调器初始化完成')
+        # 初始化动态协作图
+        if use_dynamic_graph:
+            try:
+                from src.core.dynamic_multi_agent_graph import DynamicMultiAgentGraph
+                self.dynamic_graph = DynamicMultiAgentGraph(
+                    question_tool=question_tool,
+                    progress_callback=progress_callback
+                )
+                debug_logger.log_module('MultiAgentCoordinator', 
+                    '多智能体协调器初始化完成（使用动态LangGraph协作）')
+            except Exception as e:
+                debug_logger.log_error('MultiAgentCoordinator', 
+                    f'动态协作图初始化失败，降级到传统模式: {str(e)}', e)
+                self.use_dynamic_graph = False
+                self.dynamic_graph = None
+                debug_logger.log_module('MultiAgentCoordinator', 
+                    '多智能体协调器初始化完成（使用传统固定流程）')
+        else:
+            self.dynamic_graph = None
+            debug_logger.log_module('MultiAgentCoordinator', 
+                '多智能体协调器初始化完成（使用传统固定流程）')
 
     def add_collaboration_log(self, agent_role: str, action: str, content: str):
         """
@@ -225,6 +302,7 @@ class MultiAgentCoordinator:
     ) -> Dict[str, Any]:
         """
         处理任务型事件
+        根据配置选择动态协作图或传统固定流程
 
         Args:
             task_event: 任务事件
@@ -235,8 +313,42 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始处理任务型事件', {
             'event_id': task_event.event_id,
-            'title': task_event.title
+            'title': task_event.title,
+            'mode': 'dynamic' if self.use_dynamic_graph else 'traditional'
         })
+
+        # 使用动态协作图
+        if self.use_dynamic_graph and self.dynamic_graph:
+            try:
+                result = self.dynamic_graph.process_task_event(task_event, character_context)
+                # 合并协作日志
+                self.collaboration_logs = result.get('collaboration_logs', [])
+                return result
+            except Exception as e:
+                debug_logger.log_error('MultiAgentCoordinator', 
+                    f'动态协作图执行失败，降级到传统模式: {str(e)}', e)
+                # 降级到传统模式
+                return self._process_task_event_traditional(task_event, character_context)
+        
+        # 使用传统固定流程
+        return self._process_task_event_traditional(task_event, character_context)
+
+    def _process_task_event_traditional(
+        self,
+        task_event: TaskEvent,
+        character_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        使用传统固定流程处理任务型事件（后备方案）
+
+        Args:
+            task_event: 任务事件
+            character_context: 角色上下文信息
+
+        Returns:
+            处理结果
+        """
+        debug_logger.log_module('MultiAgentCoordinator', '使用传统固定流程处理任务')
 
         # 清空之前的协作日志
         self.collaboration_logs = []
@@ -259,6 +371,20 @@ class MultiAgentCoordinator:
         self.emit_progress("智能体正在制定执行计划...")
         execution_plan = self._create_execution_plan(task_event, task_understanding)
         
+        # 检查执行计划是否有效
+        if not execution_plan.get('steps') or len(execution_plan['steps']) == 0:
+            error_msg = '无法制定执行计划，任务可能太模糊或不明确'
+            self.emit_progress(f"❌ {error_msg}")
+            return {
+                'success': False,
+                'message': error_msg,
+                'error': error_msg,
+                'execution_results': [],
+                'task_understanding': task_understanding,
+                'execution_plan': execution_plan,
+                'collaboration_logs': self.collaboration_logs
+            }
+        
         self.emit_progress(f"执行计划已制定，共{len(execution_plan['steps'])}个步骤")
 
         # 第三步：执行计划
@@ -279,10 +405,15 @@ class MultiAgentCoordinator:
                 self.emit_progress(f"用户已回答问题，继续执行...")
 
             if not result.get('success'):
-                self.emit_progress(f"步骤执行失败：{result.get('error', '未知错误')}")
+                error_detail = result.get('error', '未知错误')
+                self.emit_progress(f"步骤执行失败：{error_detail}")
+                # 确保execution_results包含失败信息
+                if not result.get('output'):
+                    result['output'] = f"❌ 步骤{i}执行失败：{error_detail}"
                 return {
                     'success': False,
-                    'error': f'执行失败于步骤{i}',
+                    'message': f'任务执行失败于步骤{i}：{error_detail}',
+                    'error': f'执行失败于步骤{i}：{error_detail}',
                     'execution_results': execution_results,
                     'collaboration_logs': self.collaboration_logs
                 }
@@ -318,14 +449,11 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始理解任务')
 
-        # 创建理解智能体
-        understanding_agent = SubAgent(
+        # 创建理解智能体（使用工厂函数）
+        understanding_agent = create_sub_agent(
             agent_id='understanding_agent',
             role='任务分析专家',
-            description='负责理解和分析任务需求',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责理解和分析任务需求'
         )
 
         task_description = f"""
@@ -374,14 +502,11 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始制定执行计划')
 
-        # 创建规划智能体
-        planning_agent = SubAgent(
+        # 创建规划智能体（使用工厂函数）
+        planning_agent = create_sub_agent(
             agent_id='planning_agent',
             role='任务规划专家',
-            description='负责将复杂任务分解为可执行的步骤',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责将复杂任务分解为可执行的步骤'
         )
 
         context = {
@@ -460,14 +585,11 @@ class MultiAgentCoordinator:
             'step': step['description']
         })
 
-        # 创建执行智能体
-        execution_agent = SubAgent(
+        # 创建执行智能体（使用工厂函数）
+        execution_agent = create_sub_agent(
             agent_id=f'execution_agent_{len(previous_results)}',
             role='任务执行专家',
-            description='负责执行具体的任务步骤',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责执行具体的任务步骤'
         )
 
         # 准备工具列表（包含中断性提问工具）
@@ -531,14 +653,11 @@ class MultiAgentCoordinator:
         """
         debug_logger.log_module('MultiAgentCoordinator', '开始验证任务完成情况')
 
-        # 创建验证智能体
-        verification_agent = SubAgent(
+        # 创建验证智能体（使用工厂函数）
+        verification_agent = create_sub_agent(
             agent_id='verification_agent',
             role='任务验证专家',
-            description='负责验证任务是否达到完成标准',
-            api_key=self.api_key,
-            api_url=self.api_url,
-            model_name=self.model_name
+            description='负责验证任务是否达到完成标准'
         )
 
         # 整理执行结果

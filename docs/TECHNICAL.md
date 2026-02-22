@@ -11,11 +11,9 @@ Neo_Agent/
 │   │   ├── chat_agent.py           # 对话代理主类
 │   │   ├── database_manager.py     # 数据库管理器
 │   │   ├── emotion_analyzer.py     # 情感分析器
-│   │   ├── event_manager.py        # 事件管理器
 │   │   ├── knowledge_base.py       # 知识库管理
 │   │   ├── long_term_memory.py     # 长期记忆系统
 │   │   ├── base_knowledge.py       # 基础知识管理
-│   │   ├── multi_agent_coordinator.py  # 多代理协调器
 │   │   ├── schedule_manager.py     # 日程管理器
 │   │   ├── schedule_generator.py   # 日程生成器
 │   │   └── schedule_similarity_checker.py  # 日程相似度检查
@@ -45,7 +43,6 @@ Neo_Agent/
 ├── tests/                   # 测试文件 / Test files
 │   ├── test_chat_agent.py
 │   ├── test_database_manager.py
-│   ├── test_event_manager.py
 │   └── ...
 │
 ├── examples/                # 示例代码 / Example code
@@ -92,16 +89,7 @@ Neo_Agent/
 
 **主要类**: `EmotionAnalyzer`
 
-#### 4. event_manager.py - 事件管理
-事件驱动系统：
-- 通知事件
-- 任务事件
-- 事件调度
-- 回调处理
-
-**主要类**: `EventManager`
-
-#### 5. knowledge_base.py - 知识库
+#### 4. knowledge_base.py - 知识库
 知识提取和管理：
 - 知识提取
 - 知识存储
@@ -110,7 +98,7 @@ Neo_Agent/
 
 **主要类**: `KnowledgeBase`
 
-#### 6. long_term_memory.py - 长期记忆
+#### 5. long_term_memory.py - 长期记忆
 长期记忆系统：
 - 记忆概括
 - 主题提取

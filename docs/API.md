@@ -91,48 +91,6 @@ summary = analyzer.format_emotion_summary(emotion_data)
 
 ---
 
-### EventManager
-
-事件管理器，支持事件驱动编程。
-
-```python
-from src.core.event_manager import EventManager
-
-# 创建实例
-event_mgr = EventManager()
-
-# 创建通知事件
-event_mgr.create_event(
-    event_type="notification",
-    title="提醒",
-    content="这是一个通知",
-    trigger_time="2026-02-01 10:00:00"
-)
-
-# 创建任务事件
-event_mgr.create_event(
-    event_type="task",
-    title="数据分析",
-    content="分析用户数据",
-    trigger_time="2026-02-01 14:00:00"
-)
-
-# 获取待触发事件
-pending = event_mgr.get_pending_events()
-
-# 触发事件
-event_mgr.trigger_event(event_id)
-```
-
-**主要方法**:
-- `create_event(event_type, title, content, trigger_time)`: 创建事件
-- `get_pending_events() -> List[Dict]`: 获取待触发事件
-- `trigger_event(event_id)`: 触发事件
-- `cancel_event(event_id)`: 取消事件
-- `get_event_history() -> List[Dict]`: 获取历史事件
-
----
-
 ### KnowledgeBase
 
 知识库管理器。
@@ -368,20 +326,6 @@ db_gui = DatabaseGUI(parent_frame)
     "category": "编程",
     "source": "对话",
     "timestamp": "2026-01-31 10:00:00"
-}
-```
-
-### 事件 / Event
-
-```python
-{
-    "id": 1,
-    "type": "notification",  # or "task"
-    "title": "提醒",
-    "content": "这是一个通知",
-    "trigger_time": "2026-02-01 10:00:00",
-    "status": "pending",  # pending, triggered, cancelled
-    "created_at": "2026-01-31 10:00:00"
 }
 ```
 

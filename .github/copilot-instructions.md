@@ -193,7 +193,7 @@ python -m pytest tests/
 
 ```bash
 pip install -r requirements.txt
-cp example.env .env
+cp .env .env
 # Edit .env with your configuration
 ```
 

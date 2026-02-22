@@ -8,7 +8,16 @@
 
 ### 简介
 
-Neo Agent 是一个基于 LangChain 的智能对话代理系统，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
+Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，采用多层模型架构，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
+
+### 架构特性
+
+#### 🏗️ 复合框架架构
+- **LangChain**: 核心框架，提供LLM抽象和链式调用
+- **多层模型架构**: 根据任务类型智能选择模型
+  - 主模型 (DeepSeek-V3.2): 处理主要对话、复杂推理
+  - 工具模型 (GLM-4.6V): 处理工具调用、意图识别等轻量级任务
+  - 多模态模型 (Qwen3-VL-32B): 处理多模态识别和推理
 
 ### 主要特性
 
@@ -16,8 +25,8 @@ Neo Agent 是一个基于 LangChain 的智能对话代理系统，具备角色�
 - 💭 **智能对话**: 角色扮演、连续对话、记忆检索、情感理解
 - 📊 **情感分析**: 印象评估、累计评分、关系可视化
 - 🖥️ **现代化GUI**: 基于Tkinter的友好界面
-- 📅 **事件驱动**: 通知事件、任务事件、日程管理
-- 🗄️ **数据管理**: SQLite存储、数据迁移、备份恢复
+- ️ **数据管理**: SQLite存储、数据迁移、备份恢复
+- 📝 **提示词工程**: 模块化Markdown提示词、角色扮演、世界观注入
 
 ### 快速开始
 
@@ -61,8 +70,14 @@ Neo_Agent/
 │   ├── gui/               # GUI模块
 │   ├── tools/             # 工具模块
 │   └── nps/               # NPS工具系统
+├── prompts/               # 提示词模板
+│   ├── character/         # 角色设定模板
+│   ├── system/           # 系统提示词模板
+│   ├── task/             # 任务提示词模板
+│   └── worldview/        # 世界观设定
 ├── tests/                 # 测试文件
 ├── examples/              # 示例代码
+├── docs/                  # 文档
 ├── main.py               # 主入口（推荐）
 ├── run.py                # 简化启动器
 ├── requirements.txt      # 依赖列表
@@ -72,13 +87,26 @@ Neo_Agent/
 
 ### 核心模块
 
+- **prompt_manager**: 提示词管理，支持Markdown模板加载和渲染
+- **model_config**: 多层模型配置管理
+- **langchain_llm**: LangChain LLM封装，支持模型路由
+- **llm_helper**: LLM辅助工具，简化工具级任务调用
 - **chat_agent**: 对话代理核心
 - **database_manager**: 统一数据库管理
-- **emotion_analyzer**: 情感关系分析
-- **event_manager**: 事件驱动系统
-- **knowledge_base**: 知识库管理
+- **emotion_analyzer**: 情感关系分析（使用工具模型）
+- **knowledge_base**: 知识库管理（使用工具模型）
 - **long_term_memory**: 长期记忆系统
 - **schedule_manager**: 日程管理
+
+### 提示词系统
+
+Neo Agent采用模块化的提示词工程系统，参考了SillyTavern的设计理念：
+
+- 📝 **Markdown模板**: 所有提示词以Markdown文件存储
+- 🎭 **角色扮演**: 详细的角色设定和行为准则
+- 🌍 **世界观注入**: 虚拟世界背景和环境设定
+- 🔄 **动态渲染**: 支持变量替换和上下文注入
+- 🛡️ **后备机制**: 模板失败时自动降级到硬编码提示词
 
 ### 许可证
 
@@ -90,7 +118,16 @@ Neo_Agent/
 
 ### Introduction
 
-Neo Agent is a LangChain-based intelligent conversation agent system with role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management capabilities.
+Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system with multi-tier model architecture, featuring role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management capabilities.
+
+### Architecture Features
+
+#### 🏗️ Composite Framework Architecture
+- **LangChain**: Core framework providing LLM abstraction and chain invocation
+- **Multi-tier Model Architecture**: Intelligent model selection based on task type
+  - Main Model (DeepSeek-V3.2): Handles primary conversations and complex reasoning
+  - Tool Model (GLM-4.6V): Handles tool invocations, intent recognition, and lightweight tasks
+  - Multimodal Model (Qwen3-VL-32B): Handles multimodal recognition and reasoning
 
 ### Key Features
 
@@ -98,8 +135,7 @@ Neo Agent is a LangChain-based intelligent conversation agent system with role-p
 - 💭 **Intelligent Conversation**: Role-playing, continuous dialogue, memory retrieval, emotional understanding
 - 📊 **Emotion Analysis**: Impression assessment, cumulative scoring, relationship visualization
 - 🖥️ **Modern GUI**: User-friendly Tkinter-based interface
-- 📅 **Event-Driven**: Notification events, task events, schedule management
-- 🗄️ **Data Management**: SQLite storage, data migration, backup and recovery
+- ️ **Data Management**: SQLite storage, data migration, backup and recovery
 
 ### Quick Start
 
@@ -157,7 +193,6 @@ Neo_Agent/
 - **chat_agent**: Conversation agent core
 - **database_manager**: Unified database management
 - **emotion_analyzer**: Emotional relationship analysis
-- **event_manager**: Event-driven system
 - **knowledge_base**: Knowledge base management
 - **long_term_memory**: Long-term memory system
 - **schedule_manager**: Schedule management

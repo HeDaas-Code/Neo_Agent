@@ -104,7 +104,7 @@ def test_full_export_import():
     
     # 2. 导出所有数据
     print("\n开始导出...")
-    migration = SettingsMigration(db_manager=source_db, env_path="example.env")
+    migration = SettingsMigration(db_manager=source_db, env_path=".env")
     
     export_result = migration.export_settings(
         export_path="full_test_export",
