@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 本文件记录项目的所有重要变更。
 
+## [2.2.0] - 2026-02-22
+
+### 功能移除 / Features Removed
+- **多智能体协作系统**: 移除动态多智能体协作、DeepAgents集成等功能
+- **事件系统**: 移除事件驱动系统、事件管理等功能
+- **LangGraph集成**: 移除LangGraph相关功能和依赖
+
+### 文档更新 / Documentation Updates
+- **修正README.md**，移除已不存在功能的描述
+- **优化文档结构**，提高可读性和维护性
+
+### 改进 / Improved
+- ✅ 项目结构更加简洁
+- ✅ 代码库更加易于维护
+- ✅ 文档与实际功能保持一致
+
 ## [2.1.0] - 2026-02-22
 
 ### 项目结构优化 / Project Structure Optimization
