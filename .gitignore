@@ -192,3 +192,9 @@ Thumbs.db
 # 项目特定的临时文件
 thinking.md
 mermaid.md
+
+# CodeGraph SQLite 索引（不在仓库内共享；每个开发者本地 init）
+.codegraph/
+
+# Hermes vault（不在仓库内共享；owner 委托维护，勿 commit）
+工作Wiki/
