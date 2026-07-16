@@ -291,7 +291,8 @@ class SettingsMigration:
             f.write(f"# 导入时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
             # 按类别分组写入
-            api_keys = ['SILICONFLOW_API_KEY', 'SILICONFLOW_API_URL']
+            # v3.1.0: 保留旧 key 列表（仅用于旧 .env 迁移场景），新加 LLM_API_KEY
+            api_keys = ['LLM_API_KEY', 'SILICONFLOW_API_KEY', 'SILICONFLOW_API_URL', 'LLM_BASE_URL', 'LLM_MODEL_NAME']
             model_keys = ['MODEL_NAME', 'TEMPERATURE', 'MAX_TOKENS']
             character_keys = [k for k in env_settings.keys() if k.startswith('CHARACTER_')]
             memory_keys = [k for k in env_settings.keys() if 'MEMORY' in k]

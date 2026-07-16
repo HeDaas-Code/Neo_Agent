@@ -3,10 +3,17 @@
 初次评估基于前5轮对话，后续每15轮对话更新评估
 使用LLM生成对用户的印象并进行累加评分
 使用数据库替代JSON文件存储
+
+P2 增强：
+- 新增 PlutchikEmotionWheel（8 基本情绪 + 衰减 + profile 推导）
+- 累加评分（EmotionRelationshipAnalyzer）作为"关系状态"维度保留
+- PlutchikEmotionWheel 作为"当下情绪"维度补充
+- 二者并行注入 prompt，由 chat_agent 协调
 """
 
 import os
 import json
+import math
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -18,6 +25,8 @@ load_dotenv()
 
 # 获取debug日志记录器
 debug_logger = get_debug_logger()
+
+ENABLE_EMOTION_WHEEL = os.getenv('ENABLE_EMOTION_WHEEL', 'false').lower() == 'true'
 
 
 class EmotionRelationshipAnalyzer:
@@ -714,6 +723,114 @@ class EmotionRelationshipAnalyzer:
             "uuid": latest.get('uuid', '')
         }
 
+    # ==================== Stage B.3 Web 后端兼容接口 ====================
+
+    # Plutchik 8 维情绪键（与 PlutchikEmotionWheel 保持一致）
+    PLUTCHIK_KEYS = (
+        'joy', 'trust', 'fear', 'surprise',
+        'sadness', 'disgust', 'anger', 'anticipation',
+    )
+    PLUTCHIK_CN = {
+        'joy': '喜悦', 'trust': '信任', 'fear': '恐惧', 'surprise': '惊讶',
+        'sadness': '悲伤', 'disgust': '厌恶', 'anger': '愤怒', 'anticipation': '期待',
+    }
+
+    def _derive_plutchik_from_legacy(
+        self, overall_score: int, emotional_tone: str,
+    ) -> Dict[str, float]:
+        """
+        从旧的累加评分（overall_score）+ emotional_tone 推导 Plutchik 8 维（0-1）。
+
+        用于 Stage B.3: 在 emotion_history 表未存 Plutchik 原始数据时，
+        提供合理的可视化默认值；不修改现有 emotion_history 表 schema。
+        """
+        try:
+            score = float(overall_score or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        # 0-35 视作初始评估制，先归一到 0-100
+        if 0.0 <= score <= 35.0:
+            score = score / 35.0 * 100.0
+        score = max(0.0, min(100.0, score))
+        norm = score / 100.0  # 0-1 基础强度
+
+        tone = (emotional_tone or '中性').strip()
+        # 默认 8 维分配：积极高 / 消极低 / 中性均匀
+        base = {
+            'joy': 0.3, 'trust': 0.3, 'fear': 0.1, 'surprise': 0.1,
+            'sadness': 0.1, 'disgust': 0.1, 'anger': 0.1, 'anticipation': 0.3,
+        }
+        if tone in ('积极', '正面', '乐观'):
+            base.update({
+                'joy': 0.6, 'trust': 0.6, 'anticipation': 0.5,
+                'fear': 0.05, 'sadness': 0.05, 'disgust': 0.05, 'anger': 0.05,
+            })
+        elif tone in ('消极', '负面', '悲观'):
+            base.update({
+                'joy': 0.1, 'trust': 0.2, 'anticipation': 0.1,
+                'fear': 0.5, 'sadness': 0.6, 'disgust': 0.4, 'anger': 0.5,
+            })
+        else:  # 中性 / 未知
+            for k in base:
+                base[k] = 0.2 + 0.1 * norm
+
+        # 用 norm 缩放（高分 → 整体更强）
+        scale = 0.5 + 0.5 * norm
+        out = {k: max(0.0, min(1.0, float(v) * scale)) for k, v in base.items()}
+        return out
+
+    def get_latest_for_user(self, user_id: str = "default") -> Dict[str, Any]:
+        """
+        获取指定用户的最新情感数据（Web 后端专用）。
+
+        返回结构（对齐前端 EmotionPanel.tsx + Pydantic EmotionLatestResponse）：
+        - timestamp: ISO 8601 字符串
+        - additive_scores: Plutchik 8 维累加评分（dict，每维 0-100）
+        - plutchik: Plutchik 8 维强度（dict，每维 0-1）
+        - dominant: 主导情感中文名
+
+        设计：
+        - 不破坏现有 ``get_latest_emotion()`` 方法签名；
+        - 复用 ``self.get_latest_emotion()`` 拉取数据；
+        - 在 emotion_history 表未存 Plutchik 原始 8 维数据时，
+          基于 overall_score + emotional_tone 派生合理默认；
+        - 失败 / 无记录时返回 ``{}``（路由层保持 200 + 空 dict）。
+        """
+        try:
+            latest = self.get_latest_emotion()
+        except Exception:  # noqa: BLE001
+            return {}
+
+        if not latest:
+            return {}
+
+        try:
+            overall_score = int(latest.get('overall_score') or 0)
+        except (TypeError, ValueError):
+            overall_score = 0
+        emotional_tone = latest.get('emotional_tone', '中性') or '中性'
+        timestamp = latest.get('timestamp') or latest.get('created_at') or ''
+
+        plutchik = self._derive_plutchik_from_legacy(overall_score, emotional_tone)
+        # additive_scores：把 0-1 强度乘回 0-100，与前端雷达图 max=10/100 兼容
+        additive = {k: round(float(v) * 100.0, 2) for k, v in plutchik.items()}
+
+        try:
+            dominant_key = max(plutchik.items(), key=lambda kv: kv[1])[0]
+        except Exception:  # noqa: BLE001
+            dominant_key = 'joy'
+        dominant = self.PLUTCHIK_CN.get(dominant_key, dominant_key)
+        # 整体强度过低 → 标记为"平静"
+        if max(plutchik.values()) < 0.15:
+            dominant = '平静'
+
+        return {
+            'timestamp': timestamp,
+            'additive_scores': additive,
+            'plutchik': {k: round(float(v), 3) for k, v in plutchik.items()},
+            'dominant': dominant,
+        }
+
     def generate_tone_prompt(self) -> str:
         """
         根据最新情感分析生成对话语气提示
@@ -904,4 +1021,156 @@ def format_emotion_summary(emotion_data: Dict[str, Any]) -> str:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     return summary.strip()
+
+
+# ==================== P2: PlutchikEmotionWheel ====================
+
+class PlutchikEmotionWheel:
+    """
+    Plutchik 情绪轮（8 基本情绪）。
+    与累加评分（EmotionRelationshipAnalyzer）并行：累加 = 关系状态，Plutchik = 当下情绪。
+    情绪随时间衰减；支持复合表达（"开心但有点紧张"）。
+    """
+
+    EMOTIONS = [
+        'joy', 'trust', 'fear', 'surprise',
+        'sadness', 'disgust', 'anger', 'anticipation',
+    ]
+    EMOTION_CN = {
+        'joy': '喜悦', 'trust': '信任', 'fear': '恐惧', 'surprise': '惊讶',
+        'sadness': '悲伤', 'disgust': '厌恶', 'anger': '愤怒', 'anticipation': '期待',
+    }
+    OPPOSITES = {
+        'joy': 'sadness', 'sadness': 'joy',
+        'trust': 'disgust', 'disgust': 'trust',
+        'fear': 'anger', 'anger': 'fear',
+        'surprise': 'anticipation', 'anticipation': 'surprise',
+    }
+    DEFAULT_HALF_LIFE_HOURS = 24.0
+
+    def __init__(self, db_manager: DatabaseManager = None,
+                 half_life_hours: float = DEFAULT_HALF_LIFE_HOURS):
+        """
+        Args:
+            db_manager: 数据库管理器
+            half_life_hours: 情绪半衰期（小时）
+        """
+        self.db = db_manager
+        self.half_life_hours = float(half_life_hours)
+        self.enabled = ENABLE_EMOTION_WHEEL
+
+    def decay_emotions(self, state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        按指数衰减应用至 state['emotions']。
+        state['emotions'] 为 {emotion_key: intensity(0-1)}
+        state['last_update'] 为 ISO 时间字符串。
+        """
+        if not state or 'emotions' not in state:
+            return self._default_state(now)
+        now = now or datetime.now()
+        last = self._parse_iso(state.get('last_update')) or now
+        elapsed_h = max(0.0, (now - last).total_seconds() / 3600.0)
+        if elapsed_h <= 0:
+            return state
+        factor = math.pow(0.5, elapsed_h / self.half_life_hours)
+        new_emotions = {}
+        for k, v in (state.get('emotions') or {}).items():
+            try:
+                new_emotions[k] = max(0.0, min(1.0, float(v) * factor))
+            except (TypeError, ValueError):
+                continue
+        state['emotions'] = new_emotions
+        state['last_update'] = now.isoformat()
+        return state
+
+    def nudge_emotion(self, emotions: Dict[str, float],
+                      key: str, delta: float) -> Dict[str, float]:
+        """
+        对单个情绪做 +/- 调整，clamp 至 [0, 1]。
+        """
+        if key not in self.EMOTIONS:
+            return emotions
+        out = dict(emotions or {})
+        out[key] = max(0.0, min(1.0, float(out.get(key, 0.0)) + float(delta)))
+        return out
+
+    def profile_from_basic(self, emotions: Dict[str, float],
+                           now: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        从 8 基本情绪推导 profile：
+        - primary: 主导情绪
+        - secondary: 第二情绪
+        - intensity: 平均强度
+        - compound_desc: 复合表达（"开心但有点紧张"）
+        - tone_label: 1-3 词标签
+        """
+        if not emotions:
+            return {
+                'primary': '平静', 'secondary': None, 'intensity': 0.0,
+                'compound_desc': '平静', 'tone_label': '平静',
+            }
+        sorted_items = sorted(
+            emotions.items(), key=lambda kv: kv[1], reverse=True
+        )
+        primary_k, primary_v = sorted_items[0]
+        primary_cn = self.EMOTION_CN.get(primary_k, primary_k)
+
+        secondary_cn = None
+        if len(sorted_items) > 1 and sorted_items[1][1] >= 0.3:
+            secondary_cn = self.EMOTION_CN.get(sorted_items[1][0], sorted_items[1][0])
+
+        avg = sum(emotions.values()) / max(1, len(emotions))
+        compound = primary_cn
+        if secondary_cn and primary_v > 0.3 and sorted_items[1][1] >= 0.3:
+            compound = f"{primary_cn}但有点{secondary_cn}"
+
+        if avg < 0.15:
+            tone = '平静'
+        elif avg < 0.4:
+            tone = primary_cn
+        elif avg < 0.7:
+            tone = f"明显{primary_cn}"
+        else:
+            tone = f"强烈{primary_cn}"
+
+        return {
+            'primary': primary_cn, 'secondary': secondary_cn,
+            'intensity': round(avg, 3), 'compound_desc': compound,
+            'tone_label': tone,
+        }
+
+    def format_emotion_hint(self, state: Dict[str, Any]) -> str:
+        """
+        渲染为 prompt 文本（与 generate_tone_prompt 平行注入）。
+        """
+        if not self.enabled:
+            return ""
+        if not state or not state.get('emotions'):
+            return ""
+        profile = self.profile_from_basic(state.get('emotions', {}))
+        lines = ["【当下情绪】"]
+        lines.append(f"主导：{profile['primary']}（强度 {profile['intensity']:.2f}）")
+        if profile.get('secondary'):
+            lines.append(f"次要：{profile['secondary']}")
+        lines.append(f"综合：{profile['compound_desc']}")
+        lines.append(f"语气：{profile['tone_label']}")
+        return "\n".join(lines)
+
+    def _default_state(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        now = now or datetime.now()
+        return {
+            'emotions': {k: 0.0 for k in self.EMOTIONS},
+            'last_update': now.isoformat(),
+        }
+
+    @staticmethod
+    def _parse_iso(value: Any) -> Optional[datetime]:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
 

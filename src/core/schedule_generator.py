@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import requests
 from src.core.schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
+from src.core import llm_providers  # v3.1.0: 统一供应商解析
 from src.tools.debug_logger import get_debug_logger
 
 load_dotenv()
@@ -34,8 +35,12 @@ class TemporaryScheduleGenerator:
             schedule_manager: 日程管理器实例
         """
         self.schedule_manager = schedule_manager or ScheduleManager()
-        self.api_key = os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
+        # v3.1.0: 用 llm_providers 解析（保留旧 SILICONFLOW_API_KEY 兼容）
+        self.api_key = llm_providers.resolve_api_key()
+        try:
+            self.api_url = llm_providers.resolve_base_url(llm_providers.resolve_provider())
+        except Exception:
+            self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
         self.temperature = 0.8
         self.max_tokens = 1000

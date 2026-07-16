@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 # 添加项目路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.core.deepagents_wrapper import DeepSubAgentWrapper, DeepAgentsKnowledgeManager
+from src.core.deepagents_wrapper import DeepSubAgentWrapper
 
 
 class TestDeepSubAgentWrapper(unittest.TestCase):
@@ -122,87 +122,6 @@ class TestDeepSubAgentWrapper(unittest.TestCase):
         
         # 验证返回字典（即使是空的也应该是字典）
         self.assertIsInstance(state, dict)
-
-
-class TestDeepAgentsKnowledgeManager(unittest.TestCase):
-    """测试DeepAgentsKnowledgeManager类"""
-    
-    def setUp(self):
-        """测试前准备"""
-        os.environ['SILICON_FLOW_API_KEY'] = 'test-key'
-        os.environ['SILICON_FLOW_API_BASE'] = 'https://api.siliconflow.cn/v1'
-        os.environ['TOOL_MODEL_NAME'] = 'Qwen/Qwen2.5-7B-Instruct'
-    
-    def test_initialization(self):
-        """测试初始化"""
-        manager = DeepAgentsKnowledgeManager(
-            knowledge_dir="/knowledge",
-            memory_file="/memory/AGENTS.md"
-        )
-        
-        # 验证
-        self.assertEqual(manager.knowledge_dir, "/knowledge")
-        self.assertEqual(manager.memory_file, "/memory/AGENTS.md")
-        self.assertIsNotNone(manager.checkpointer)
-    
-    @patch('src.core.deepagents_wrapper.create_deep_agent')
-    @patch('src.core.deepagents_wrapper.LangChainLLM')
-    def test_extract_and_store_knowledge(self, mock_llm_class, mock_create_agent):
-        """测试知识提取和存储"""
-        # Mock LLM
-        mock_llm = MagicMock()
-        mock_llm_class.return_value.llm = mock_llm
-        
-        # Mock agent
-        mock_agent = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "已提取并存储3条知识"
-        mock_agent.invoke.return_value = {
-            "messages": [mock_message]
-        }
-        mock_create_agent.return_value = mock_agent
-        
-        # 创建管理器
-        manager = DeepAgentsKnowledgeManager()
-        
-        # 测试知识提取
-        conversation = [
-            {"role": "user", "content": "小明今年18岁"},
-            {"role": "assistant", "content": "知道了"}
-        ]
-        
-        result = manager.extract_and_store_knowledge(conversation)
-        
-        # 验证
-        self.assertTrue(result.get('success'))
-        self.assertIn('summary', result)
-    
-    @patch('src.core.deepagents_wrapper.create_deep_agent')
-    @patch('src.core.deepagents_wrapper.LangChainLLM')
-    def test_retrieve_knowledge(self, mock_llm_class, mock_create_agent):
-        """测试知识检索"""
-        # Mock LLM
-        mock_llm = MagicMock()
-        mock_llm_class.return_value.llm = mock_llm
-        
-        # Mock agent
-        mock_agent = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = "小明是一个18岁的学生"
-        mock_agent.invoke.return_value = {
-            "messages": [mock_message]
-        }
-        mock_create_agent.return_value = mock_agent
-        
-        # 创建管理器
-        manager = DeepAgentsKnowledgeManager()
-        
-        # 测试知识检索
-        result = manager.retrieve_knowledge("小明是谁")
-        
-        # 验证
-        self.assertTrue(result.get('success'))
-        self.assertIn('knowledge', result)
 
 
 class TestFactoryFunction(unittest.TestCase):

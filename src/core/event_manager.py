@@ -4,8 +4,10 @@
 """
 
 import uuid
+import asyncio
+import inspect
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Union
 from enum import Enum
 from src.core.database_manager import DatabaseManager
 from src.tools.debug_logger import get_debug_logger
@@ -168,6 +170,9 @@ class EventManager:
             db_manager: 数据库管理器实例
         """
         self.db = db_manager or DatabaseManager()
+        # 进程内监听器：用于把事件转发到 WebSocket / GUI 订阅者
+        # Listeners registry: key=event_type(str), value=List[Callable]
+        self._listeners: Dict[str, List[Callable]] = {}
         self._initialize_database()
         
         debug_logger.log_module('EventManager', '事件管理器初始化完成')
@@ -564,3 +569,167 @@ class EventManager:
                 'notifications': row[4] or 0,
                 'tasks': row[5] or 0
             }
+
+    # =====================================================================
+    # Stage D.1 / D.2 集成：进程内事件发布与订阅
+    # 用于把 scheduler / proactive 等内部事件转发到 Web 后端 WebSocket 客户端
+    # =====================================================================
+
+    def subscribe(self, event_type: str, callback: Callable) -> Callable:
+        """
+        注册事件订阅者（按 event_type 字符串匹配）。
+        Register an in-process listener for a given event type.
+
+        Args:
+            event_type: 事件类型字符串，例如 "scheduler_tick" / "proactive_message"
+            callback: 回调函数，签名 callback(event_type: str, payload: dict)
+                      可以是同步函数或 async 协程函数。
+
+        Returns:
+            取消订阅的函数 unsubscribe()，方便调用方做清理。
+        """
+        try:
+            key = str(event_type or '').strip() or '*'
+            self._listeners.setdefault(key, []).append(callback)
+
+            def _unsubscribe() -> None:
+                self.unsubscribe(event_type, callback)
+
+            return _unsubscribe
+        except Exception as e:
+            debug_logger.log_error('EventManager', f'订阅事件失败({event_type}): {e}', e)
+            return lambda: None
+
+    def unsubscribe(self, event_type: str, callback: Callable) -> bool:
+        """
+        取消事件订阅。
+        """
+        try:
+            key = str(event_type or '').strip() or '*'
+            listeners = self._listeners.get(key)
+            if not listeners:
+                return False
+            try:
+                listeners.remove(callback)
+            except ValueError:
+                return False
+            if not listeners:
+                self._listeners.pop(key, None)
+            return True
+        except Exception as e:
+            debug_logger.log_error('EventManager', f'取消订阅失败({event_type}): {e}', e)
+            return False
+
+    def publish(self, event_or_type: Union[str, 'Event', Any],
+                payload: Optional[Dict[str, Any]] = None) -> None:
+        """
+        发布事件到所有匹配的订阅者（不阻塞）。
+        Publish an event to all matching listeners without blocking.
+
+        支持两种签名（保持向后兼容）：
+        1) publish(event_type: str, payload: dict)
+           - 用于 BackgroundScheduler / ProactiveEngine 等内部模块
+        2) publish(event: Event)
+           - 兼容未来 / 现有以 Event 对象发布的调用方
+
+        异常保护：单个 listener 抛错不会影响其他 listener。
+        """
+        try:
+            # 解析 event_type 与 payload
+            event_type: str
+            if isinstance(event_or_type, str):
+                event_type = event_or_type
+                payload_dict: Dict[str, Any] = dict(payload or {})
+            else:
+                # 视为 Event 对象
+                event = event_or_type
+                event_type = (
+                    getattr(event, 'event_type', None).value
+                    if hasattr(getattr(event, 'event_type', None), 'value')
+                    else str(getattr(event, 'event_type', 'event'))
+                )
+                payload_dict = {
+                    'event_id': getattr(event, 'event_id', None),
+                    'title': getattr(event, 'title', ''),
+                    'description': getattr(event, 'description', ''),
+                    'content': (
+                        getattr(event, 'content', '')
+                        or (event.metadata.get('content') if getattr(event, 'metadata', None) else '')
+                    ),
+                    'priority': getattr(event, 'priority', None).value
+                    if hasattr(getattr(event, 'priority', None), 'value')
+                    else getattr(event, 'priority', None),
+                    'metadata': dict(getattr(event, 'metadata', {}) or {}),
+                    'created_at': getattr(event, 'created_at', None),
+                }
+                # 注入显式 payload（如果传入）
+                if payload:
+                    payload_dict.update(payload)
+
+            # 合并时间戳（仅在缺失时填充）
+            if 'timestamp' not in payload_dict:
+                payload_dict['timestamp'] = datetime.now().isoformat()
+
+            # 调度同步 listener；async listener 走 asyncio 事件循环
+            listeners = list(self._listeners.get(event_type, [])) + \
+                        list(self._listeners.get('*', []))
+            for cb in listeners:
+                self._dispatch_listener(cb, event_type, payload_dict)
+        except Exception as e:
+            debug_logger.log_error('EventManager', f'发布事件失败: {e}', e)
+
+    @staticmethod
+    def _dispatch_listener(cb: Callable, event_type: str,
+                            payload: Dict[str, Any]) -> None:
+        """
+        分发事件到单个 listener。同步函数直接调用，async 协程尝试调度到事件循环。
+        """
+        try:
+            if inspect.iscoroutinefunction(cb):
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 当前已有运行中的事件循环，调度为 task
+                        loop.create_task(cb(event_type, payload))
+                    else:
+                        # 没有运行中的循环，直接同步等待
+                        loop.run_until_complete(cb(event_type, payload))
+                except RuntimeError:
+                    # 没有事件循环时降级：run_until_complete 兜底
+                    try:
+                        asyncio.run(cb(event_type, payload))
+                    except Exception as inner_e:
+                        debug_logger.log_error(
+                            'EventManager',
+                            f'async listener 执行失败({event_type}): {inner_e}',
+                            inner_e,
+                        )
+            else:
+                cb(event_type, payload)
+        except Exception as e:
+            debug_logger.log_error('EventManager', f'listener 执行失败({event_type}): {e}', e)
+
+
+# 进程内单例（供 BackgroundScheduler / ProactiveEngine 等模块无依赖访问）
+_global_event_manager: Optional[EventManager] = None
+_global_event_manager_lock = None
+
+
+def get_event_manager() -> EventManager:
+    """
+    获取全局 EventManager 单例（线程安全）。
+    """
+    global _global_event_manager
+    try:
+        import threading as _threading
+        global _global_event_manager_lock
+        if _global_event_manager_lock is None:
+            _global_event_manager_lock = _threading.Lock()
+        with _global_event_manager_lock:
+            if _global_event_manager is None:
+                _global_event_manager = EventManager()
+    except Exception as e:
+        debug_logger.log_error('EventManager', f'获取全局 EventManager 失败: {e}', e)
+        if _global_event_manager is None:
+            _global_event_manager = EventManager()
+    return _global_event_manager

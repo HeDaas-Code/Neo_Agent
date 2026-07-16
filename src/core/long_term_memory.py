@@ -2,19 +2,143 @@
 长效记忆管理模块
 实现分层记忆系统：短期记忆（最近20轮）+ 长期概括记忆 + 知识库
 使用数据库替代JSON文件存储
+
+P2 增强：
+- 新增 OpenLoopTracker（未完话题检测与延续）
+- 与现有短期/长期记忆 / 知识库并行
+- 通过 DatabaseManager 持久化（与 LongTermMemoryManager 同库）
 """
 
 import os
 import json
 import uuid
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
 from src.core.knowledge_base import KnowledgeBase
+from src.core.llm_helper import LLMHelper
+from src.core.prompt_manager import get_prompt_manager
+from src.core import llm_providers  # v3.1.0: 统一供应商解析
+from src.tools.debug_logger import get_debug_logger
 
 load_dotenv()
+
+debug_logger = get_debug_logger()
+
+ENABLE_OPEN_LOOP = os.getenv('ENABLE_OPEN_LOOP', 'false').lower() == 'true'
+
+
+# ==================== P2: OpenLoopTracker ====================
+
+class OpenLoopTracker:
+    """
+    未完话题跟踪器。
+    每轮从用户消息中提取未完话题（pending tasks / 提问 / 计划 / 疑虑），
+    在合适时机主动延续。
+    """
+
+    LOOP_TRIGGERS = [
+        r'我[们]?(.+?)(明天|下周|以后|稍后|待会)[就再]',
+        r'(?:帮我|请|记得|别忘)(.+)',
+        r'(?:之后|下次)(?:再|记得|帮我)(.+)',
+        r'什么时候(.+)',
+        r'为什么(.+)',
+        r'(.+)怎么[办做]',
+    ]
+
+    def __init__(self, db_manager: DatabaseManager = None,
+                 prompt_manager=None,
+                 max_active: int = 12):
+        self.db = db_manager or DatabaseManager()
+        self.prompt_manager = prompt_manager or get_prompt_manager()
+        self.enabled = ENABLE_OPEN_LOOP
+        self.max_active = max_active
+
+    def update_from_message(self, user: str, text: str) -> Dict[str, Any]:
+        """
+        从用户消息中提取未完话题并入库。
+        返回 {topic, status, raised_at, related_keywords, uuid} 或 None（若未识别到）。
+        """
+        if not self.enabled or not text:
+            return {}
+        topic = self._extract_topic_via_rules(text)
+        keywords = self._extract_keywords(text)
+        if not topic and not keywords:
+            return {}
+
+        if not topic:
+            topic = keywords[0] if keywords else text[:20]
+        context = text[:200]
+
+        existing = self.db.find_matching_open_loop(topic)
+        if existing:
+            self.db.resolve_open_loop(existing['uuid'])
+
+        loop_uuid = self.db.insert_open_loop(
+            topic=topic, context=context,
+            related_keywords=keywords,
+        )
+        if not loop_uuid:
+            return {}
+        return {
+            'uuid': loop_uuid, 'topic': topic, 'status': 'open',
+            'raised_at': datetime.now().isoformat(),
+            'related_keywords': keywords,
+        }
+
+    def _extract_topic_via_rules(self, text: str) -> str:
+        for pat in self.LOOP_TRIGGERS:
+            m = re.search(pat, text)
+            if m:
+                captured = (m.group(1) or '').strip()
+                if 1 <= len(captured) <= 30:
+                    return captured
+        return ""
+
+    @staticmethod
+    def _extract_keywords(text: str) -> List[str]:
+        # 简化版：移除停用词，按空格 / 标点切分，保留长度 2-12 的 token
+        stop = {'的', '了', '我', '你', '是', '在', '和', '就', '都', '也', '吧', '啊', '吗', '呢'}
+        text = re.sub(r'[，。！？、,!?\.\s]+', ' ', text)
+        tokens = [t.strip() for t in text.split() if 2 <= len(t.strip()) <= 12]
+        return [t for t in tokens if t not in stop][:5]
+
+    def resolve_matching_loop(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        若 text 命中已存在的未完话题，自动 resolve 并返回。
+        """
+        if not self.enabled or not text:
+            return None
+        match = self.db.find_matching_open_loop(text)
+        if not match:
+            return None
+        self.db.resolve_open_loop(match['uuid'])
+        return match
+
+    def format_for_prompt(self, hint: str = "") -> str:
+        """
+        渲染为 prompt 文本（主流程第 4 步注入）。
+        hint：可选的"对当前用户消息最相关的话题"提示。
+        """
+        if not self.enabled:
+            return ""
+        loops = self.db.get_open_loops(status='open', limit=self.max_active)
+        if not loops:
+            return ""
+        lines = ["【未完话题】"]
+        for lp in loops:
+            topic = lp.get('topic', '?')
+            keywords = lp.get('related_keywords', [])
+            if keywords:
+                lines.append(f"• {topic}（关键词：{', '.join(keywords[:3])}）")
+            else:
+                lines.append(f"• {topic}")
+        if hint:
+            lines.append(f"\n当前消息与「{hint}」相关，可在合适时机主动延续。")
+        return "\n".join(lines)
 
 
 class LongTermMemoryManager:
@@ -49,8 +173,13 @@ class LongTermMemoryManager:
         self.knowledge_extraction_interval = 5
 
         # API配置（用于生成概括）
-        self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
+        # v3.1.0: 用 llm_providers 解析（保留旧 SILICONFLOW_API_KEY 兼容）
+        self.api_key = api_key or llm_providers.resolve_api_key()
+        try:
+            self.api_url = api_url or llm_providers.resolve_base_url(llm_providers.resolve_provider())
+        except Exception:
+            # 启动期 LLM_BASE_URL 缺失时（custom）保留旧 URL
+            self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
         # 初始化知识库（共享数据库管理器）
@@ -424,6 +553,150 @@ class LongTermMemoryManager:
             context_parts.append("")
 
         return "\n".join(context_parts) if context_parts else ""
+
+    # ==================== Stage B.4 Web 后端兼容接口 ====================
+
+    def list_topics(
+        self,
+        user_id: str = "default",
+        days: int = 7,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """
+        列出最近 N 天内的话题（基于 long_term_memory 概括）。
+
+        Args:
+            user_id: 用户标识（当前 schema 未持久化 user_id，保留参数以备扩展）。
+            days: 时间范围（天），默认 7。
+            limit: 返回条数上限，默认 200。
+
+        Returns:
+            话题字典列表，字段：uuid / topic / start_time / end_time / message_count。
+            失败时返回空列表。
+        """
+        try:
+            days_int = max(1, min(int(days), 365))
+        except (TypeError, ValueError):
+            days_int = 7
+        try:
+            limit_int = max(1, min(int(limit), 1000))
+        except (TypeError, ValueError):
+            limit_int = 200
+
+        try:
+            cutoff = (datetime.now() - timedelta(days=days_int)).isoformat()
+        except Exception:  # noqa: BLE001
+            cutoff = datetime.now().isoformat()
+
+        rows: List[Dict[str, Any]] = []
+        try:
+            summaries = self.db.get_long_term_summaries() or []
+        except Exception:  # noqa: BLE001
+            return []
+
+        for item in summaries:
+            try:
+                created_at = item.get('created_at') or ''
+                if created_at and created_at < cutoff:
+                    continue
+                topic_text = (item.get('summary') or '').strip()
+                # topic 取 summary 前若干字符作为短标题
+                topic_short = topic_text[:40] + ('…' if len(topic_text) > 40 else '')
+                try:
+                    msg_count = int(item.get('message_count') or 0)
+                except (TypeError, ValueError):
+                    msg_count = 0
+                rows.append({
+                    'uuid': str(item.get('uuid') or ''),
+                    'topic': topic_short or '未命名话题',
+                    'start_time': str(item.get('created_at') or ''),
+                    'end_time': str(item.get('ended_at') or '') or None,
+                    'message_count': msg_count,
+                })
+                if len(rows) >= limit_int:
+                    break
+            except Exception:  # noqa: BLE001
+                # 单条记录解析失败：跳过这一条，继续下一条
+                continue
+
+        # 按 start_time 倒序
+        try:
+            rows.sort(key=lambda x: x.get('start_time') or '', reverse=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return rows
+
+    def get_topic_context(
+        self,
+        topic_uuid: str,
+        user_id: str = "default",
+    ) -> Dict[str, Any]:
+        """
+        获取话题的上下文消息（Stage B.4 Web 后端专用）。
+
+        重要：当前 schema 中归档时会从 short_term_memory 物理删除原消息，
+        因此 ``messages`` 字段以 long_term_memory.summary 自身 + 元数据作为兜底。
+        若未来在 short_term_memory 增加 topic_uuid 关联列，本方法可平滑扩展。
+
+        Returns:
+            dict: {topic_uuid, topic, summary, messages, start_time, end_time}
+            失败 / 未找到时返回 {topic_uuid, messages: []}。
+        """
+        if not topic_uuid or not isinstance(topic_uuid, str):
+            return {'topic_uuid': str(topic_uuid or ''), 'messages': []}
+
+        item: Optional[Dict[str, Any]] = None
+        try:
+            summaries = self.db.get_long_term_summaries() or []
+            for s in summaries:
+                try:
+                    if str(s.get('uuid') or '') == topic_uuid:
+                        item = s
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            item = None
+
+        if not item:
+            return {'topic_uuid': topic_uuid, 'messages': []}
+
+        summary_text = (item.get('summary') or '').strip()
+        topic_short = summary_text[:40] + ('…' if len(summary_text) > 40 else '')
+        started_at = str(item.get('created_at') or '')
+        ended_at = str(item.get('ended_at') or '') or None
+
+        # messages：把 summary 拆成系统消息；并附加元数据作为 assistant 消息
+        messages: List[Dict[str, Any]] = []
+        if summary_text:
+            messages.append({
+                'role': 'system',
+                'content': f"[话题摘要] {summary_text}",
+                'timestamp': started_at,
+            })
+        try:
+            msg_count = int(item.get('message_count') or 0)
+        except (TypeError, ValueError):
+            msg_count = 0
+        try:
+            rounds = int(item.get('rounds') or 0)
+        except (TypeError, ValueError):
+            rounds = 0
+        if msg_count or rounds:
+            messages.append({
+                'role': 'assistant',
+                'content': f"该话题共 {rounds} 轮 / {msg_count} 条消息。",
+                'timestamp': ended_at or started_at,
+            })
+
+        return {
+            'topic_uuid': topic_uuid,
+            'topic': topic_short or '未命名话题',
+            'summary': summary_text or None,
+            'messages': messages,
+            'start_time': started_at or None,
+            'end_time': ended_at,
+        }
 
 
 if __name__ == '__main__':

@@ -71,6 +71,21 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row  # 使结果可以像字典一样访问
 
+        # Stage D.1: 启用 SQLite WAL 模式（提升并发读性能，让 Web/Scheduler/Tkinter 多端共存）
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except Exception as pragma_err:
+            # WAL 启用失败不应阻塞主流程
+            if self.debug:
+                print(f"🐛 [DEBUG] 启用 WAL 失败: {pragma_err}")
+
+        # v3.1.0: 启用外键约束（chat_messages.session_id ON DELETE CASCADE 需要）
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+        except Exception as pragma_err:
+            if self.debug:
+                print(f"🐛 [DEBUG] 启用 foreign_keys 失败: {pragma_err}")
+
         try:
             yield conn
             conn.commit()
@@ -328,6 +343,153 @@ class DatabaseManager:
                 )
             ''')
 
+            # 17. 生活状态日快照表（P1：LifeStateManager）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS life_state_daily (
+                    date TEXT PRIMARY KEY,
+                    energy REAL DEFAULT 0.7,
+                    mood TEXT DEFAULT '平静',
+                    state_title TEXT DEFAULT '常态',
+                    health TEXT DEFAULT '健康',
+                    conditions_json TEXT,
+                    transition_options_json TEXT,
+                    energy_delta REAL DEFAULT 0.0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
+            # 18. 梦境记录表（P1：DreamDiaryManager）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS dream_records (
+                    uuid TEXT PRIMARY KEY,
+                    date TEXT NOT NULL,
+                    dream_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    afterglow TEXT,
+                    label TEXT,
+                    mood TEXT,
+                    energy_delta REAL DEFAULT 0.0,
+                    duration_hours REAL DEFAULT 7.0,
+                    weather_json TEXT,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+
+            # 19. 日记条目表（P1：DreamDiaryManager）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS diary_entries (
+                    uuid TEXT PRIMARY KEY,
+                    date TEXT NOT NULL,
+                    title TEXT,
+                    body TEXT NOT NULL,
+                    mood TEXT,
+                    tags_json TEXT,
+                    related_entities_json TEXT,
+                    word_count INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+
+            # 20. 未完话题表（P2：OpenLoopTracker）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS open_loops (
+                    uuid TEXT PRIMARY KEY,
+                    topic TEXT NOT NULL,
+                    status TEXT DEFAULT 'open',
+                    raised_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    related_keywords_json TEXT,
+                    context TEXT,
+                    mention_count INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
+            # 21. 创作项目表（P3：CreativeProjectManager）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS creative_projects (
+                    uuid TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    work_type TEXT NOT NULL,
+                    premise TEXT,
+                    tone TEXT,
+                    point_of_view TEXT,
+                    target_chars INTEGER DEFAULT 5000,
+                    current_chars INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'drafting',
+                    inspiration_source TEXT,
+                    outline_json TEXT,
+                    characters_json TEXT,
+                    draft_chunks_json TEXT,
+                    next_advance_at TEXT,
+                    last_advanced_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
+            # 22. Story Bible 表（P3：项目级线索状态机）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS creative_story_bibles (
+                    project_uuid TEXT PRIMARY KEY,
+                    mainline_direction TEXT,
+                    active_themes_json TEXT,
+                    unresolved_threads_json TEXT,
+                    resolved_threads_json TEXT,
+                    important_facts_json TEXT,
+                    next_direction TEXT,
+                    recent_keywords_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (project_uuid) REFERENCES creative_projects(uuid) ON DELETE CASCADE
+                )
+            ''')
+
+            # 23. 创作记忆池（P3：碎片化上下文）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS creative_memory_pool (
+                    uuid TEXT PRIMARY KEY,
+                    project_uuid TEXT NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    importance REAL DEFAULT 0.5,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (project_uuid) REFERENCES creative_projects(uuid) ON DELETE CASCADE
+                )
+            ''')
+
+            # 24. 聊天会话表（v3.1.0：会话持久化）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '新会话',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    message_count INTEGER DEFAULT 0
+                )
+            ''')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id)''')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON chat_sessions(updated_at DESC)''')
+
+            # 25. 聊天消息表（v3.1.0：会话持久化）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    emotion_json TEXT,
+                    conn_id TEXT,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+                )
+            ''')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id)''')
+            cursor.execute('''CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at)''')
+
             # 创建索引以提高查询性能
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_base_knowledge_normalized ON base_knowledge(normalized_name)')
@@ -342,6 +504,14 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_expressions_confidence ON user_expression_habits(confidence)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain_environments_domain ON domain_environments(domain_uuid)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_domain_environments_env ON domain_environments(environment_uuid)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_life_state_date ON life_state_daily(date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_dream_records_date ON dream_records(date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_open_loops_status ON open_loops(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_open_loops_raised_at ON open_loops(raised_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_creative_projects_status ON creative_projects(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_creative_projects_next_advance ON creative_projects(next_advance_at)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_creative_pool_project ON creative_memory_pool(project_uuid)')
 
             conn.commit()
         if INIT_Database_PreParation_Complete == False:
@@ -590,16 +760,29 @@ class DatabaseManager:
                 return dict(row)
             return None
 
-    def get_all_entities(self) -> List[Dict[str, Any]]:
+    def get_all_entities(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         获取所有实体
+
+        Args:
+            limit: 可选；返回的最大条数（None 表示不限制）
 
         Returns:
             实体列表
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM entities ORDER BY created_at DESC')
+            if limit is not None:
+                try:
+                    safe_limit = max(1, min(int(limit), 1000))
+                except (TypeError, ValueError):
+                    safe_limit = 100
+                cursor.execute(
+                    'SELECT * FROM entities ORDER BY created_at DESC LIMIT ?',
+                    (safe_limit,),
+                )
+            else:
+                cursor.execute('SELECT * FROM entities ORDER BY created_at DESC')
             return [dict(row) for row in cursor.fetchall()]
 
     def find_or_create_entity(self, name: str) -> str:
@@ -616,6 +799,276 @@ class DatabaseManager:
         if entity:
             return entity['uuid']
         return self.create_entity(name)
+
+    # ==================== Stage C.1: Knowledge CRUD 包装 ====================
+    # 上述低阶方法（create_entity / set_entity_definition / add_entity_related_info
+    # / get_entity_by_uuid / get_entity_by_name ...）粒度较细；为 Web 后端
+    # 暴露更"业务"的方法，使其与 schema 字段 (entity_name / category /
+    # description / related_info) 对齐。注意：以下方法不修改既有方法签名。
+
+    def search_knowledge(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """
+        按关键词搜索实体（Stage C.1）。
+
+        匹配范围：entities.name / entities.normalized_name。
+        返回的每条记录会附带 ``category`` / ``description`` 字段（如果有定义），
+        便于 Web 前端直接渲染。
+
+        Args:
+            query: 搜索关键词（空串返回空列表）
+            limit: 返回条数上限（默认 20，最大 200）
+
+        Returns:
+            实体列表
+        """
+        try:
+            safe_limit = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            safe_limit = 20
+
+        q = (query or "").strip()
+        if not q:
+            return []
+
+        like = f"%{q}%"
+        results: List[Dict[str, Any]] = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                SELECT * FROM entities
+                WHERE name LIKE ? OR normalized_name LIKE ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                ''',
+                (like, like, safe_limit),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        for row in rows:
+            entity_uuid = row.get("uuid")
+            definition = None
+            if entity_uuid:
+                try:
+                    definition = self.get_entity_definition(entity_uuid)
+                except Exception:
+                    definition = None
+            if definition:
+                row["category"] = definition.get("type", "通用")
+                row["description"] = definition.get("content", "")
+            else:
+                row.setdefault("category", "通用")
+                row.setdefault("description", "")
+            results.append(row)
+        return results
+
+    def add_entity(
+        self,
+        entity_name: str,
+        category: Optional[str] = None,
+        description: Optional[str] = None,
+        related_info: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        新增一个实体（Stage C.1）。
+
+        行为：
+        1. 在 ``entities`` 表创建记录。
+        2. 若 ``description`` 非空，在 ``entity_definitions`` 写入定义
+           （``type`` 优先用 ``category``，否则 "定义"）。
+        3. 若 ``related_info`` 是 dict，按 ``key -> value`` 写入
+           ``entity_related_info``（type=key，content=str(value)）。
+
+        Args:
+            entity_name: 实体名称（必填）
+            category: 分类（可选，映射到定义 type）
+            description: 描述（可选，映射到定义 content）
+            related_info: 相关信息字典（可选）
+
+        Returns:
+            新实体的 uuid
+        """
+        if not entity_name or not isinstance(entity_name, str):
+            raise ValueError("entity_name 必须是非空字符串")
+
+        name = entity_name.strip()
+        if not name:
+            raise ValueError("entity_name 不能为空")
+
+        # 1) 创建实体（find_or_create_entity 避免重名冲突）
+        entity_uuid = self.find_or_create_entity(name)
+
+        # 2) 写入定义（如有）
+        if description is not None and str(description).strip():
+            try:
+                self.set_entity_definition(
+                    entity_uuid=entity_uuid,
+                    content=str(description),
+                    type_=(category or "定义"),
+                    source="web_crud",
+                    confidence=1.0,
+                    priority=50,
+                    is_base_knowledge=False,
+                )
+            except Exception:
+                # 定义写入失败不影响主流程
+                pass
+
+        # 3) 写入 related_info（如有）
+        if isinstance(related_info, dict) and related_info:
+            for k, v in related_info.items():
+                try:
+                    self.add_entity_related_info(
+                        entity_uuid=entity_uuid,
+                        content=str(v),
+                        type_=str(k)[:64] or "其他",
+                        source="web_crud",
+                        confidence=0.7,
+                        status="疑似",
+                        mention_count=1,
+                    )
+                except Exception:
+                    # 单条 related_info 失败不影响其他条目
+                    continue
+
+        return entity_uuid
+
+    def update_entity(
+        self,
+        entity_uuid: str,
+        entity_name: Optional[str] = None,
+        category: Optional[str] = None,
+        description: Optional[str] = None,
+        related_info: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        更新实体（Stage C.1）。
+
+        - ``entity_name`` 非空 → 改 entities.name + 重新计算 normalized_name。
+        - ``description`` 非空 → 覆盖 entity_definitions。
+        - ``category`` 非空 → 作为新定义的 type。
+        - ``related_info`` 是 dict → 整体替换（先删后插）该实体的 related_info。
+
+        Returns:
+            是否至少有一个字段被更新
+        """
+        if not entity_uuid or not isinstance(entity_uuid, str):
+            raise ValueError("entity_uuid 必须是非空字符串")
+
+        existing = self.get_entity_by_uuid(entity_uuid)
+        if not existing:
+            return False
+
+        updated = False
+
+        # 1) 改名
+        if entity_name is not None and str(entity_name).strip():
+            new_name = str(entity_name).strip()
+            if new_name != existing.get("name"):
+                new_norm = new_name.lower()
+                now_iso = datetime.now().isoformat()
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        '''
+                        UPDATE entities
+                        SET name = ?, normalized_name = ?, updated_at = ?
+                        WHERE uuid = ?
+                        ''',
+                        (new_name, new_norm, now_iso, entity_uuid),
+                    )
+                updated = True
+
+        # 2) 更新定义（description 触发；category 影响 type）
+        if description is not None and str(description).strip():
+            try:
+                self.set_entity_definition(
+                    entity_uuid=entity_uuid,
+                    content=str(description),
+                    type_=(category or "定义"),
+                    source="web_crud",
+                    confidence=1.0,
+                    priority=50,
+                    is_base_knowledge=False,
+                )
+                updated = True
+            except Exception:
+                pass
+
+        # 3) 替换 related_info（如提供）
+        if isinstance(related_info, dict):
+            try:
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "DELETE FROM entity_related_info WHERE entity_uuid = ?",
+                        (entity_uuid,),
+                    )
+                for k, v in related_info.items():
+                    try:
+                        self.add_entity_related_info(
+                            entity_uuid=entity_uuid,
+                            content=str(v),
+                            type_=str(k)[:64] or "其他",
+                            source="web_crud",
+                            confidence=0.7,
+                            status="疑似",
+                            mention_count=1,
+                        )
+                    except Exception:
+                        continue
+                updated = True
+            except Exception:
+                pass
+
+        return updated
+
+    def delete_entity(self, entity_uuid: str) -> bool:
+        """
+        删除实体（Stage C.1）。
+
+        会先级联删除 ``entity_definitions`` / ``entity_related_info``，
+        再删 ``entities``。不存在的 uuid 返回 False。
+
+        Returns:
+            是否成功删除
+        """
+        if not entity_uuid or not isinstance(entity_uuid, str):
+            return False
+
+        existing = self.get_entity_by_uuid(entity_uuid)
+        if not existing:
+            return False
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # 先清掉子表（避免 FK 约束问题）
+                try:
+                    cursor.execute(
+                        "DELETE FROM entity_definitions WHERE entity_uuid = ?",
+                        (entity_uuid,),
+                    )
+                except Exception:
+                    pass
+                try:
+                    cursor.execute(
+                        "DELETE FROM entity_related_info WHERE entity_uuid = ?",
+                        (entity_uuid,),
+                    )
+                except Exception:
+                    pass
+                cursor.execute(
+                    "DELETE FROM entities WHERE uuid = ?",
+                    (entity_uuid,),
+                )
+                return cursor.rowcount > 0
+        except Exception:
+            return False
 
     # ==================== 实体定义相关方法 ====================
 
@@ -1039,6 +1492,26 @@ class DatabaseManager:
         except Exception as e:
             print(f"✗ 获取元数据时出错: {e}")
             return default
+
+    def list_metadata_keys(self, prefix: Optional[str] = None) -> List[str]:
+        """
+        列出元数据键（可选前缀过滤）。
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if prefix:
+                    cursor.execute(
+                        "SELECT key FROM metadata WHERE key LIKE ? ORDER BY key",
+                        (prefix + '%',)
+                    )
+                else:
+                    cursor.execute("SELECT key FROM metadata ORDER BY key")
+                return [row['key'] for row in cursor.fetchall()]
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ list_metadata_keys 出错: {e}")
+            return []
 
     # ==================== 数据迁移相关方法 ====================
 
@@ -2312,6 +2785,482 @@ class DatabaseManager:
             result = cursor.fetchone()
             return result['count'] > 0
 
+    # ==================== 生活状态日快照方法（P1：LifeStateManager）====================
+
+    def upsert_life_state_daily(self, date: str, energy: float, mood: str,
+                                 state_title: str, health: str,
+                                 conditions: list, transition_options: list,
+                                 energy_delta: float = 0.0) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO life_state_daily
+                    (date, energy, mood, state_title, health,
+                     conditions_json, transition_options_json,
+                     energy_delta, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(date) DO UPDATE SET
+                        energy=excluded.energy,
+                        mood=excluded.mood,
+                        state_title=excluded.state_title,
+                        health=excluded.health,
+                        conditions_json=excluded.conditions_json,
+                        transition_options_json=excluded.transition_options_json,
+                        energy_delta=excluded.energy_delta,
+                        updated_at=excluded.updated_at
+                ''', (date, energy, mood, state_title, health,
+                      json.dumps(conditions, ensure_ascii=False),
+                      json.dumps(transition_options, ensure_ascii=False),
+                      energy_delta, datetime.now().isoformat(),
+                      datetime.now().isoformat()))
+                return True
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ upsert_life_state_daily 出错: {e}")
+            return False
+
+    def get_life_state_daily(self, date: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM life_state_daily WHERE date = ?', (date,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                record = dict(row)
+                record['conditions'] = json.loads(record.pop('conditions_json') or '[]')
+                record['transition_options'] = json.loads(record.pop('transition_options_json') or '[]')
+                return record
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_life_state_daily 出错: {e}")
+            return None
+
+    # ==================== 梦境记录方法（P1：DreamDiaryManager）====================
+
+    def insert_dream_record(self, date: str, dream_type: str, content: str,
+                            afterglow: str = "", label: str = "",
+                            mood: str = "", energy_delta: float = 0.0,
+                            duration_hours: float = 7.0,
+                            weather: Optional[Dict[str, Any]] = None) -> str:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                dream_uuid = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO dream_records
+                    (uuid, date, dream_type, content, afterglow, label,
+                     mood, energy_delta, duration_hours, weather_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (dream_uuid, date, dream_type, content, afterglow, label,
+                      mood, energy_delta, duration_hours,
+                      json.dumps(weather or {}, ensure_ascii=False),
+                      datetime.now().isoformat()))
+                return dream_uuid
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ insert_dream_record 出错: {e}")
+            return ""
+
+    def get_recent_dreams(self, limit: int = 3) -> List[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM dream_records
+                    ORDER BY date DESC, created_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                rows = [dict(row) for row in cursor.fetchall()]
+                for r in rows:
+                    r['weather'] = json.loads(r.pop('weather_json') or '{}')
+                return rows
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_recent_dreams 出错: {e}")
+            return []
+
+    def get_dream_fragments_pool(self, limit: int = 50) -> List[str]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT content FROM dream_records
+                    ORDER BY date DESC, created_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                return [row['content'] for row in cursor.fetchall()]
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_dream_fragments_pool 出错: {e}")
+            return []
+
+    # ==================== 日记条目方法（P1：DreamDiaryManager）====================
+
+    def insert_diary_entry(self, date: str, body: str, title: str = "",
+                           mood: str = "", tags: Optional[List[str]] = None,
+                           related_entities: Optional[List[str]] = None) -> str:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                entry_uuid = str(uuid.uuid4())
+                word_count = len(body)
+                cursor.execute('''
+                    INSERT INTO diary_entries
+                    (uuid, date, title, body, mood, tags_json,
+                     related_entities_json, word_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (entry_uuid, date, title, body, mood,
+                      json.dumps(tags or [], ensure_ascii=False),
+                      json.dumps(related_entities or [], ensure_ascii=False),
+                      word_count, datetime.now().isoformat()))
+                return entry_uuid
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ insert_diary_entry 出错: {e}")
+            return ""
+
+    def get_recent_diaries(self, limit: int = 3) -> List[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM diary_entries
+                    ORDER BY date DESC, created_at DESC
+                    LIMIT ?
+                ''', (limit,))
+                rows = [dict(row) for row in cursor.fetchall()]
+                for r in rows:
+                    r['tags'] = json.loads(r.pop('tags_json') or '[]')
+                    r['related_entities'] = json.loads(r.pop('related_entities_json') or '[]')
+                return rows
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_recent_diaries 出错: {e}")
+            return []
+
+    # ==================== 未完话题方法（P2：OpenLoopTracker）====================
+
+    def insert_open_loop(self, topic: str, context: str = "",
+                         related_keywords: Optional[List[str]] = None,
+                         raised_at: Optional[str] = None) -> str:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                loop_uuid = str(uuid.uuid4())
+                now_iso = datetime.now().isoformat()
+                cursor.execute('''
+                    INSERT INTO open_loops
+                    (uuid, topic, status, raised_at, related_keywords_json,
+                     context, mention_count, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ''', (loop_uuid, topic, 'open',
+                      raised_at or now_iso,
+                      json.dumps(related_keywords or [], ensure_ascii=False),
+                      context, now_iso, now_iso))
+                return loop_uuid
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ insert_open_loop 出错: {e}")
+            return ""
+
+    def get_open_loops(self, status: str = "open", limit: int = 20) -> List[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM open_loops
+                    WHERE status = ?
+                    ORDER BY raised_at DESC
+                    LIMIT ?
+                ''', (status, limit))
+                rows = [dict(row) for row in cursor.fetchall()]
+                for r in rows:
+                    r['related_keywords'] = json.loads(r.pop('related_keywords_json') or '[]')
+                return rows
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_open_loops 出错: {e}")
+            return []
+
+    def resolve_open_loop(self, loop_uuid: str) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE open_loops
+                    SET status = 'resolved',
+                        resolved_at = ?,
+                        updated_at = ?
+                    WHERE uuid = ?
+                ''', (datetime.now().isoformat(),
+                      datetime.now().isoformat(), loop_uuid))
+                return cursor.rowcount > 0
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ resolve_open_loop 出错: {e}")
+            return False
+
+    def find_matching_open_loop(self, keyword: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM open_loops WHERE status = ?',
+                               ('open',))
+                rows = [dict(row) for row in cursor.fetchall()]
+                kw = (keyword or '').lower()
+                for r in rows:
+                    topic = (r.get('topic') or '').lower()
+                    if kw and (kw in topic or topic in kw):
+                        try:
+                            r['related_keywords'] = json.loads(r.pop('related_keywords_json') or '[]')
+                        except Exception:
+                            r['related_keywords'] = []
+                        return r
+                return None
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ find_matching_open_loop 出错: {e}")
+            return None
+
+    # ==================== P3: Creative Project CRUD ====================
+
+    def create_creative_project(self, project: Dict[str, Any]) -> str:
+        try:
+            project_uuid = project.get('uuid') or str(uuid.uuid4())
+            now_iso = datetime.now().isoformat()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO creative_projects
+                    (uuid, title, work_type, premise, tone, point_of_view,
+                     target_chars, current_chars, status, inspiration_source,
+                     outline_json, characters_json, draft_chunks_json,
+                     next_advance_at, last_advanced_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    project_uuid,
+                    project.get('title', '未命名'),
+                    project.get('work_type', '短篇'),
+                    project.get('premise', ''),
+                    project.get('tone', ''),
+                    project.get('point_of_view', '第一人称'),
+                    int(project.get('target_chars', 5000)),
+                    int(project.get('current_chars', 0)),
+                    project.get('status', 'drafting'),
+                    project.get('inspiration_source', ''),
+                    json.dumps(project.get('outline', []), ensure_ascii=False),
+                    json.dumps(project.get('characters', []), ensure_ascii=False),
+                    json.dumps(project.get('draft_chunks', []), ensure_ascii=False),
+                    project.get('next_advance_at'),
+                    project.get('last_advanced_at'),
+                    now_iso, now_iso,
+                ))
+            return project_uuid
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ create_creative_project 出错: {e}")
+            return ""
+
+    def update_creative_project(self, project_uuid: str,
+                                 updates: Dict[str, Any]) -> bool:
+        try:
+            fields_map = {
+                'title': 'title', 'work_type': 'work_type',
+                'premise': 'premise', 'tone': 'tone',
+                'point_of_view': 'point_of_view',
+                'target_chars': 'target_chars', 'current_chars': 'current_chars',
+                'status': 'status', 'inspiration_source': 'inspiration_source',
+                'next_advance_at': 'next_advance_at',
+                'last_advanced_at': 'last_advanced_at',
+            }
+            json_map = {
+                'outline': 'outline_json',
+                'characters': 'characters_json',
+                'draft_chunks': 'draft_chunks_json',
+            }
+            sets = []
+            values: List[Any] = []
+            for k, v in updates.items():
+                if k in fields_map:
+                    sets.append(f'{fields_map[k]} = ?')
+                    values.append(v)
+                elif k in json_map:
+                    sets.append(f'{json_map[k]} = ?')
+                    values.append(json.dumps(v, ensure_ascii=False))
+            if not sets:
+                return False
+            sets.append('updated_at = ?')
+            values.append(datetime.now().isoformat())
+            values.append(project_uuid)
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f'UPDATE creative_projects SET {", ".join(sets)} WHERE uuid = ?',
+                    values,
+                )
+                return cursor.rowcount > 0
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ update_creative_project 出错: {e}")
+            return False
+
+    def get_creative_project(self, project_uuid: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM creative_projects WHERE uuid = ?',
+                               (project_uuid,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                data = dict(row)
+                for json_k in ('outline_json', 'characters_json', 'draft_chunks_json'):
+                    try:
+                        data[json_k.replace('_json', '')] = json.loads(data.get(json_k) or '[]')
+                    except Exception:
+                        data[json_k.replace('_json', '')] = []
+                return data
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_creative_project 出错: {e}")
+            return None
+
+    def list_creative_projects(self, status: Optional[str] = None,
+                               limit: int = 20) -> List[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if status:
+                    cursor.execute('''
+                        SELECT * FROM creative_projects
+                        WHERE status = ?
+                        ORDER BY created_at DESC LIMIT ?
+                    ''', (status, limit))
+                else:
+                    cursor.execute('''
+                        SELECT * FROM creative_projects
+                        ORDER BY created_at DESC LIMIT ?
+                    ''', (limit,))
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ list_creative_projects 出错: {e}")
+            return []
+
+    def upsert_story_bible(self, project_uuid: str, bible: Dict[str, Any]) -> bool:
+        try:
+            now_iso = datetime.now().isoformat()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO creative_story_bibles
+                    (project_uuid, mainline_direction, active_themes_json,
+                     unresolved_threads_json, resolved_threads_json,
+                     important_facts_json, next_direction, recent_keywords_json,
+                     created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    project_uuid,
+                    bible.get('mainline_direction', ''),
+                    json.dumps(bible.get('active_themes', []), ensure_ascii=False),
+                    json.dumps(bible.get('unresolved_threads', []), ensure_ascii=False),
+                    json.dumps(bible.get('resolved_threads', []), ensure_ascii=False),
+                    json.dumps(bible.get('important_facts', []), ensure_ascii=False),
+                    bible.get('next_direction', ''),
+                    json.dumps(bible.get('recent_keywords', []), ensure_ascii=False),
+                    now_iso, now_iso,
+                ))
+                return True
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ upsert_story_bible 出错: {e}")
+            return False
+
+    def get_story_bible(self, project_uuid: str) -> Optional[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT * FROM creative_story_bibles WHERE project_uuid = ?',
+                    (project_uuid,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                data = dict(row)
+                for k in ('active_themes_json', 'unresolved_threads_json',
+                          'resolved_threads_json', 'important_facts_json',
+                          'recent_keywords_json'):
+                    try:
+                        data[k.replace('_json', '')] = json.loads(data.get(k) or '[]')
+                    except Exception:
+                        data[k.replace('_json', '')] = []
+                return data
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_story_bible 出错: {e}")
+            return None
+
+    def add_creative_memory(self, project_uuid: str, memory_type: str,
+                            content: str, importance: float = 0.5) -> str:
+        try:
+            mem_uuid = str(uuid.uuid4())
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO creative_memory_pool
+                    (uuid, project_uuid, memory_type, content, importance, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (mem_uuid, project_uuid, memory_type, content,
+                      float(importance), datetime.now().isoformat()))
+                return mem_uuid
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ add_creative_memory 出错: {e}")
+            return ""
+
+    def get_creative_memory_pool(self, project_uuid: str, limit: int = 50) -> List[Dict[str, Any]]:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM creative_memory_pool
+                    WHERE project_uuid = ?
+                    ORDER BY importance DESC, created_at DESC
+                    LIMIT ?
+                ''', (project_uuid, limit))
+                return [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ get_creative_memory_pool 出错: {e}")
+            return []
+
+    def prune_creative_memory_pool(self, project_uuid: str,
+                                   keep_max: int = 50) -> int:
+        """保留高 importance + 最新的 keep_max 条；返回删除条数。"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT uuid FROM creative_memory_pool
+                    WHERE project_uuid = ?
+                    ORDER BY importance DESC, created_at DESC
+                ''', (project_uuid,))
+                rows = [r[0] for r in cursor.fetchall()]
+                if len(rows) <= keep_max:
+                    return 0
+                to_delete = rows[keep_max:]
+                cursor.executemany(
+                    'DELETE FROM creative_memory_pool WHERE uuid = ?',
+                    [(u,) for u in to_delete],
+                )
+                return len(to_delete)
+        except Exception as e:
+            if self.debug:
+                print(f"🐛 [DEBUG] ✗ prune_creative_memory_pool 出错: {e}")
+            return 0
+
     # ==================== Debug辅助方法 ====================
 
     def enable_debug(self):
@@ -2384,6 +3333,21 @@ class DatabaseManager:
                 print(f"  {key}: {value}")
 
         return debug_info
+
+    # ==================== v3.1.0: ChatSessionRepository 单例 ====================
+    _chat_session_repo: Optional["ChatSessionRepository"] = None  # type: ignore[name-defined]
+
+    def get_chat_session_repository(self) -> "ChatSessionRepository":  # type: ignore[name-defined]
+        """
+        获取 ChatSessionRepository 单例（懒加载）。
+
+        为什么不放模块顶层：避免循环 import
+        (database_manager → chat_session_repository → database_manager)。
+        """
+        if self._chat_session_repo is None:
+            from src.core.chat_session_repository import ChatSessionRepository
+            self._chat_session_repo = ChatSessionRepository(self)
+        return self._chat_session_repo
 
 
 if __name__ == '__main__':

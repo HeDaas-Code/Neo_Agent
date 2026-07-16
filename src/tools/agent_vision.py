@@ -12,6 +12,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
+from src.core import llm_providers  # v3.1.0: 统一供应商解析
 from src.tools.debug_logger import get_debug_logger
 
 load_dotenv()
@@ -34,10 +35,14 @@ class AgentVisionTool:
             db_manager: 数据库管理器实例
         """
         self.db = db_manager or DatabaseManager()
-        
+
         # API配置（用于智能判断是否需要使用视觉工具）
-        self.api_key = os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
+        # v3.1.0: 用 llm_providers 解析（保留旧 SILICONFLOW_API_KEY 兼容）
+        self.api_key = llm_providers.resolve_api_key()
+        try:
+            self.api_url = llm_providers.resolve_base_url(llm_providers.resolve_provider())
+        except Exception:
+            self.api_url = os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
         
         # 环境相关关键词（用于快速判断）

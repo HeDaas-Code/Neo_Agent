@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
+from src.core import llm_providers  # v3.1.0: 统一供应商解析
 from src.tools.debug_logger import get_debug_logger
 
 load_dotenv()
@@ -49,8 +50,12 @@ class ExpressionStyleManager:
         self.db = db_manager or DatabaseManager()
 
         # API配置（用于学习用户表达习惯）
-        self.api_key = api_key or os.getenv('SILICONFLOW_API_KEY')
-        self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
+        # v3.1.0: 用 llm_providers 解析（保留旧 SILICONFLOW_API_KEY 兼容）
+        self.api_key = api_key or llm_providers.resolve_api_key()
+        try:
+            self.api_url = api_url or llm_providers.resolve_base_url(llm_providers.resolve_provider())
+        except Exception:
+            self.api_url = api_url or os.getenv('SILICONFLOW_API_URL', 'https://api.siliconflow.cn/v1/chat/completions')
         self.model_name = model_name or os.getenv('MODEL_NAME', 'Qwen/Qwen2.5-7B-Instruct')
 
         # 用户表达习惯学习间隔（保留实例属性以保持兼容性）

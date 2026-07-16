@@ -93,7 +93,7 @@ class LangChainLLM:
         
         # 验证配置
         if not self.config.is_valid():
-            print("警告: 未设置有效的API密钥，请在.env文件中配置SILICONFLOW_API_KEY")
+            print("警告: 未设置有效的API密钥，请在.env文件中配置LLM_API_KEY（兼容旧 SILICONFLOW_API_KEY）")
     
     def _convert_messages_to_langchain(self, messages: List[Dict[str, str]]) -> List:
         """
