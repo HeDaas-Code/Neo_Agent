@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 本文件记录项目的所有重要变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范。
 
+## [Unreleased]
+
+### ⚠️ BREAKING
+- **移除 Tkinter GUI**：删除 `src/gui/` 目录、`run.py`、`--tk` 启动参数及 `ENABLE_WEB_GUI=false` 回滚开关
+- `python main.py` 现在固定启动 Web / API 服务（等价于原 `main.py --web`）
+- 删除 `docs/rollback-procedure.md` 与 Tkinter 相关测试；保留并迁移 WAL 并发安全测试到 `tests/integration/`
+
+### 🔧 修改
+- `main.py` 移除 `--tk` / `--web` 互斥参数，仅保留 `--port` / `--host` / `--no-dev` / `--no-static` / `--reload`
+- `run_web.py` 的依赖缺失提示不再指向 `--tk`
+- 文档（README、setup-local-dev、architecture、TECHNICAL、CONTEXT、AGENTS、.env.example）全面清理 Tkinter 引用
+
 ## v4.0.0 (2026-07-17)
 
 ### 🧠 重构

@@ -24,7 +24,13 @@
 #### 项目结构
 
 - `src/core/` - 核心业务逻辑
-- `src/gui/` - 图形界面组件
+- `src/nervous_system/` - 神经系统：CentralRouter + Gateway + Packet
+- `src/cortex/` - 大脑皮层：LLM 推理核心
+- `src/limbic/` - 边缘系统：记忆 + 情感
+- `src/prefrontal/` - 前额叶：日程 / 事件 / 主动决策
+- `src/cerebellum/` - 小脑：NPS 工具 / 视觉 / 表达风格
+- `src/hypothalamus/` - 下丘脑：生命状态 / 用户习惯
+- `src/web/` - Web GUI（FastAPI + React）
 - `src/tools/` - 工具和辅助函数
 - `src/nps/` - NPS工具系统
 - `tests/` - 单元测试
@@ -95,7 +101,13 @@ Thank you for your interest in the Neo Agent project! We welcome contributions o
 #### Project Structure
 
 - `src/core/` - Core business logic
-- `src/gui/` - GUI components
+- `src/nervous_system/` - Nervous system: CentralRouter + Gateway + Packet
+- `src/cortex/` - Cerebral cortex: LLM reasoning core
+- `src/limbic/` - Limbic system: memory + emotion
+- `src/prefrontal/` - Prefrontal cortex: schedule / event / proactive
+- `src/cerebellum/` - Cerebellum: NPS tools / vision / expression style
+- `src/hypothalamus/` - Hypothalamus: life state / user habits
+- `src/web/` - Web GUI (FastAPI + React)
 - `src/tools/` - Utilities and helper functions
 - `src/nps/` - NPS tool system
 - `tests/` - Unit tests

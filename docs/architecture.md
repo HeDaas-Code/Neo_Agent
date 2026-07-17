@@ -1,7 +1,6 @@
 # Neo Agent Web 架构文档
 
-本文档描述 Neo Agent v3.0.0+ 引入的 Web GUI（FastAPI + React）整体架构、数据流与部署模型。
-Tkinter GUI 仍受支持（通过 `python main.py --tk` 启动），其架构与核心类 API 参见 [`core-api.md`](core-api.md)。
+本文档描述 Neo Agent v3.0.0+ 引入的 Web GUI / API（FastAPI + React）整体架构、数据流与部署模型。
 
 ---
 
@@ -38,7 +37,7 @@ Tkinter GUI 仍受支持（通过 `python main.py --tk` 启动），其架构与
                               |
                               v
 +----------------------------------------------------------------+
-|       核心业务层 src/core  (GUI 无关, Tkinter / Web 共用)       |
+|       核心业务层 src/core  (GUI 无关, Web / API 共用)       |
 |  ChatAgent  KnowledgeBase  ScheduleManager  EmotionAnalyzer     |
 |  LongTermMemory  ProactiveEngine  BackgroundScheduler           |
 |              EventManager  (单例, 总线)                         |
@@ -262,16 +261,15 @@ Neo Agent v3.0.0 在同一进程内同时跑两类"长时间后台"组件：Fast
 
 要点：
 
-- `EventManager` 是**进程内单例**，所有模块（包括 Tkinter / Web）共享同一个实例
+- `EventManager` 是**进程内单例**，所有模块共享同一个实例
 - 订阅通过 `subscribe(event_type, callback)` 注册，回调签名 `callback(event_type, payload)`
 - 业务层 `publish(...)` 调用零侵入；Web 端 `EventService` 在启动时 `subscribe("*", ...)` 接管广播
 - publish 内部对每个 listener 都用 try/except 包裹，单个失败不影响其他订阅者
 
-### 4.3 Web 端推送回路（与 Tkinter 共存）
+### 4.3 Web 端推送回路
 
-- Web 模式：FastAPI 启动时 `EventService.start()`，把 EventManager 的事件投到 `/ws/events`
-- Tkinter 模式：Tkinter 主循环直接读 `EventManager._listeners`（沿用旧有事件回调），不经过 `EventService`
-- 两端互不干扰：WAL 模式下数据库可并发读，单写者安全
+- FastAPI 启动时 `EventService.start()`，把 EventManager 的事件投到 `/ws/events`
+- WAL 模式下数据库可并发读，单写者安全
 
 ---
 
@@ -351,7 +349,7 @@ graph LR
 
 ## 6. 数据共享
 
-Web GUI 与 Tkinter GUI **完全共享同一份数据库**，无需数据迁移。
+Web GUI / API 与业务核心共用同一份数据库，无需数据迁移。
 
 ### 6.1 数据库位置
 
@@ -360,20 +358,18 @@ Web GUI 与 Tkinter GUI **完全共享同一份数据库**，无需数据迁移�
 ```
 
 - SQLite 单一文件，相对路径存储
-- **已启用 WAL 模式**（Stage E.3 期间在 `database_manager.py` 中开启），允许 Tkinter 与 Web 同时读写而不冲突
-- 两端均通过 `DatabaseManager` 单例访问，业务层无差异
+- **已启用 WAL 模式**（Stage E.3 期间在 `database_manager.py` 中开启），支持多连接并发读、单写者安全
+- 均通过 `DatabaseManager` 单例访问，业务层无差异
 
-### 6.2 切换时数据一致性
+### 6.2 数据一致性
 
 | 场景 | 行为 |
 | --- | --- |
-| Tkinter 运行中切换到 Web | Tkinter 写完即关闭连接，Web 启动后立即可见新数据 |
-| Web 运行中切换到 Tkinter | 同上 |
-| 双端同时运行（不推荐） | WAL 模式可并发读，单写者安全；写入交错时由 SQLite 串行化保证一致性 |
+| 多进程/多线程同时访问 | WAL 模式可并发读，单写者安全；写入交错时由 SQLite 串行化保证一致性 |
 
 ### 6.3 共享的核心模块
 
-以下模块由 Tkinter 与 Web 共用，**未做任何 GUI 耦合**：
+以下模块由 Web / API 与业务层共用，**未做任何 GUI 耦合**：
 
 - `src/core/chat_agent.py`（新增 `chat_stream()` 异步生成器）
 - `src/core/knowledge_base.py`
@@ -388,15 +384,13 @@ Web GUI 与 Tkinter GUI **完全共享同一份数据库**，无需数据迁移�
 
 ## 7. 后台调度（速查）
 
-`BackgroundScheduler` 是一个独立线程中的周期任务（默认 60s/tick），与 GUI 解耦：
+`BackgroundScheduler` 是一个独立线程中的周期任务（默认 60s/tick），与 Web / API 层解耦：
 
-- Web 模式：随 FastAPI 启动/停止
-- Tkinter 模式：随 GUI 启动/停止
+- 随 FastAPI 启动/停止
 - 每个 tick 完成后通过 `EventManager` 发布状态事件，Web 端 `/ws/events` 可实时观察到调度器心跳
 
 禁用方式：
-- Web 模式：`python main.py --web --no-bg-scheduler`
-- 全局：`.env` 中 `ENABLE_BACKGROUND_SCHEDULER=false`
+- `.env` 中 `ENABLE_BACKGROUND_SCHEDULER=false`
 
 ---
 

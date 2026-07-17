@@ -69,7 +69,7 @@ if command -v node >/dev/null 2>&1; then
   fi
   ok "Node.js $NODE_VERSION"
 else
-  warn "未找到 node,前端 dev server 无法启动;可仅使用 --tk 模式"
+  warn "未找到 node,前端 dev server 无法启动"
 fi
 
 # npm
@@ -148,13 +148,9 @@ echo "     vim .env"
 echo ""
 echo "  2. 启动 Web GUI (开发模式,带 Vite 热重载):"
 echo "     source .venv/bin/activate"
-echo "     ENABLE_FRONTEND_DEV=1 python main.py --web"
+echo "     ENABLE_FRONTEND_DEV=1 python main.py"
 echo "     # 浏览器打开 http://localhost:8000"
 echo ""
-echo "  3. 或启动 Tkinter GUI (无 Web 依赖):"
-echo "     source .venv/bin/activate"
-echo "     python main.py --tk"
-echo ""
-echo "  4. 一键启动 (推荐):"
+echo "  3. 一键启动 (推荐):"
 echo "     ./start.sh"
 echo ""

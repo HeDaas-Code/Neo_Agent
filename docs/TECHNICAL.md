@@ -197,7 +197,6 @@ python -m pytest --cov=src tests/
 - `langchain-community` - LangChain社区扩展
 - `python-dotenv` - 环境变量管理
 - `requests` - HTTP请求
-- `tkinter` - GUI框架（Python标准库）
 
 ### 数据流 / Data Flow
 
@@ -264,12 +263,6 @@ DEBUG_MODE=False
 1. 修改 `src/core/chat_agent.py` 中的API调用逻辑
 2. 添加新的配置参数
 3. 更新环境变量模板
-
-#### 添加新的GUI组件
-
-1. 在 `src/gui/` 创建新模块
-2. 继承 `tkinter` 相关类
-3. 在主界面中集成
 
 #### 添加新的工具
 

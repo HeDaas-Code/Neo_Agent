@@ -200,6 +200,7 @@ selective_export.json
 test_import.env
 test_imported.env
 *.env.backup.*
+test_*.db
 
 # CodeGraph SQLite 索引（不在仓库内共享；每个开发者本地 init）
 .codegraph/

@@ -269,41 +269,6 @@ create_treeview_tooltip(treeview, column_texts={
 
 ---
 
-## GUI API
-
-### EnhancedChatDebugGUI
-
-主图形界面。
-
-```python
-import tkinter as tk
-from src.gui.gui_enhanced import EnhancedChatDebugGUI
-
-# 创建主窗口
-root = tk.Tk()
-
-# 创建GUI实例
-app = EnhancedChatDebugGUI(root)
-
-# 启动主循环
-root.mainloop()
-```
-
----
-
-### DatabaseGUI
-
-数据库管理界面。
-
-```python
-from src.gui.database_gui import DatabaseGUI
-
-# 在主GUI中集成
-db_gui = DatabaseGUI(parent_frame)
-```
-
----
-
 ## 数据结构 / Data Structures
 
 ### 对话记录 / Conversation Record

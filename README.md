@@ -24,7 +24,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - 🧠 **分层记忆系统**: 短期记忆、长期记忆、知识库、基础知识
 - 💭 **智能对话**: 角色扮演、连续对话、记忆检索、情感理解
 - 📊 **情感分析**: 印象评估、累计评分、关系可视化
-- 🖥️ **现代化GUI**: Web GUI（默认）+ Tkinter GUI（开发态/降级方案）
+- 🖥️ **现代化GUI**: Web GUI（默认）
 - 🌐 **Web 端独占能力**:
   - **跨设备访问**：任意浏览器打开 http://<host>:8000 即可使用，手机/平板/PC 体验一致
   - **实时 WebSocket 推送**：消息流、事件流、主动消息、调试日志全双工推送
@@ -41,7 +41,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - **状态管理**：Zustand
 - **图表**：ECharts 5
 - **HTTP 客户端**：Axios
-- **业务核心**：LangChain + LangGraph（与 Tkinter 模式共用，未改动）
+- **业务核心**：LangChain + LangGraph
 
 ### 快速开始
 
@@ -58,14 +58,6 @@ python run_web.py
 ```
 
 启动后访问 http://localhost:8000
-
-> 默认模式为 Web；通过 `--tk` 切换到原 Tkinter GUI。
-
-#### Tkinter GUI（开发态/降级方案）
-
-```bash
-python main.py --tk
-```
 
 #### 安装依赖
 
@@ -86,10 +78,7 @@ cp example.env .env
 # 方式1: 使用主入口（推荐）
 python main.py
 
-# 方式2: 使用简化启动器（如果遇到导入问题）
-python run.py
-
-# 方式3: 如果已安装包
+# 方式2: 如果已安装包
 neo-agent
 ```
 
@@ -113,7 +102,6 @@ Neo_Agent/
 │   ├── web/                   # Web GUI（默认）
 │   │   ├── backend/           # FastAPI 后端（API / WS / Services / Schemas）
 │   │   └── frontend/          # React + Vite + Ant Design 前端
-│   ├── gui/                   # Tkinter GUI（开发态/降级）
 │   ├── tools/                 # 工具模块
 │   └── nps/                   # NPS 工具系统
 ├── prompts/                   # 提示词模板
@@ -124,10 +112,9 @@ Neo_Agent/
 ├── tests/                     # 测试文件
 ├── examples/                  # 示例代码
 ├── docs/                      # 文档
-├── main.py                    # 主入口（默认 Web，可 --tk 切换 Tkinter）
-├── run.py                     # 简化启动器
-├── run_web.py                 # Web 模式启动入口
-├── start.sh                   # Web 模式一键启动脚本
+├── main.py                    # 主入口（Web / API）
+├── run_web.py                 # Web 启动入口
+├── start.sh                   # 一键启动脚本
 ├── requirements.txt           # 核心依赖
 ├── requirements-web.txt       # Web 端额外依赖
 ├── example.env                # 环境变量示例
@@ -163,17 +150,15 @@ Neo Agent采用模块化的提示词工程系统，参考了SillyTavern的设计
 
 ---
 
-## GUI 启动方式（v3.0.0+）
-
-> 以下章节为 v3.0.0 引入的 Web GUI / Tkinter 双模式启动补充说明，保留原"快速开始"中的命令行示例之外，作为对外的明确参考。
+## Web / API 启动方式
 
 ### Web GUI（默认模式）
 
 **启动方式**
 
 ```bash
-# 方式 A：主入口（默认即 Web 模式，可显式加 --web）
-python main.py --web
+# 方式 A：主入口（默认启动 Web / API）
+python main.py
 
 # 方式 B：一键脚本（自动 venv + pip install + 启动前端 dev server）
 ./start.sh
@@ -205,15 +190,6 @@ python main.py --web
   - `/ws/debug` 调试日志流
   - `/ws/proactive` 主动消息推送
 
-### Tkinter 模式（开发态/降级）
-
-```bash
-# 显式切换到 Tkinter GUI（不依赖 Web 端依赖）
-python main.py --tk
-```
-
-> Tkinter 模式与 Web GUI 共享同一份 `chat_agent.db`，**数据零迁移**；当 Web 端不可用时随时回滚。详见 [`docs/rollback-procedure.md`](docs/rollback-procedure.md)。
-
 ---
 
 ## English
@@ -236,7 +212,7 @@ Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system
 - 🧠 **Hierarchical Memory System**: Short-term memory, long-term memory, knowledge base, base knowledge
 - 💭 **Intelligent Conversation**: Role-playing, continuous dialogue, memory retrieval, emotional understanding
 - 📊 **Emotion Analysis**: Impression assessment, cumulative scoring, relationship visualization
-- 🖥️ **Modern GUI**: Web GUI (default) + Tkinter GUI (dev/fallback)
+- 🖥️ **Modern GUI**: Web GUI (default)
 - 🌐 **Web-only capabilities**:
   - **Cross-device access**: any browser at http://&lt;host&gt;:8000 — phone, tablet, PC consistent UX
   - **Real-time WebSocket push**: message stream / event stream / proactive message / debug log full-duplex
@@ -252,7 +228,7 @@ Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system
 - **State**: Zustand
 - **Charts**: ECharts 5
 - **HTTP client**: Axios
-- **Core**: LangChain + LangGraph (shared with Tkinter, unchanged)
+- **Core**: LangChain + LangGraph
 
 ### Quick Start
 
@@ -269,14 +245,6 @@ python run_web.py
 ```
 
 Open http://localhost:8000
-
-> Default mode is Web. Pass `--tk` to switch back to Tkinter GUI.
-
-#### Tkinter GUI (dev / fallback)
-
-```bash
-python main.py --tk
-```
 
 #### Install Dependencies
 
@@ -297,10 +265,7 @@ cp example.env .env
 # Method 1: Use main entry point (recommended)
 python main.py
 
-# Method 2: Use simplified launcher (if import issues occur)
-python run.py
-
-# Method 3: If package is installed
+# Method 2: If package is installed
 neo-agent
 ```
 
@@ -324,7 +289,6 @@ Neo_Agent/
 │   ├── web/                   # Web GUI (default)
 │   │   ├── backend/           # FastAPI backend (API / WS / Services / Schemas)
 │   │   └── frontend/          # React + Vite + Ant Design frontend
-│   ├── gui/                   # Tkinter GUI (dev / fallback)
 │   ├── tools/                 # Utility modules
 │   └── nps/                   # NPS tool system
 ├── prompts/                   # Prompt templates
@@ -335,10 +299,9 @@ Neo_Agent/
 ├── tests/                     # Test files
 ├── examples/                  # Example code
 ├── docs/                      # Documentation
-├── main.py                    # Main entry point (default Web, --tk for Tkinter)
-├── run.py                     # Simplified launcher
-├── run_web.py                 # Web-mode launcher
-├── start.sh                   # Web-mode one-click launcher
+├── main.py                    # Main entry point (Web / API)
+├── run_web.py                 # Web launcher
+├── start.sh                   # One-click launcher
 ├── requirements.txt           # Core dependencies
 ├── requirements-web.txt       # Web-only dependencies
 ├── example.env                # Environment variables template
@@ -354,17 +317,15 @@ Neo_Agent/
 - **long_term_memory**: Long-term memory system
 - **schedule_manager**: Schedule management
 
-### GUI Launch Modes (v3.0.0+)
-
-> This section supplements the Quick Start with explicit v3.0.0 launch instructions for both the Web GUI and Tkinter modes.
+### Web / API Launch
 
 #### Web GUI (default)
 
 **Launch**
 
 ```bash
-# Method A: main entry (Web is the default; --web is explicit)
-python main.py --web
+# Method A: main entry (Web / API is the default)
+python main.py
 
 # Method B: one-click script (auto venv + pip install + frontend dev server)
 ./start.sh
@@ -396,15 +357,6 @@ On a successful start you should see:
   - `/ws/debug` — debug log stream
   - `/ws/proactive` — proactive message push
 
-#### Tkinter Mode (dev / fallback)
-
-```bash
-# Switch to the original Tkinter GUI (no Web-side deps required)
-python main.py --tk
-```
-
-> Tkinter shares the same `chat_agent.db` with the Web GUI — **zero data migration**; use it as a safe rollback target when the Web stack is unavailable. See [`docs/rollback-procedure.md`](docs/rollback-procedure.md).
-
 ### License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
@@ -419,7 +371,7 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) file for 
 
 - 开发模式：`bash start.sh`（自动安装依赖 + 启动前后端）
 - 生产模式：`python run_web.py`（需先 `cd src/web/frontend && npm run build`）
-- 启动 Tkinter（兼容）：`python main.py --tk`
+- 主入口：`python main.py`
 
 ### 访问 URL
 
@@ -437,7 +389,3 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) file for 
 - `/nps` — NPS 工具管理
 - `/database` — 数据库浏览
 - `/creative` — 创作项目管理
-
-### 回滚 Tkinter
-
-如需紧急回滚：`python main.py --tk` 即可启动原桌面 GUI，数据完全兼容。

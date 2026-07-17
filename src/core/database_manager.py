@@ -67,7 +67,7 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row  # 使结果可以像字典一样访问
 
-        # Stage D.1: 启用 SQLite WAL 模式（提升并发读性能，让 Web/Scheduler/Tkinter 多端共存）
+        # Stage D.1: 启用 SQLite WAL 模式（提升并发读性能，让 Web/Scheduler/多进程共存）
         try:
             conn.execute("PRAGMA journal_mode=WAL")
         except Exception as pragma_err:

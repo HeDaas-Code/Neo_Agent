@@ -46,7 +46,7 @@ last_updated: 2026-06-19
 
 ### GUI
 
-Tkinter 实现（`src/gui/gui_enhanced.py`）。**注意**：需要系统安装 Tkinter。
+Web GUI（FastAPI + React + Vite），入口为 `python main.py`。
 
 ### NPS
 
@@ -56,7 +56,7 @@ Tkinter 实现（`src/gui/gui_enhanced.py`）。**注意**：需要系统安装 
 
 | 术语 | 含义 |
 |---|---|
-| **GUI Enhanced** | 主界面类名（`EnhancedChatDebugGUI`） |
+| **Web GUI** | 基于 FastAPI + React 的默认界面 |
 | **NPS** | Net Promoter Score 或本项目自定义子系统（看 `docs/NPS_*.md` 确认） |
 | **chinese-standardization** | 历史 PR 标签——把英文术语规范化到中文 |
 | **NPS_CONFIG_MANAGEMENT** | NPS 配置管理文档 |

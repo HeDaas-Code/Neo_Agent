@@ -185,7 +185,7 @@ classDiagram
 graph TB
     subgraph "外部世界"
         WebUI[Web 前端<br/>React]
-        TkGUI[Tkinter GUI]
+        APIClient[API 客户端<br/>测试/第三方调用]
         LLM_API[LLM API 调用]
     end
 
@@ -250,7 +250,7 @@ graph TB
     %% 外部到网关
     WebUI -->|HTTP POST /api/v4/*| HTTP_GW
     WebUI -->|WebSocket /ws/*| WS_GW
-    TkGUI -->|直接调用| LLM_API
+    APIClient -->|直接调用| LLM_API
     LLM_API --> LLM_GW
 
     %% 网关到路由器

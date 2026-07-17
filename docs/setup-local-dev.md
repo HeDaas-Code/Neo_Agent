@@ -53,21 +53,10 @@ python main.py --web --no-dev
 
 适合生产部署或无前端 dev server 场景。
 
-### 方式 4：Tkinter GUI（无 Web 依赖）
-
-```bash
-source .venv/bin/activate
-python main.py --tk
-```
-
-适合纯终端环境或回滚方案。
-
 ## 启动参数速查
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--web` | ✅ 默认 | 启动 Web GUI (FastAPI + 可选 Vite) |
-| `--tk` | | 启动 Tkinter GUI |
 | `--port` | 8000 | FastAPI 监听端口 |
 | `--host` | 0.0.0.0 | FastAPI 监听地址 |
 | `--no-dev` | | 跳过 Vite dev server |
@@ -83,12 +72,11 @@ python main.py --tk
 | `MAIN_MODEL_NAME` | | 主模型（默认 `deepseek-ai/DeepSeek-V3.2`） |
 | `TOOL_MODEL_NAME` | | 小模型（默认 `zai-org/GLM-4.6V`） |
 | `VISION_MODEL_NAME` | | 多模态模型（默认 `Qwen/Qwen3-VL-32B-Instruct`） |
-| `ENABLE_WEB_GUI` | | Web GUI 总开关（false 时 --web 拒绝启动） |
 | `ENABLE_FRONTEND_DEV` | | Vite dev server 开关（0/1） |
 | `WEB_HOST` | | FastAPI 监听地址 |
 | `WEB_PORT` | | FastAPI 监听端口 |
 | `CORS_ORIGINS` | | CORS 允许来源（逗号分隔） |
-| `CHAT_AGENT_DB` | | SQLite 路径（Web / Tkinter 共享） |
+| `CHAT_AGENT_DB` | | SQLite 路径 |
 | `LOG_LEVEL` | | Web 日志级别（DEBUG/INFO/WARNING/ERROR） |
 | `ENABLE_LIFE_STATE` | | 生活状态开关 |
 | `ENABLE_PROACTIVE_ENGINE` | | 主动消息开关 |
@@ -131,30 +119,20 @@ python main.py --web --port 8080
 - 检查 `CORS_ORIGINS` 是否包含实际访问的 origin
 - 浏览器 DevTools → Network → WS 帧查看是否握手成功
 
-### Q5: 临时回滚 Tkinter
-```bash
-ENABLE_WEB_GUI=false python main.py --tk
-```
-或显式指定：
-```bash
-python main.py --tk
-```
-
 ## 目录结构（关键文件）
 
 ```
 Neo_Agent/
 ├── .env                          # 本地敏感配置（gitignored）
 ├── .env.example                  # 配置模板（已提交）
-├── main.py                       # 启动入口（--web/--tk）
-├── run_web.py                    # Web 启动脚本（被 main.py --web 调用）
+├── main.py                       # 启动入口（Web / API）
+├── run_web.py                    # Web 启动脚本
 ├── start.sh                      # 一键启动
 ├── setup-dev.sh                  # 一键配置（新增）
 ├── requirements.txt              # Python 核心依赖
 ├── requirements-web.txt          # Python Web 依赖
 ├── src/
 │   ├── core/                     # 业务核心（只读，不要改）
-│   ├── gui/                      # Tkinter GUI
 │   └── web/
 │       ├── backend/              # FastAPI 后端
 │       └── frontend/             # React + Vite 前端
@@ -198,11 +176,6 @@ python main.py --web --reload
 ### 改前端代码 → 自动 HMR
 Vite dev server 已自动启动，改完即热重载。
 
-### 切换 Tkinter 调试
-```bash
-python main.py --tk
-```
-
 ### 跑测试
 ```bash
 source .venv/bin/activate
@@ -213,7 +186,6 @@ python -m unittest discover tests -v
 
 - 阅读 [CHANGELOG.md](../CHANGELOG.md) 了解 v3.0.0 变更
 - 阅读 [docs/architecture.md](architecture.md) 了解 Web 端架构
-- 阅读 [docs/rollback-procedure.md](rollback-procedure.md) 了解回滚流程
 - 阅读 [docs/api.md](api.md) 了解 REST/WS 端点
 
 ---

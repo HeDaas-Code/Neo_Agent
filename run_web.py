@@ -95,8 +95,6 @@ def check_web_dependencies() -> None:
             log("supervisor", C_RED, f"  - {m}")
         log("supervisor", C_RED,
             "请先执行: pip install -r requirements-web.txt")
-        log("supervisor", C_DIM,
-            "若想临时退回 Tkinter，请使用: python main.py --tk")
         sys.exit(1)
 
 

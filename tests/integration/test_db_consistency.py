@@ -1,11 +1,11 @@
 """
-Stage E.4 - Database consistency verification tests.
+Database consistency verification tests.
 
-验证 Web 与 Tkinter 共用 ``chat_agent.db`` 的并发安全：
+验证 DatabaseManager 在 WAL 模式下的并发安全：
 
 1. ``test_database_manager_works_for_both_modes``
    用同一 ``DatabaseManager('chat_agent.db')`` 实例化两次
-   （模拟 Web 与 Tkinter 进程同时持有），分别写入/读取，
+   （模拟多个进程/线程同时持有），分别写入/读取，
    验证 WAL 模式下不冲突。
 2. ``test_wal_mode_is_enabled``
    调用 ``db.get_connection()`` 后查询 ``PRAGMA journal_mode`` 应为 ``wal``。
@@ -62,7 +62,7 @@ if not _DB_OK:
 # ---------------------------------------------------------------
 def _new_tmp_db_path() -> str:
     """生成一个临时 db 文件路径（文件本身尚未创建）。"""
-    fd, path = tempfile.mkstemp(prefix="rollback_test_", suffix=".db")
+    fd, path = tempfile.mkstemp(prefix="db_consistency_test_", suffix=".db")
     os.close(fd)
     # mkstemp 已经创建空文件；删除让 DatabaseManager 自己 init
     try:
@@ -85,7 +85,7 @@ def _cleanup_db_files(path: str) -> None:
 # 1) 双 DatabaseManager 实例共存（WAL 模式不冲突）
 # ---------------------------------------------------------------
 class TestDatabaseManagerSharedBetweenModes(unittest.TestCase):
-    """Web 与 Tkinter 模拟：两个 DatabaseManager 实例共用同一 db。"""
+    """模拟多持有者：两个 DatabaseManager 实例共用同一 db。"""
 
     def setUp(self) -> None:
         self.db_path = _new_tmp_db_path()
@@ -98,19 +98,19 @@ class TestDatabaseManagerSharedBetweenModes(unittest.TestCase):
         分别写入/读取，验证 WAL 模式下不冲突。
 
         步骤：
-            1. db_web = DatabaseManager(self.db_path)    # 模拟 Web 进程
-            2. db_tk  = DatabaseManager(self.db_path)    # 模拟 Tkinter 进程
-            3. db_web 写入一行（commit）
-            4. db_tk  读取并校验
-            5. db_tk  写入另一行（commit）
-            6. db_web 读取并校验
+            1. db_first  = DatabaseManager(self.db_path)   # 模拟第一个持有者
+            2. db_second = DatabaseManager(self.db_path)   # 模拟第二个持有者
+            3. db_first  写入一行（commit）
+            4. db_second 读取并校验
+            5. db_second 写入另一行（commit）
+            6. db_first  读取并校验
         """
         # 第 1 步：两个 DatabaseManager 实例共用同一 db
-        db_web = DatabaseManager(self.db_path, debug=False)
-        db_tk = DatabaseManager(self.db_path, debug=False)
+        db_first = DatabaseManager(self.db_path, debug=False)
+        db_second = DatabaseManager(self.db_path, debug=False)
 
-        # 第 2 步：建表（web 端）
-        with db_web.get_connection() as conn:
+        # 第 2 步：建表（第一个持有者）
+        with db_first.get_connection() as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS rollback_probe ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -120,46 +120,46 @@ class TestDatabaseManagerSharedBetweenModes(unittest.TestCase):
                 ")"
             )
 
-        # 第 3 步：web 写入
-        with db_web.get_connection() as conn:
+        # 第 3 步：第一个持有者写入
+        with db_first.get_connection() as conn:
             conn.execute(
                 "INSERT INTO rollback_probe(source, value, created_at) "
                 "VALUES (?, ?, ?)",
-                ("web", "from-web-process", "2026-07-14T00:00:00Z"),
+                ("first", "from-first-process", "2026-07-14T00:00:00Z"),
             )
 
-        # 第 4 步：tk 端读取（必须能看到 web 写入的数据）
-        with db_tk.get_connection() as conn:
+        # 第 4 步：第二个持有者读取（必须能看到 first 写入的数据）
+        with db_second.get_connection() as conn:
             rows = conn.execute(
                 "SELECT source, value FROM rollback_probe ORDER BY id"
             ).fetchall()
         self.assertEqual(
             len(rows), 1,
-            f"tk 端应当看到 1 条 web 写入，实际: {len(rows)}",
+            f"second 端应当看到 1 条 first 写入，实际: {len(rows)}",
         )
-        self.assertEqual(rows[0]["source"], "web")
-        self.assertEqual(rows[0]["value"], "from-web-process")
+        self.assertEqual(rows[0]["source"], "first")
+        self.assertEqual(rows[0]["value"], "from-first-process")
 
-        # 第 5 步：tk 端写入
-        with db_tk.get_connection() as conn:
+        # 第 5 步：第二个持有者写入
+        with db_second.get_connection() as conn:
             conn.execute(
                 "INSERT INTO rollback_probe(source, value, created_at) "
                 "VALUES (?, ?, ?)",
-                ("tk", "from-tk-process", "2026-07-14T00:00:01Z"),
+                ("second", "from-second-process", "2026-07-14T00:00:01Z"),
             )
 
-        # 第 6 步：web 端读取（必须能看到 tk 写入的数据）
-        with db_web.get_connection() as conn:
+        # 第 6 步：第一个持有者读取（必须能看到 second 写入的数据）
+        with db_first.get_connection() as conn:
             rows = conn.execute(
                 "SELECT source, value FROM rollback_probe ORDER BY id"
             ).fetchall()
         self.assertEqual(
             len(rows), 2,
-            f"web 端应当看到 2 条（web + tk）写入，实际: {len(rows)}",
+            f"first 端应当看到 2 条（first + second）写入，实际: {len(rows)}",
         )
         sources = [r["source"] for r in rows]
-        self.assertIn("web", sources)
-        self.assertIn("tk", sources)
+        self.assertIn("first", sources)
+        self.assertIn("second", sources)
 
         # 不应出现 "database is locked" 之类的并发冲突
         # （若 WAL 未启用，第二个 DatabaseManager 在写入时可能 OperationalError）

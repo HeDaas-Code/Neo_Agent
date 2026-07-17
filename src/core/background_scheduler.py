@@ -1,8 +1,8 @@
 """
 后台调度入口模块
 - 异步执行 P1/P2/P3/P4 阶段的后台任务
-- 通过共享 DatabaseManager 与 EventManager 与 GUI 通信
-- 线程隔离：asyncio.run 在独立子线程运行，与 Tkinter 主循环物理隔离
+- 通过共享 DatabaseManager 与 EventManager 与 Web/API 层通信
+- 线程隔离：asyncio.run 在独立子线程运行，与主线程事件循环物理隔离
 
 参考架构：spec §4 ADDED Requirements → BackgroundScheduler
 """
@@ -25,7 +25,7 @@ class BackgroundScheduler:
     后台调度器
     - scheduler_loop: 异步主循环
     - 任务调度：梦境生成 / 日记生成 / 创作推进 / 主动决策评估
-    - 在独立子线程运行，与 Tkinter 主循环物理隔离
+    - 在独立子线程运行，与主线程事件循环物理隔离
     """
 
     DEFAULT_TICK_SECONDS = 60
@@ -52,7 +52,7 @@ class BackgroundScheduler:
 
     def start(self) -> bool:
         """
-        在独立子线程启动 asyncio 事件循环，物理隔离于 Tkinter 主循环。
+        在独立子线程启动 asyncio 事件循环，物理隔离于主线程事件循环。
         """
         if not self.enabled:
             debug_logger.log_info('BackgroundScheduler', '功能未启用，跳过启动')

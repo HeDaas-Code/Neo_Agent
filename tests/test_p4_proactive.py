@@ -124,15 +124,16 @@ class TestBackgroundSchedulerContract(unittest.TestCase):
 
 
 class TestMainEntryPoint(unittest.TestCase):
-    """main.py 启动后台调度（线程隔离）契约检查"""
+    """main.py 固定启动 Web/API 服务契约检查"""
 
-    def test_main_creates_background_scheduler(self):
+    def test_main_runs_web_api_entry(self):
         path = os.path.join(os.path.dirname(__file__), '..', 'main.py')
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-        self.assertIn('background_scheduler', content)
-        self.assertIn('start_default_scheduler', content)
-        self.assertIn('background_scheduler.stop()', content)
+        # v4.1: main.py 已移除 Tkinter 分支，固定透传给 run_web.main()
+        self.assertIn('run_web.main()', content)
+        self.assertNotIn('--tk', content)
+        self.assertNotIn('ENABLE_WEB_GUI', content)
 
 
 if __name__ == '__main__':
