@@ -33,10 +33,16 @@ class EchoCortex(BaseModule):
     async def handle(self, packet: Packet) -> Packet:
         """
         处理 chat 请求。
+
+        v4.0：EchoCortex 作为 cortex 入口，负责：
+        1. 查询海马体获取记忆上下文
+        2. 组装 system prompt + 记忆 + 用户输入
+        3. 通过 LLMGateway 调用真实 LLM
+        4. 触发记忆存储事件
         """
         user_input = packet.payload.get("content", "")
 
-        # MVP：先尝试获取记忆上下文（如果 hippocampus 存在）
+        # 1) 查询记忆
         memory_context = []
         try:
             memory_resp = await self.request(
@@ -50,9 +56,32 @@ class EchoCortex(BaseModule):
         except Exception:
             pass
 
-        reply = self._build_reply(user_input, memory_context)
+        # 2) 构造消息
+        messages = self._build_messages(user_input, memory_context)
 
-        # 发送记忆存储事件
+        # 3) 根据配置决定是否调用真实 LLM
+        reply = ""
+        use_llm = packet.payload.get("use_llm", False)
+
+        if use_llm:
+            try:
+                llm_resp = await self.request(
+                    target="nervous_system.gateway.llm",
+                    channel="llm_chat",
+                    payload={"messages": messages, "task_type": "main"},
+                    metadata=packet.metadata,
+                )
+                if not llm_resp.is_error():
+                    reply = llm_resp.payload.get("content", "")
+                else:
+                    reply = f"【Echo 降级回复】我收到了你的消息：\"{user_input}\"。（LLM 错误: {llm_resp.payload.get('error')}）"
+            except Exception as exc:
+                reply = f"【Echo 降级回复】我收到了你的消息：\"{user_input}\"。（LLM 调用失败: {exc}）"
+
+        if not reply:
+            reply = self._build_echo_reply(user_input, memory_context)
+
+        # 4) 发送记忆存储事件
         await self.emit(
             channel="memory_store",
             payload={
@@ -73,13 +102,13 @@ class EchoCortex(BaseModule):
         return packet.response({
             "role": "assistant",
             "content": reply,
-            "model": "echo-cortex-mvp",
+            "model": "cortex.echo-via-llm_gateway",
             "memory_count": len(memory_context),
         })
 
-    def _build_reply(self, user_input: str, memory_context: list) -> str:
+    def _build_echo_reply(self, user_input: str, memory_context: list) -> str:
         """
-        构造 Echo 回复。
+        构造 Echo 回复（不调用真实 LLM）。
         """
         if not user_input:
             return "你好，我是 Neo。请告诉我你想聊什么？"
@@ -91,3 +120,18 @@ class EchoCortex(BaseModule):
             )
 
         return f"【Echo 回复】我收到了你的消息：\"{user_input}\"。"
+
+    def _build_messages(self, user_input: str, memory_context: list) -> list:
+        """
+        构造发送给 LLM 的消息列表。
+        """
+        system_prompt = "你是 Neo，一个温暖、聪明的 AI 伴侣。请根据上下文自然回复。"
+        messages = [{"role": "system", "content": system_prompt}]
+
+        for mem in memory_context:
+            role = mem.get("role", "user")
+            content = mem.get("content", "")
+            messages.append({"role": role, "content": content})
+
+        messages.append({"role": "user", "content": user_input})
+        return messages

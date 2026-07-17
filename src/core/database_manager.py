@@ -38,6 +38,8 @@ class DatabaseManager:
         self.debug = debug
         self._query_count = 0  # 查询计数器
         self._operation_log = []  # 操作日志
+        # v4.0: 为内存数据库复用同一连接，避免 ':memory:' 每次新连接都是空库
+        self._memory_conn = None
 
         if self.debug:
             print(f"🐛 [DEBUG] 数据库管理器初始化 - 路径: {db_path}")
@@ -60,14 +62,8 @@ class DatabaseManager:
             return ""
         return (uuid_str[:length] + '...') if len(uuid_str) > length else uuid_str
 
-    @contextmanager
-    def get_connection(self):
-        """
-        获取数据库连接的上下文管理器
-        """
-        if self.debug:
-            print(f"🐛 [DEBUG] 打开数据库连接: {self.db_path}")
-
+    def _open_connection(self):
+        """打开并配置一个新的 SQLite 连接。"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row  # 使结果可以像字典一样访问
 
@@ -86,6 +82,27 @@ class DatabaseManager:
             if self.debug:
                 print(f"🐛 [DEBUG] 启用 foreign_keys 失败: {pragma_err}")
 
+        return conn
+
+    @contextmanager
+    def get_connection(self):
+        """
+        获取数据库连接的上下文管理器。
+
+        对 ':memory:' 数据库复用同一连接，避免每次新连接都是空库；
+        文件数据库仍按原有方式每次打开/关闭连接。
+        """
+        if self.debug:
+            print(f"🐛 [DEBUG] 打开数据库连接: {self.db_path}")
+
+        is_memory = self.db_path == ":memory:"
+        if is_memory:
+            if self._memory_conn is None:
+                self._memory_conn = self._open_connection()
+            conn = self._memory_conn
+        else:
+            conn = self._open_connection()
+
         try:
             yield conn
             conn.commit()
@@ -101,10 +118,10 @@ class DatabaseManager:
 
             raise e
         finally:
-            conn.close()
-
-            if self.debug:
-                print(f"🐛 [DEBUG] 数据库连接已关闭")
+            if not is_memory:
+                conn.close()
+                if self.debug:
+                    print(f"🐛 [DEBUG] 数据库连接已关闭")
 
     def init_database(self):
         """

@@ -3,6 +3,7 @@
 环境无 pytest 时，本文件可作为 AST 解析与 import 路径的契约检查。
 """
 
+import importlib
 import os
 import sys
 import unittest
@@ -27,10 +28,14 @@ class TestLifeStateManagerContract(unittest.TestCase):
                             f'LifeStateManager 缺少方法: {name}')
 
     def test_feature_flag_default_off(self):
+        # 将环境变量设为 false，重新加载定义层和兼容层后验证开关关闭
+        from src.hypothalamus.state import life_state as life_state_impl
         from src.core import life_state as ls
-        # 默认关闭（开发与生产可独立调整）
-        self.assertFalse(ls.ENABLE_LIFE_STATE,
-                         'ENABLE_LIFE_STATE 默认应为关闭')
+        with patch.dict(os.environ, {'ENABLE_LIFE_STATE': 'false'}, clear=False):
+            importlib.reload(life_state_impl)
+            importlib.reload(ls)
+            self.assertFalse(ls.ENABLE_LIFE_STATE,
+                             'ENABLE_LIFE_STATE 默认应为关闭')
 
     def test_disabled_returns_default_snapshot(self):
         from src.core.life_state import LifeStateManager

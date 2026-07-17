@@ -18,8 +18,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+# Phase 6: v4.0 神经系统桥接（导入失败不破坏 v3）
+try:
+    from src.nervous_system.app import NeoApp
+    from src.nervous_system.router.packet import Packet, PacketType
+    from src.web.backend.services.neo_bridge import set_neo_app
+except Exception:  # noqa: BLE001
+    NeoApp = None  # type: ignore
+    Packet = None  # type: ignore
+    PacketType = None  # type: ignore
+    set_neo_app = None  # type: ignore
 
 # FastAPI 应用实例
 app = FastAPI(
@@ -43,19 +55,49 @@ app.add_middleware(
 )
 
 
+# =====================================================================
+# Phase 6: v4.0 NeoApp 全局实例（失败不影响 v3）
+# =====================================================================
+_neo_app: "NeoApp | None" = None
+
+
+def get_neo_app() -> "NeoApp | None":
+    """返回当前进程内的全局 NeoApp 实例。"""
+    return _neo_app
+
+
 @app.get("/api/health")
 async def health_check() -> dict:
     """
     健康检查端点
     Health check endpoint.
 
-    返回服务状态、版本号与当前时间戳（ISO 8601, UTC）。
+    返回服务状态、版本号、当前时间戳（ISO 8601, UTC）以及 v4 模块状态。
     """
-    return {
+    result = {
         "status": "ok",
         "version": "3.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "v4_status": "ok",
+        "v4_modules": [],
     }
+
+    neo = get_neo_app()
+    if neo is None:
+        result["v4_status"] = "degraded"
+        return result
+
+    try:
+        result["v4_modules"] = list(neo.router._modules.keys())
+    except Exception as exc:  # noqa: BLE001
+        result["v4_status"] = "degraded"
+        try:
+            from src.tools.debug_logger import get_debug_logger
+            get_debug_logger().log_error('main', f'读取 v4 模块列表失败: {exc}', exc)
+        except Exception:
+            pass
+
+    return result
 
 
 @app.get("/api/chat")
@@ -64,6 +106,70 @@ async def chat_placeholder() -> dict:
     占位聊天端点（Stage A.3 替换为真实实现）
     """
     return {"message": "chat endpoint placeholder"}
+
+
+# =====================================================================
+# Phase 6: v4.0 通用网关路由
+# =====================================================================
+@app.post("/api/v4/gateway/{target}/{channel}")
+async def v4_gateway(target: str, channel: str, request: Request) -> JSONResponse:
+    """
+    通过 CentralRouter 调用任意 v4 模块。
+
+    请求体作为 payload 透传给目标模块；返回体统一为
+    {"data": ..., "trace_id": ...} 或 {"error": ..., "code": ..., "trace_id": ...}。
+    """
+    neo = get_neo_app()
+    if neo is None or Packet is None or PacketType is None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "v4 nervous system not available",
+                "code": "NEOAPP_NOT_READY",
+                "trace_id": "",
+            },
+        )
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+
+    try:
+        packet = Packet(
+            source="web.backend",
+            target=target,
+            packet_type=PacketType.REQUEST,
+            channel=channel,
+            payload=body,
+            metadata={"user_id": request.headers.get("X-User-Id", "default")},
+        )
+        response = await neo.router.route(packet)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": str(exc),
+                "code": "GATEWAY_EXCEPTION",
+                "trace_id": getattr(exc, "trace_id", ""),
+            },
+        )
+
+    if response.is_error():
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": response.payload.get("error", "unknown error"),
+                "code": response.payload.get("code", "INTERNAL_ERROR"),
+                "trace_id": response.trace_id,
+            },
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={"data": response.payload, "trace_id": response.trace_id},
+    )
 
 
 # =====================================================================
@@ -242,6 +348,25 @@ async def _on_startup() -> None:
         except Exception:
             pass
 
+    # Phase 6: 初始化 v4.0 NeoApp（失败不影响 v3）
+    if NeoApp is not None and set_neo_app is not None:
+        global _neo_app
+        try:
+            _neo_app = NeoApp()
+            set_neo_app(_neo_app)
+            await _neo_app.initialize()
+        except Exception as e:  # noqa: BLE001
+            _neo_app = None
+            try:
+                set_neo_app(None)
+            except Exception:
+                pass
+            try:
+                from src.tools.debug_logger import get_debug_logger
+                get_debug_logger().log_error('main', f'NeoApp 初始化失败: {e}', e)
+            except Exception:
+                pass
+
     # Stage D.4: 启动 DebugBroadcaster，把 DebugLogger 推送到 /ws/debug
     if not _debug_broadcaster_started:
         try:
@@ -267,7 +392,18 @@ async def _on_startup() -> None:
 @app.on_event("shutdown")
 async def _on_shutdown() -> None:
     """应用关闭钩子。"""
-    global _event_service_started, _debug_broadcaster_started
+    global _event_service_started, _debug_broadcaster_started, _neo_app
+    # Phase 6: 关闭 v4.0 NeoApp（失败忽略）
+    if _neo_app is not None:
+        try:
+            await _neo_app.shutdown()
+        except Exception:
+            pass
+        _neo_app = None
+        try:
+            set_neo_app(None)
+        except Exception:
+            pass
     if _event_service is not None and _event_service_started:
         try:
             _event_service.stop()

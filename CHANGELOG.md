@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 本文件记录项目的所有重要变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范。
 
+## v4.0.0 (2026-07-17)
+
+### 🧠 重构
+- **基于人脑认知理论的神经系统架构**：新增 `src/nervous_system/` 统一数据路由与外部访问网关
+- **大脑皮层（Cortex）**：`src/cortex/` 承载 LLM 推理、生成、理解能力统一入口（`llm_core`、`echo_cortex`、供应商注册表）
+- **边缘系统（Limbic）**：`src/limbic/` 承载记忆、情感、会话（`hippocampus`、`amygdala`）
+- **前额叶（Prefrontal）**：`src/prefrontal/` 承载日程、事件、主动决策（`schedule`、`event`、`proactive`）
+- **小脑（Cerebellum）**：`src/cerebellum/` 承载工具调用、视觉、反射（`nps`、`vision`、`intent`、`interrupt`、`style`）
+- **下丘脑（Hypothalamus）**：`src/hypothalamus/` 承载生命状态、用户习惯（`state`、`habits`）
+- **统一网关**：HTTP Gateway、WebSocket Gateway、LLM Gateway 均通过 `CentralRouter + Packet` 进行可追踪路由
+
+### 🔧 修改
+- `src/core/*` 原模块保留为 v3.1.0 兼容层，通过导入转发访问新架构实现，**完全向后兼容**
+- Web 后端（`src/web/backend/main.py`）集成 `NeoApp`，新增 `/api/v4/gateway/{target}/{channel}` 通用网关路由
+- `DatabaseManager` 对 `:memory:` 数据库复用单一连接，解决测试中空库问题
+
+### ✅ 测试
+- 全量测试通过：`227 passed, 27 skipped, 0 failed, 0 error`
+- 新增/修复 `tests/unit/*` 各层模块测试、`tests/integration/test_web_neo_bridge.py`、特性开关隔离测试
+
+### ⚠️ BREAKING
+- 无破坏性变更；所有新特性默认关闭，可通过 `.env` 的 `ENABLE_*` 开关按需启用
+
 ## v3.1.0 (2026-XX-XX)
 
 ### ✨ 新增

@@ -193,6 +193,14 @@ Thumbs.db
 thinking.md
 mermaid.md
 
+# 测试生成产物（settings_migration 等测试自动生成）
+test_export.json
+full_test_export.json
+selective_export.json
+test_import.env
+test_imported.env
+*.env.backup.*
+
 # CodeGraph SQLite 索引（不在仓库内共享；每个开发者本地 init）
 .codegraph/
 

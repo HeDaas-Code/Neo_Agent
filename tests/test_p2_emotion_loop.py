@@ -3,13 +3,14 @@
 环境无 pytest / 缺依赖时，本文件可作为 AST 解析与 import 路径的契约检查。
 """
 
+import importlib
 import os
 import sys
 import unittest
 import tempfile
 import types
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -63,9 +64,13 @@ class TestPlutchikEmotionWheelContract(unittest.TestCase):
             self.assertEqual(PlutchikEmotionWheel.OPPOSITES[v], k)
 
     def test_feature_flag_default_off(self):
+        from src.limbic.amygdala import emotion_state as emotion_state_impl
         from src.core import emotion_analyzer as ea
-        self.assertFalse(ea.ENABLE_EMOTION_WHEEL,
-                         'ENABLE_EMOTION_WHEEL 默认应为关闭')
+        with patch.dict(os.environ, {'ENABLE_EMOTION_WHEEL': 'false'}, clear=False):
+            importlib.reload(emotion_state_impl)
+            importlib.reload(ea)
+            self.assertFalse(ea.ENABLE_EMOTION_WHEEL,
+                             'ENABLE_EMOTION_WHEEL 默认应为关闭')
 
     def test_nudge_emotion_clamps(self):
         from src.core.emotion_analyzer import PlutchikEmotionWheel
@@ -166,9 +171,12 @@ class TestOpenLoopTrackerContract(unittest.TestCase):
                             f'OpenLoopTracker 缺少方法: {name}')
 
     def test_feature_flag_default_off(self):
-        from src.core import long_term_memory as ltm
-        self.assertFalse(ltm.ENABLE_OPEN_LOOP,
-                         'ENABLE_OPEN_LOOP 默认应为关闭')
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('ENABLE_OPEN_LOOP', None)
+            from src.core import long_term_memory as ltm
+            importlib.reload(ltm)
+            self.assertFalse(ltm.ENABLE_OPEN_LOOP,
+                             'ENABLE_OPEN_LOOP 默认应为关闭')
 
     def test_update_extracts_topic(self):
         from src.core.long_term_memory import OpenLoopTracker

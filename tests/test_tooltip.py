@@ -2,7 +2,9 @@
 简单测试Tooltip功能
 """
 
-import tkinter as tk
+import pytest
+
+tk = pytest.importorskip("tkinter")
 from tkinter import ttk
 import sys
 import os

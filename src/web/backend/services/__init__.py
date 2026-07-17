@@ -15,6 +15,7 @@ from .creative_service import CreativeService, creative_service
 from .database_service import DatabaseService, database_service
 from .emotion_service import EmotionService, emotion_service
 from .event_service import EventService, event_service
+from .neo_bridge import get_neo_app, get_neo_router, neo_request, set_neo_app
 
 __all__ = [
     "ChatService",
@@ -27,4 +28,8 @@ __all__ = [
     "emotion_service",
     "EventService",
     "event_service",
+    "get_neo_app",
+    "get_neo_router",
+    "neo_request",
+    "set_neo_app",
 ]

@@ -3,13 +3,14 @@
 环境无 pytest / 缺依赖时，本文件可作为 AST 解析与 import 路径的契约检查。
 """
 
+import importlib
 import os
 import sys
 import unittest
 import tempfile
 import types
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -44,9 +45,12 @@ class TestCreativeProjectManagerContract(unittest.TestCase):
                             f'CreativeProjectManager 缺少方法: {name}')
 
     def test_feature_flag_default_off(self):
-        from src.core import creative_writer as cw
-        self.assertFalse(cw.ENABLE_CREATIVE_WRITER,
-                         'ENABLE_CREATIVE_WRITER 默认应为关闭')
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('ENABLE_CREATIVE_WRITER', None)
+            from src.core import creative_writer as cw
+            importlib.reload(cw)
+            self.assertFalse(cw.ENABLE_CREATIVE_WRITER,
+                             'ENABLE_CREATIVE_WRITER 默认应为关闭')
 
     def test_template_constants(self):
         from src.core.creative_writer import (

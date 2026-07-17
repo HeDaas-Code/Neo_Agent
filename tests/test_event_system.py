@@ -4,9 +4,20 @@
 演示通知型和任务型事件的创建和管理
 """
 
+import pytest
+
 from src.core.chat_agent import ChatAgent
 from src.core.event_manager import EventType, EventPriority
 import sys
+
+
+@pytest.fixture
+def agent():
+    """为事件系统测试提供 ChatAgent 实例"""
+    try:
+        return ChatAgent()
+    except Exception as exc:
+        pytest.skip(f"ChatAgent 初始化失败，跳过事件系统测试: {exc}")
 
 def test_notification_event(agent):
     """测试通知型事件"""

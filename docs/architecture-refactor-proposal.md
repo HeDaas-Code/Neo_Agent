@@ -1229,7 +1229,228 @@ python -m pytest tests/unit/nervous_system/test_packet.py \
 
 - 分支名：`feature/nervous-system`
 - 基于：`Dev`
-- 提交状态：未提交（待 review 后提交）
+- 提交状态：已提交 MVP（后续 Phase 1 继续提交）
+
+---
+
+## 十九、Phase 1 完成记录（LLM 模块迁移）
+
+### 19.1 迁移内容
+
+将 v3.1.0 的 LLM 相关模块迁移到新架构：
+
+| 原文件（v3.1.0） | 新文件（v4.0） | 说明 |
+|---|---|---|
+| `src/core/langchain_llm.py` | `src/cortex/llm_core.py` | 抽象为 LLMCore + LangChainLLM + ModelRouter |
+| `src/core/model_config.py` | `src/cortex/config/model_config.py` | 多层模型配置 |
+| `src/core/llm_providers.py` | `src/cortex/providers/registry.py` | 6 个 preset 供应商注册表 |
+| 新增 | `src/nervous_system/gateway/llm_gateway.py` | LLM 统一调用网关 |
+| 保留 | `src/core/langchain_llm.py` 等 | 改为兼容层，导入转发 |
+
+### 19.2 关键设计决策
+
+1. **懒加载 ModelRouter**：LLMCore 不再在初始化时强制创建 LangChain 实例，避免启动期阻塞和无 API key 时异常。
+2. **EchoCortex 默认 echo**：通过 `use_llm: true` 显式开启真实 LLM 调用，避免测试和未配置环境误触 API。
+3. **旧模块兼容层**：`src/core/langchain_llm.py`、`model_config.py`、`llm_providers.py` 保留原接口，通过导入转发到新位置。
+
+### 19.3 新增/修改文件
+
+```
+src/cortex/llm_core.py                 # 新增/完善
+src/cortex/config/model_config.py      # 迁移
+src/cortex/providers/registry.py       # 迁移
+src/nervous_system/gateway/llm_gateway.py  # 新增
+tests/unit/cortex/test_llm_core.py     # 新增
+tests/unit/nervous_system/test_llm_gateway.py  # 新增
+src/core/langchain_llm.py              # 改为兼容层
+src/core/model_config.py               # 改为兼容层
+src/core/llm_providers.py              # 改为兼容层
+src/cortex/echo_cortex.py              # 修改：支持 use_llm
+src/nervous_system/app.py              # 修改：注册 LLMCore / LLMGateway
+```
+
+### 19.4 验证结果
+
+```bash
+python -m pytest tests/unit/nervous_system/ tests/unit/cortex/ tests/integration/test_v4_mvp_chat.py -v
+```
+
+结果：**17 passed, 1 warning**
+
+性能指标：
+- CentralRouter 平均路由耗时：0.044ms ✅
+- `/api/v4/chat` 端到端平均耗时：0.446ms ✅（目标 < 50ms）
+
+### 19.5 调用链路示例
+
+```
+用户 HTTP POST /api/v4/chat
+  -> HTTP Gateway
+    -> CentralRouter
+      -> EchoCortex
+        -> Hippocampus (memory_query)
+        -> [可选] LLMGateway -> LLMCore -> LangChainLLM
+        -> Hippocampus (memory_store event)
+      <- EchoCortex
+    <- CentralRouter
+  <- HTTP Gateway
+用户收到回复
+```
+
+---
+
+## 二十、Phase 2 完成记录（记忆与情感模块迁移）
+
+### 20.1 迁移内容
+
+将 v3.1.0 的记忆与情感相关模块迁移到新架构的 `src/limbic/` 目录：
+
+| 原文件（v3.1.0） | 新文件（v4.0） | 说明 |
+|---|---|---|
+| `src/core/emotion_analyzer.py` | `src/limbic/amygdala/emotion_state.py` | 情感关系分析器 + Plutchik 情绪轮 |
+| `src/core/long_term_memory.py` | `src/limbic/hippocampus/memory_store.py` | 长效记忆管理器（已存在，确认归位） |
+| `src/core/knowledge_base.py` | `src/limbic/hippocampus/knowledge_store.py` | 知识库（已存在，确认归位） |
+| `src/core/chat_session_repository.py` | `src/limbic/hippocampus/session_store.py` | 聊天会话与消息持久化 |
+| 新增 | `src/limbic/amygdala/module.py` | AmygdalaModule：情感分析神经系统接入层 |
+| 新增 | `src/limbic/hippocampus/module.py` | HippocampusModule：记忆/会话神经系统接入层 |
+| 保留 | `src/core/emotion_analyzer.py` | 改为兼容层，导入转发 |
+| 保留 | `src/core/long_term_memory.py` | 改为兼容层，导入转发 |
+| 保留 | `src/core/knowledge_base.py` | 改为兼容层，导入转发 |
+| 保留 | `src/core/chat_session_repository.py` | 改为兼容层，导入转发 |
+
+### 20.2 关键设计决策
+
+1. **文件补全与归位**：`src/limbic/amygdala/emotion_state.py` 原本只包含部分代码，已补全为 `EmotionRelationshipAnalyzer` + `PlutchikEmotionWheel` 完整实现，原 `src/core/emotion_analyzer.py` 改为兼容层。
+2. **神经系统接入层**：新增 `AmygdalaModule` 与 `HippocampusModule`，将原有分析/存储能力包装为 `BaseModule`，通过 `CentralRouter` 与其他模块通信。
+3. **向后兼容**：所有旧路径（`src.core.emotion_analyzer`、`src.core.long_term_memory`、`src.core.knowledge_base`、`src.core.chat_session_repository`）均保留导入转发，v3.1.0 代码无需修改即可运行。
+4. **MVP 与完整实现并存**：保留 `SimpleHippocampus`（`limbic.hippocampus`）作为 MVP 轻量实现，新增 `HippocampusModule`（`limbic.hippocampus.full`）提供完整持久化能力，避免一次性引入完整存储初始化影响启动稳定性。
+
+### 20.3 新增/修改文件
+
+```
+src/limbic/amygdala/emotion_state.py       # 补全为完整实现
+src/limbic/amygdala/module.py              # 新增：神经系统接入层
+src/limbic/hippocampus/module.py           # 新增：神经系统接入层
+src/core/emotion_analyzer.py               # 改为兼容层
+src/nervous_system/app.py                  # 修改：注册 AmygdalaModule / HippocampusModule
+tests/unit/limbic/__init__.py              # 新增
+tests/unit/limbic/test_amygdala_module.py  # 新增
+tests/unit/limbic/test_hippocampus_module.py  # 新增
+tests/unit/limbic/test_emotion_state.py    # 新增
+tests/unit/limbic/test_compat_layers.py    # 新增
+```
+
+### 20.4 验证结果
+
+```bash
+python -m pytest tests/unit/ tests/integration/ -v
+```
+
+结果：**36 passed, 1 warning**
+
+新增测试覆盖：
+- AmygdalaModule 的 `emotion_analyze`、`emotion_latest`、`emotion_wheel_profile`、未知通道处理
+- HippocampusModule 的 `session_create`、`memory_store`、`message_add`、未知通道处理
+- `PlutchikEmotionWheel` 的衰减、截断、profile 推导、格式化
+- v3.1.0 兼容层导入转发验证
+
+### 20.5 调用链路示例
+
+```
+用户 HTTP POST /api/v4/chat
+  -> HTTP Gateway
+    -> CentralRouter
+      -> EchoCortex
+        -> limbic.hippocampus (memory_query)      # MVP 轻量记忆
+        -> [可选] limbic.amygdala (emotion_latest)  # 情感状态
+        -> [可选] LLMGateway -> LLMCore -> LangChainLLM
+        -> limbic.hippocampus (memory_store event)
+      <- EchoCortex
+    <- CentralRouter
+  <- HTTP Gateway
+用户收到回复
+```
+
+---
+
+## 二十一、Phase 3 完成记录（规划模块迁移）
+
+### 21.1 迁移内容
+
+将 v3.1.0 的规划相关模块迁移到新架构的 `src/prefrontal/` 目录：
+
+| 原文件（v3.1.0） | 新文件（v4.0） | 说明 |
+|---|---|---|
+| `src/core/schedule_manager.py` | `src/prefrontal/schedule/schedule_manager.py` | 日程管理器 + 日程模型枚举 |
+| `src/core/schedule_generator.py` | `src/prefrontal/schedule/schedule_generator.py` | 临时日程生成器 |
+| `src/core/schedule_similarity_checker.py` | `src/prefrontal/schedule/schedule_similarity_checker.py` | 日程相似度检查 |
+| `src/core/proactive_engine.py` | `src/prefrontal/proactive/proactive_engine.py` | 主动决策与想法池 |
+| `src/core/event_manager.py` | `src/prefrontal/event/event_manager.py` | 事件管理器 + 事件模型枚举 |
+| 新增 | `src/prefrontal/module.py` | PrefrontalModule：规划模块神经系统接入层 |
+| 保留 | `src/core/schedule_manager.py` 等 | 改为兼容层，导入转发 |
+
+### 21.2 关键设计决策
+
+1. **规划模块归位**：将日程、主动决策、事件管理等"规划与决策"能力统一归入 `src/prefrontal/`，符合前额叶皮层的人脑隐喻。
+2. **神经系统接入层**：新增 `PrefrontalModule`（`module_id: prefrontal.planner`），对外暴露 7 个 channel：`schedule_list`、`schedule_add`、`schedule_delete`、`proactive_should_send`、`proactive_schedule_next`、`event_list`、`event_add`。
+3. **向后兼容**：所有旧路径（`src.core.schedule_manager`、`src.core.event_manager` 等）均保留导入转发，v3.1.0 代码无需修改即可运行。
+4. **异常隔离与枚举兼容**：`PrefrontalModule.handle` 使用 try/except 捕获业务异常并返回 `Packet.error`；handler 内部自动将字符串形式的枚举值转换为真实枚举，方便通过 JSON payload 调用。
+5. **复用已有基础设施**：`PrefrontalModule` 复用 `DatabaseManager` 作为统一数据库入口，`ProactiveEngine` 注入 `EventManager` 以实现主动消息投递。
+
+### 21.3 新增/修改文件
+
+```
+src/prefrontal/__init__.py                                    # 新增
+src/prefrontal/schedule/__init__.py                           # 新增
+src/prefrontal/schedule/schedule_manager.py                   # 迁移
+src/prefrontal/schedule/schedule_generator.py                 # 迁移
+src/prefrontal/schedule/schedule_similarity_checker.py        # 迁移
+src/prefrontal/proactive/__init__.py                          # 新增
+src/prefrontal/proactive/proactive_engine.py                  # 迁移
+src/prefrontal/event/__init__.py                              # 新增
+src/prefrontal/event/event_manager.py                         # 迁移
+src/prefrontal/module.py                                      # 新增：神经系统接入层
+src/core/schedule_manager.py                                  # 改为兼容层
+src/core/schedule_generator.py                                # 改为兼容层
+src/core/schedule_similarity_checker.py                       # 改为兼容层
+src/core/proactive_engine.py                                  # 改为兼容层
+src/core/event_manager.py                                     # 改为兼容层
+src/nervous_system/app.py                                     # 修改：注册 PrefrontalModule
+tests/unit/prefrontal/__init__.py                             # 新增
+tests/unit/prefrontal/test_compat_layers.py                   # 新增
+tests/unit/prefrontal/test_prefrontal_module.py               # 新增
+```
+
+### 21.4 验证结果
+
+```bash
+python -m pytest tests/unit/ tests/integration/ -v
+```
+
+结果：**50 passed, 1 warning**
+
+新增测试覆盖：
+- 前额叶兼容层：5 个测试验证 `src.core.*` 与 `src.prefrontal.*` 是同一对象
+- `PrefrontalModule` 的 7 个 channel：`schedule_list`、`schedule_add`、`schedule_delete`、`proactive_should_send`、`proactive_schedule_next`、`event_list`、`event_add`，以及未知通道和参数校验
+
+### 21.5 调用链路示例
+
+```
+用户 HTTP POST /api/v4/chat
+  -> HTTP Gateway
+    -> CentralRouter
+      -> EchoCortex
+        -> limbic.hippocampus (memory_query)         # MVP 轻量记忆
+        -> [可选] limbic.amygdala (emotion_latest)     # 情感状态
+        -> [可选] prefrontal.planner (schedule_list)   # 日程查询
+        -> [可选] LLMGateway -> LLMCore -> LangChainLLM
+        -> limbic.hippocampus (memory_store event)
+        -> [可选] prefrontal.planner (event_add)       # 记录事件
+      <- EchoCortex
+    <- CentralRouter
+  <- HTTP Gateway
+用户收到回复
+```
 
 ---
 
@@ -1341,3 +1562,189 @@ flowchart TD
     BS --> RT
     EB --> BS
 ```
+
+---
+
+## 二十二、Phase 6 完成记录（Web 适配层接入神经系统）
+
+### 22.1 迁移内容
+
+在现有 v3.1.0 Web 后端（`src/web/backend/main.py`）中内嵌初始化 v4.0 `NeoApp`，并通过 `CentralRouter` 调用新架构模块。所有 v4 相关改动对现有 v3 API 透明：v4 初始化失败时，v3 路由继续正常运行，仅 v4 功能不可用。
+
+### 22.2 新增/修改文件
+
+```
+src/web/backend/main.py                    # 修改：集成 NeoApp、health 扩展、/api/v4/gateway 路由
+src/web/backend/services/neo_bridge.py     # 新增：NeoApp 全局注册 + neo_request 桥接函数
+src/web/backend/services/__init__.py       # 修改：导出 neo_bridge 辅助函数
+src/web/backend/api/emotion.py             # 修改：GET /api/emotion/latest 优先走 v4 Amygdala
+tests/integration/test_web_neo_bridge.py   # 新增：Phase 6 集成测试
+docs/architecture-refactor-proposal.md     # 修改：新增本章记录
+```
+
+### 22.3 关键设计决策
+
+1. **双全局引用同步**：`neo_bridge.py` 持有 `_neo_app` 全局引用并提供 `set_neo_app()`；`main.py` 创建 `NeoApp` 实例后注入到 `neo_bridge`，供 emotion 等其他服务安全访问。
+2. **启动期初始化**：`main.py` 在已有的 `@app.on_event("startup")` 钩子中、路由挂载完成后初始化 `NeoApp`；初始化失败时捕获异常，`_neo_app` 置为 None，不影响后续 DebugBroadcaster 和 v3 路由。
+3. **关闭期清理**：`@app.on_event("shutdown")` 中调用 `await _neo_app.shutdown()`，释放 v4 模块资源。
+4. **health 端点扩展**：`/api/health` 返回 `v4_modules`（已注册模块列表）和 `v4_status`；v4 不可用时 `v4_status` 为 `degraded`，不抛异常。
+5. **通用网关路由**：新增 `POST /api/v4/gateway/{target}/{channel}`，将任意 JSON body 包装为 `Packet` 并通过 `CentralRouter.route()` 转发；错误统一转为 `JSONResponse(status_code=500)`。
+6. **emotion API 桥接示例**：`GET /api/emotion/latest` 优先调用 `limbic.amygdala / emotion_latest`，并将 v4 返回结构（`additive_scores`、`plutchik`、`dominant`）转换为 v3 兼容格式（`cumulative`、`plutchik`、`last_message`、`timestamp`、`user_id`、`historical_max`），失败时回退到原有 `emotion_service`。
+7. **安全导入**：所有 v4 导入都包装在 `try/except` 中，确保神经系统模块缺失或损坏时 v3 后端仍可启动。
+
+### 22.4 验证结果
+
+```bash
+python -m pytest tests/unit/ tests/integration/ -v
+```
+
+结果：**84 passed, 5 warnings**
+
+新增测试覆盖：
+- `/api/health` 返回 `v4_modules` 列表且包含 `cortex.echo`
+- `POST /api/v4/gateway/cortex.echo/chat {"content":"你好"}` 返回包含 `data` 和 `trace_id` 的 JSON
+- `POST /api/v4/gateway/unknown.module/test` 返回 500 + error/code/trace_id
+- `GET /api/emotion/latest` 在 v4 可用时返回兼容的 8 维情感格式
+
+### 22.5 调用链路示例
+
+```
+用户 HTTP GET /api/health
+  -> main.py
+    -> get_neo_app().router._modules
+      -> 返回 v4_modules + v4_status
+
+用户 HTTP POST /api/v4/gateway/cortex.echo/chat
+  -> main.py v4_gateway()
+    -> Packet(source="web.backend", target="cortex.echo", channel="chat")
+    -> neo_app.router.route(packet)
+      -> EchoCortex
+        -> 返回 echo 回复
+    -> JSONResponse({"data": ..., "trace_id": ...})
+
+用户 HTTP GET /api/emotion/latest
+  -> emotion.py
+    -> neo_request("limbic.amygdala", "emotion_latest", ...)
+      -> AmygdalaModule
+        -> 返回 {additive_scores, plutchik, dominant, timestamp}
+    -> 转换为 {cumulative, plutchik, last_message, timestamp, user_id, historical_max}
+    -> 失败则回退 emotion_service.get_latest_emotion()
+```
+
+### 22.6 后续可扩展点
+
+- 将 `/api/chat` 等核心 v3 路由逐步迁移到通过 `neo_request` 调用 `cortex.llm_core`。
+- 在 `neo_bridge.py` 中增加统一的 trace_id / user_id 注入与审计日志。
+- 将 WebSocket 路由也接入 `CentralRouter`，实现 `ws_gateway` 的事件订阅/发布。
+
+---
+
+## 二十三、Phase 7 完成记录（全面测试验证重构效果）
+
+### 23.1 测试目标
+
+验证 v4.0 神经系统重构后，各层模块功能正确、兼容层保持向后兼容、整体性能不低于重构前水平，并确保 Web 后端能稳定通过网关调用新架构。
+
+### 23.2 新增/修改文件
+
+```
+src/core/database_manager.py               # 修改：内存数据库连接复用，修复 :memory: 每次新连接为空库问题
+src/core/long_term_memory.py               # 修改：兼容层导出 ENABLE_OPEN_LOOP
+
+.gitignore                                 # 修改：忽略 settings_migration 等测试自动生成产物
+
+tests/test_nps.py                          # 修改：修正 NPS 工具目录路径为 src/nps/tool
+tests/test_domain_gui.py                   # 修改：缺失 tkinter 时自动跳过
+tests/test_tooltip.py                      # 修改：缺失 tkinter 时自动跳过
+tests/test_event_system.py                 # 修改：补充 agent fixture
+tests/test_p1_life_dream.py                # 修改：特性开关测试隔离 .env 环境干扰
+tests/test_p2_emotion_loop.py              # 修改：特性开关测试隔离 .env 环境干扰
+tests/test_p3_creative.py                  # 修改：特性开关测试隔离 .env 环境干扰
+tests/test_p4_proactive.py                 # 修改：特性开关测试隔离 .env 环境干扰
+
+docs/architecture-refactor-proposal.md     # 修改：新增本章记录
+```
+
+### 23.3 关键问题与修复
+
+1. **SQLite `:memory:` 数据库连接复用**
+   - 问题：`test_schedule_similarity.py` 等使用内存数据库的测试报 `no such table: schedules`。
+   - 原因：`:memory:` 每次新连接都是独立空库，`_ensure_tables()` 创建的表在后续 `get_connection()` 中不可见。
+   - 修复：在 `DatabaseManager` 中新增 `_memory_conn`，对内存数据库复用单一连接；文件数据库仍保持每次打开/关闭。
+
+2. **NPS 工具目录路径错误**
+   - 问题：`TestNPSIntegration.test_full_workflow` 找不到 `systime` 工具。
+   - 原因：测试使用项目根目录 `NPS/tool`，但实际工具存放在 `src/nps/tool/`。
+   - 修复：将测试中的 `tools_dir` 修正为 `src/nps/tool`。
+
+3. **特性开关测试受 .env 影响**
+   - 问题：`.env` 中 `ENABLE_LIFE_STATE=true` 等配置导致 `test_feature_flag_default_off` 失败。
+   - 原因：测试假设环境变量未设置以验证默认值，但运行环境已加载 `.env`。
+   - 修复：在测试中通过 `patch.dict(os.environ, ...)` 控制变量，并重新加载特性开关定义层与兼容层模块。
+
+4. **事件系统测试缺少 fixture**
+   - 问题：`tests/test_event_system.py` 中三个测试函数依赖未定义的 `agent` fixture。
+   - 修复：在模块内定义 `agent` fixture，初始化失败时自动跳过。
+
+5. **Tkinter 环境缺失**
+   - 问题：`tests/test_domain_gui.py` 与 `tests/test_tooltip.py` 在无 Tkinter 环境中收集失败。
+   - 修复：使用 `pytest.importorskip("tkinter")` 在缺失时跳过整个模块。
+
+### 23.4 验证结果
+
+```bash
+python -m pytest tests/ -v --tb=short
+```
+
+结果：**227 passed, 27 skipped, 0 failed, 0 error**
+
+测试覆盖分布：
+- 单元测试：76 passed（cortex、limbic、prefrontal、cerebellum、hypothalamus、nervous_system）
+- 集成测试：13 passed（v4 MVP、Web-Neo 桥接）
+- e2e/端到端：13 passed，20 skipped（需外部服务或运行中服务器）
+- 其他业务测试：125 passed
+
+### 23.5 性能基准
+
+- `test_router_latency_under_1ms`：CentralRouter 单次路由延迟 < 1ms，满足性能不低于重构前的要求。
+- `test_chat_v4_latency`：v4 网关聊天链路延迟可接受，未出现明显退化。
+
+---
+
+## 二十四、Phase 8 完成记录（文档完善与发布）
+
+### 24.1 文档目标
+
+补齐重构过程中的设计、接口、测试与迁移文档，确保后续开发者、维护者和审计人员能够基于文档独立完成系统理解、问题定位与扩展开发。
+
+### 24.2 新增/修改文件
+
+```
+docs/architecture-refactor-proposal.md     # 修改：新增 Phase 7、Phase 8 完成记录
+```
+
+### 24.3 文档体系现状
+
+| 文档 | 说明 | 状态 |
+|---|---|---|
+| `docs/architecture-refactor-proposal.md` | 重构方案、阶段记录、设计决策 | 已更新至 Phase 8 |
+| `docs/ARCHITECTURE.md` | 整体架构说明 | 已存在 |
+| `docs/TECHNICAL.md` | 技术栈与目录结构 | 已存在 |
+| `docs/API.md` / `docs/api.md` | 接口文档 | 已存在 |
+| `docs/CHANGELOG.md` | 版本变更日志 | 已存在 |
+| `docs/rollback-procedure.md` | 回滚流程 | 已存在 |
+| `docs/NPS_CONFIG_MANAGEMENT.md` | NPS 插件配置 | 已存在 |
+
+### 24.4 发布状态
+
+- 版本：v4.0 重构完成
+- Git 状态：待提交（本次会话完成 Phase 7/8 修复后建议提交）
+- 兼容性：v3.1.0 API 与数据表保持兼容，新架构通过 `src/core/*` 兼容层透传
+- 特性开关：所有新特性默认关闭（`ENABLE_*=false`），可通过 `.env` 单独开启
+
+### 24.5 后续建议
+
+1. 提交本次 Phase 7/8 的测试修复与文档更新。
+2. 根据实际运行日志持续观察 v4 网关的稳定性与错误率。
+3. 逐步将更多 v3 路由迁移到 `neo_request` 调用，减少直接依赖 `src/core/*` 内部实现。
+4. 补充性能基准的持续集成（CI）流水线，防止后续改动导致路由延迟退化。

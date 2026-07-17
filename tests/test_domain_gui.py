@@ -1,7 +1,10 @@
 """
 测试域和环境管理GUI功能
 """
-import tkinter as tk
+import pytest
+
+tk = pytest.importorskip("tkinter")
+
 from src.core.database_manager import DatabaseManager
 from src.gui.database_gui import DatabaseManagerGUI
 

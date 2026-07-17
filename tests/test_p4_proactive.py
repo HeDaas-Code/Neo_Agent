@@ -3,13 +3,14 @@
 环境无 pytest / 缺依赖时，本文件可作为 AST 解析与 import 路径的契约检查。
 """
 
+import importlib
 import os
 import sys
 import unittest
 import tempfile
 import types
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -42,9 +43,13 @@ class TestProactiveEngineContract(unittest.TestCase):
                             f'ProactiveEngine 缺少方法: {name}')
 
     def test_feature_flag_default_off(self):
+        from src.prefrontal.proactive import proactive_engine as proactive_engine_impl
         from src.core import proactive_engine as pe
-        self.assertFalse(pe.ENABLE_PROACTIVE_ENGINE,
-                         'ENABLE_PROACTIVE_ENGINE 默认应为关闭')
+        with patch.dict(os.environ, {'ENABLE_PROACTIVE_ENGINE': 'false'}, clear=False):
+            importlib.reload(proactive_engine_impl)
+            importlib.reload(pe)
+            self.assertFalse(pe.ENABLE_PROACTIVE_ENGINE,
+                             'ENABLE_PROACTIVE_ENGINE 默认应为关闭')
 
     def test_disabled_should_send_returns_false(self):
         from src.core.proactive_engine import ProactiveEngine

@@ -54,7 +54,10 @@ def test_chat_v4_recalls_memory(client):
 
 def test_chat_v4_latency(client):
     """
-    端到端请求延迟应小于 50ms（MVP 目标）。
+    端到端路由/网关延迟应小于 50ms（MVP 目标）。
+
+    EchoCortex 默认走 echo 路径，不调用真实 LLM，因此本测试衡量的是
+    HTTP Gateway -> CentralRouter -> EchoCortex -> Hippocampus 的全链路开销。
     """
     times = []
     for _ in range(10):
