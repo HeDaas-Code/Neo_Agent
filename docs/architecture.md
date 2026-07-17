@@ -1,7 +1,7 @@
 # Neo Agent Web 架构文档
 
-本文档描述 Neo Agent v3.0.0 引入的 Web GUI（FastAPI + React）整体架构、数据流与部署模型。
-Tkinter GUI 仍受支持（通过 `python main.py --tk` 启动），其架构参见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+本文档描述 Neo Agent v3.0.0+ 引入的 Web GUI（FastAPI + React）整体架构、数据流与部署模型。
+Tkinter GUI 仍受支持（通过 `python main.py --tk` 启动），其架构与核心类 API 参见 [`core-api.md`](core-api.md)。
 
 ---
 
@@ -433,7 +433,8 @@ Web GUI 与 Tkinter GUI **完全共享同一份数据库**，无需数据迁移�
 
 ## 10. 参考
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — 旧 Tkinter 时代模型/框架架构
-- [`API.md`](API.md) — REST API 详细说明（待 Web 版本补全）
+- [`architecture-v4-diagrams.md`](architecture-v4-diagrams.md) — v4.0 神经系统架构图
+- [`api.md`](api.md) — Web REST / WebSocket 端点速查
+- [`core-api.md`](core-api.md) — 核心类与工具 API 参考
 - [`TECHNICAL.md`](TECHNICAL.md) — 业务模块技术细节
 - [`../README.md`](../README.md) — 项目入口

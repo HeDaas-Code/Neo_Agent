@@ -102,30 +102,36 @@ neo-agent
 
 ```
 Neo_Agent/
-├── src/                    # 源代码
-│   ├── core/              # 核心模块（与 GUI 解耦）
-│   ├── gui/               # Tkinter GUI（开发态/降级）
-│   ├── web/               # Web GUI（默认）
-│   │   ├── backend/       # FastAPI 后端（API / WS / Services / Schemas）
-│   │   └── frontend/      # React + Vite + Ant Design 前端
-│   ├── tools/             # 工具模块
-│   └── nps/               # NPS工具系统
-├── prompts/               # 提示词模板
-│   ├── character/         # 角色设定模板
-│   ├── system/           # 系统提示词模板
-│   ├── task/             # 任务提示词模板
-│   └── worldview/        # 世界观设定
-├── tests/                 # 测试文件
-├── examples/              # 示例代码
-├── docs/                  # 文档
-├── main.py               # 主入口（默认 Web，可 --tk 切换 Tkinter）
-├── run.py                # 简化启动器
-├── run_web.py            # Web 模式启动入口
-├── start.sh              # Web 模式一键启动脚本
-├── requirements.txt      # 核心依赖
-├── requirements-web.txt  # Web 端额外依赖
-├── example.env          # 环境变量示例
-└── LICENSE              # 许可证
+├── src/                        # 源代码
+│   ├── nervous_system/        # 神经系统：CentralRouter + Gateway + Packet
+│   ├── cortex/                # 大脑皮层：LLM 推理核心（LLMCore / ModelRouter）
+│   ├── limbic/                # 边缘系统：海马体记忆 + 杏仁核情感
+│   ├── prefrontal/            # 前额叶：日程 / 事件 / 主动决策
+│   ├── cerebellum/            # 小脑：NPS 工具 / 视觉 / 表达风格
+│   ├── hypothalamus/          # 下丘脑：生命状态 / 用户习惯
+│   ├── core/                  # 核心模块（v3.x 兼容层 + 公共服务）
+│   ├── web/                   # Web GUI（默认）
+│   │   ├── backend/           # FastAPI 后端（API / WS / Services / Schemas）
+│   │   └── frontend/          # React + Vite + Ant Design 前端
+│   ├── gui/                   # Tkinter GUI（开发态/降级）
+│   ├── tools/                 # 工具模块
+│   └── nps/                   # NPS 工具系统
+├── prompts/                   # 提示词模板
+│   ├── character/             # 角色设定模板
+│   ├── system/                # 系统提示词模板
+│   ├── task/                  # 任务提示词模板
+│   └── worldview/             # 世界观设定
+├── tests/                     # 测试文件
+├── examples/                  # 示例代码
+├── docs/                      # 文档
+├── main.py                    # 主入口（默认 Web，可 --tk 切换 Tkinter）
+├── run.py                     # 简化启动器
+├── run_web.py                 # Web 模式启动入口
+├── start.sh                   # Web 模式一键启动脚本
+├── requirements.txt           # 核心依赖
+├── requirements-web.txt       # Web 端额外依赖
+├── example.env                # 环境变量示例
+└── LICENSE                    # 许可证
 ```
 
 ### 核心模块
@@ -307,21 +313,36 @@ neo-agent
 
 ```
 Neo_Agent/
-├── src/                    # Source code
-│   ├── core/              # Core modules
-│   ├── gui/               # GUI modules
-│   ├── tools/             # Utility modules
-│   └── nps/               # NPS tool system
-├── tests/                 # Test files
-├── examples/              # Example code
-├── main.py               # Main entry point (default Web, --tk for Tkinter)
-├── run.py                # Simplified launcher
-├── run_web.py            # Web-mode launcher
-├── start.sh              # Web-mode one-click launcher
-├── requirements.txt      # Core dependencies
-├── requirements-web.txt  # Web-only dependencies
-├── example.env          # Environment variables template
-└── LICENSE              # License file
+├── src/                        # Source code
+│   ├── nervous_system/        # Nervous system: CentralRouter + Gateway + Packet
+│   ├── cortex/                # Cerebral cortex: LLM reasoning core
+│   ├── limbic/                # Limbic system: memory + emotion
+│   ├── prefrontal/            # Prefrontal cortex: schedule / event / proactive
+│   ├── cerebellum/            # Cerebellum: NPS tools / vision / expression style
+│   ├── hypothalamus/          # Hypothalamus: life state / user habits
+│   ├── core/                  # Core modules (v3.x compatibility + shared services)
+│   ├── web/                   # Web GUI (default)
+│   │   ├── backend/           # FastAPI backend (API / WS / Services / Schemas)
+│   │   └── frontend/          # React + Vite + Ant Design frontend
+│   ├── gui/                   # Tkinter GUI (dev / fallback)
+│   ├── tools/                 # Utility modules
+│   └── nps/                   # NPS tool system
+├── prompts/                   # Prompt templates
+│   ├── character/             # Character templates
+│   ├── system/                # System prompt templates
+│   ├── task/                  # Task prompt templates
+│   └── worldview/             # Worldview templates
+├── tests/                     # Test files
+├── examples/                  # Example code
+├── docs/                      # Documentation
+├── main.py                    # Main entry point (default Web, --tk for Tkinter)
+├── run.py                     # Simplified launcher
+├── run_web.py                 # Web-mode launcher
+├── start.sh                   # Web-mode one-click launcher
+├── requirements.txt           # Core dependencies
+├── requirements-web.txt       # Web-only dependencies
+├── example.env                # Environment variables template
+└── LICENSE                    # License file
 ```
 
 ### Core Modules
