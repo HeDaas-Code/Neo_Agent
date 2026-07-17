@@ -18,17 +18,23 @@ class FakeMemoryManager:
 
     def __init__(self, db_manager=None):
         self.messages = []
+        self.query_count = 0
+        self.context_count = 0
+        self.stats_count = 0
 
     def add_message(self, role, content):
         self.messages.append({"role": role, "content": content})
 
     def get_recent_messages(self, count=10):
+        self.query_count += 1
         return self.messages[-count:]
 
     def get_context_for_chat(self, recent_count=10):
+        self.context_count += 1
         return "fake context"
 
     def get_statistics(self):
+        self.stats_count += 1
         return {"short_term": {"rounds": len(self.messages)}}
 
 
@@ -218,5 +224,88 @@ def test_hippocampus_module_unknown_channel(monkeypatch):
 
         assert response.is_response()
         assert response.payload["status"] == "unknown_channel"
+    finally:
+        asyncio.run(router.shutdown())
+
+
+def test_hippocampus_module_memory_query_cache(monkeypatch):
+    """
+    测试 memory_query 在 TTL 内命中缓存，不重复查询底层 memory_manager。
+    """
+    monkeypatch.setattr(
+        "src.limbic.hippocampus.module.LongTermMemoryManager", FakeMemoryManager
+    )
+    monkeypatch.setattr(
+        "src.limbic.hippocampus.module.KnowledgeBase", FakeKnowledgeBase
+    )
+
+    router = CentralRouter()
+    module = HippocampusModule(router)
+    module._session_store = FakeSessionStore()
+
+    try:
+        router.register_module(module.module_id, module)
+        asyncio.run(router.initialize())
+
+        packet = Packet(
+            source="test.client",
+            target="limbic.hippocampus.full",
+            packet_type=PacketType.REQUEST,
+            channel="memory_query",
+            payload={"limit": 5},
+        )
+        response1 = asyncio.run(router.route(packet))
+        response2 = asyncio.run(router.route(packet))
+
+        assert response1.is_response()
+        assert response2.is_response()
+        assert response1.payload == response2.payload
+        # 底层只应被调用一次
+        assert module._memory_manager.query_count == 1
+    finally:
+        asyncio.run(router.shutdown())
+
+
+def test_hippocampus_module_memory_store_invalidates_cache(monkeypatch):
+    """
+    测试 memory_store 会使 memory_query 缓存失效。
+    """
+    monkeypatch.setattr(
+        "src.limbic.hippocampus.module.LongTermMemoryManager", FakeMemoryManager
+    )
+    monkeypatch.setattr(
+        "src.limbic.hippocampus.module.KnowledgeBase", FakeKnowledgeBase
+    )
+
+    router = CentralRouter()
+    module = HippocampusModule(router)
+    module._session_store = FakeSessionStore()
+
+    try:
+        router.register_module(module.module_id, module)
+        asyncio.run(router.initialize())
+
+        query_packet = Packet(
+            source="test.client",
+            target="limbic.hippocampus.full",
+            packet_type=PacketType.REQUEST,
+            channel="memory_query",
+            payload={"limit": 5},
+        )
+        asyncio.run(router.route(query_packet))
+
+        store_packet = Packet(
+            source="test.client",
+            target="limbic.hippocampus.full",
+            packet_type=PacketType.REQUEST,
+            channel="memory_store",
+            payload={"role": "user", "content": "新消息"},
+        )
+        asyncio.run(router.route(store_packet))
+
+        asyncio.run(router.route(query_packet))
+
+        # 写入后缓存失效，应再次查询底层
+        assert module._memory_manager.query_count == 2
     finally:
         asyncio.run(router.shutdown())

@@ -10,7 +10,8 @@ HippocampusModule - 海马体模块（v4.0 神经系统接入层）。
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict
+import time
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from src.core.database_manager import DatabaseManager
 from src.limbic.hippocampus.knowledge_store import KnowledgeBase
@@ -39,6 +40,9 @@ class HippocampusModule(BaseModule):
         self._session_store = SessionStore(self._db)
         self._memory_manager: LongTermMemoryManager | None = None
         self._knowledge_base: KnowledgeBase | None = None
+        # 高频通道内存缓存（memory_query / memory_context / memory_stats）
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._cache_ttl_seconds = 5.0
 
     async def initialize(self) -> None:
         self._memory_manager = LongTermMemoryManager(db_manager=self._db)
@@ -49,6 +53,39 @@ class HippocampusModule(BaseModule):
         self._memory_manager = None
         self._knowledge_base = None
         await super().shutdown()
+
+    # ------------------------------------------------------------------
+    # 缓存层 helpers
+    # ------------------------------------------------------------------
+    def _cache_key(self, channel: str, payload: Dict[str, Any]) -> str:
+        """基于通道与 payload 构造缓存 key（忽略 trace_id 等元数据）。"""
+        items = sorted(
+            (k, v) for k, v in payload.items()
+            if k not in ("trace_id", "timestamp", "metadata")
+        )
+        return f"{channel}:{items}"
+
+    def _get_cached(self, key: str) -> Optional[Any]:
+        """读取缓存，过期返回 None 并清理。"""
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        ts, value = entry
+        if time.time() - ts > self._cache_ttl_seconds:
+            self._cache.pop(key, None)
+            return None
+        return value
+
+    def _set_cached(self, key: str, value: Any) -> None:
+        """写入缓存。"""
+        self._cache[key] = (time.time(), value)
+
+    def _invalidate_memory_cache(self) -> None:
+        """记忆写入后使相关读取缓存失效。"""
+        prefixes = ("memory_query:", "memory_context:", "memory_stats:")
+        for key in list(self._cache.keys()):
+            if key.startswith(prefixes):
+                self._cache.pop(key, None)
 
     async def handle(self, packet: Packet) -> Packet:
         """
@@ -97,12 +134,19 @@ class HippocampusModule(BaseModule):
         if self._memory_manager is None:
             return packet.error("HippocampusModule not initialized", code="NOT_INITIALIZED")
 
+        key = self._cache_key("memory_query", payload)
+        cached = self._get_cached(key)
+        if cached is not None:
+            return packet.response(cached)
+
         limit = payload.get("limit", 10)
         messages = self._memory_manager.get_recent_messages(count=limit)
-        return packet.response({
+        result = {
             "memories": messages,
             "total": len(messages),
-        })
+        }
+        self._set_cached(key, result)
+        return packet.response(result)
 
     def _handle_memory_store(self, packet: Packet, payload: Dict[str, Any]) -> Packet:
         if self._memory_manager is None:
@@ -111,22 +155,36 @@ class HippocampusModule(BaseModule):
         role = payload.get("role", "user")
         content = payload.get("content", "")
         self._memory_manager.add_message(role, content)
+        self._invalidate_memory_cache()
         return packet.response({"status": "stored"})
 
     def _handle_memory_context(self, packet: Packet, payload: Dict[str, Any]) -> Packet:
         if self._memory_manager is None:
             return packet.error("HippocampusModule not initialized", code="NOT_INITIALIZED")
 
+        key = self._cache_key("memory_context", payload)
+        cached = self._get_cached(key)
+        if cached is not None:
+            return packet.response(cached)
+
         context = self._memory_manager.get_context_for_chat(
             recent_count=payload.get("recent_count", 10)
         )
-        return packet.response({"context": context})
+        result = {"context": context}
+        self._set_cached(key, result)
+        return packet.response(result)
 
-    def _handle_memory_stats(self, packet: Packet, _payload: Dict[str, Any]) -> Packet:
+    def _handle_memory_stats(self, packet: Packet, payload: Dict[str, Any]) -> Packet:
         if self._memory_manager is None:
             return packet.error("HippocampusModule not initialized", code="NOT_INITIALIZED")
 
+        key = self._cache_key("memory_stats", payload)
+        cached = self._get_cached(key)
+        if cached is not None:
+            return packet.response(cached)
+
         stats = self._memory_manager.get_statistics()
+        self._set_cached(key, stats)
         return packet.response(stats)
 
     def _handle_session_create(self, packet: Packet, payload: Dict[str, Any]) -> Packet:

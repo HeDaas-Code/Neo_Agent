@@ -14,7 +14,7 @@ import json
 import sys
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -46,10 +46,85 @@ except Exception:  # noqa: BLE001
             def log_error(self, *args, **kwargs): pass
         return _Stub()
 
+# v4.0: WebSocket 网关桥接（可选，失败时降级到 ChatService）
+try:
+    from src.web.backend.services.neo_bridge import get_neo_app
+    from src.nervous_system.gateway.base_gateway import GatewayRequest
+    from src.nervous_system.router.packet import PacketType
+except Exception:  # noqa: BLE001
+    get_neo_app = None  # type: ignore
+    GatewayRequest = None  # type: ignore
+    PacketType = None  # type: ignore
+
 debug_logger = get_debug_logger()
 
 router = APIRouter()
 CHANNEL = "chat"
+
+
+# ----------------------------------------------------------------------
+# v4.0: WebSocket 网关辅助函数
+# ----------------------------------------------------------------------
+def _get_neo_ws_gateway():
+    """获取 NeoApp 的 WebSocketGateway，若不可用返回 None。"""
+    if get_neo_app is None:
+        return None
+    try:
+        neo_app = get_neo_app()
+        if neo_app is None:
+            return None
+        return getattr(neo_app, "ws_gateway", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _stream_via_neo(
+    ws_gateway,
+    conn_id: str,
+    user_id: str,
+    user_input: str,
+    session_id: Optional[int],
+    context: dict,
+) -> AsyncIterator[str]:
+    """
+    通过 WebSocketGateway → CentralRouter → prefrontal.workflow 流式获取回复。
+
+    Yields 字符串 chunk；若出错则 yield 错误提示字符串。
+    """
+    request = GatewayRequest(
+        method="WS_MESSAGE",
+        path="/ws/chat",
+        body={
+            "user_input": user_input,
+            "user_id": user_id,
+            "session_id": session_id,
+            "context": context,
+        },
+        metadata={
+            "conn_id": conn_id,
+            "user_id": user_id,
+            "trace_id": uuid.uuid4().hex,
+        },
+    )
+
+    async for packet in ws_gateway.handle_stream(request):
+        if packet.is_error():
+            yield f"[网关错误: {packet.payload.get('error', 'unknown error')}]"
+            break
+
+        if packet.packet_type != PacketType.STREAM:
+            continue
+
+        stream_event = packet.payload.get("stream_event")
+        if stream_event == "chunk":
+            content = packet.payload.get("content", "")
+            if content:
+                yield content
+        elif stream_event == "error":
+            yield f"[流式错误: {packet.payload.get('error', 'unknown stream error')}]"
+            break
+        elif stream_event == "done":
+            break
 
 
 # ----------------------------------------------------------------------
@@ -156,6 +231,14 @@ async def chat_ws(websocket: WebSocket) -> None:
         except Exception:
             pass
 
+    # v4.0: 尝试注册到 WebSocketGateway
+    ws_gateway = _get_neo_ws_gateway()
+    if ws_gateway is not None:
+        try:
+            await ws_gateway.register_connection(conn_id, websocket)
+        except Exception:  # noqa: BLE001
+            pass
+
     # v3.1.0: 性能修复 - 复用模块级 ChatService 单例，避免每个 WS 连接都
     #          重新实例化 ChatAgent / ModelRouter / LangChainLLM / DatabaseManager
     #          等重型组件（旧实现每连接 3 个 LLM 初始化 + 全套 agent 重建）
@@ -242,14 +325,15 @@ async def chat_ws(websocket: WebSocket) -> None:
             except Exception:
                 pass
 
-            if chat_service is None:
+            # v4.0: 优先通过 WebSocketGateway → CentralRouter 流式路由
+            use_neo = ws_gateway is not None
+            if not use_neo and chat_service is None:
                 await manager.send_personal(conn_id, {
                     "type": "error",
                     "message": "ChatService unavailable",
                 })
                 continue
 
-            # Stage B.2: 真流式调用 ChatService.chat_stream（字符串 chunk）
             # 推送协议：每 chunk -> {"type": "chunk", "content": chunk}
             #         结束    -> {"type": "done"}
             #         异常    -> {"type": "error", "message": str(e)}
@@ -258,16 +342,42 @@ async def chat_ws(websocket: WebSocket) -> None:
                 _had_session_at_start = bool(
                     chat_service and chat_service.get_session_id()
                 )
-                async for chunk in chat_service.chat_stream(
-                    user_input, context=data
-                ):
-                    # 跳过空字符串 chunk（前端没有内容可显示）
-                    if chunk is None or chunk == "":
-                        continue
-                    await manager.send_personal(conn_id, {
-                        "type": "chunk",
-                        "content": chunk,
-                    })
+
+                if use_neo:
+                    # v4.0: 走神经系统工作流
+                    q_session_id = websocket.query_params.get("session_id")
+                    session_id: Optional[int] = None
+                    if q_session_id:
+                        try:
+                            session_id = int(q_session_id)
+                        except (TypeError, ValueError):
+                            session_id = None
+                    async for chunk in _stream_via_neo(
+                        ws_gateway,
+                        conn_id=conn_id,
+                        user_id=user_id,
+                        user_input=user_input,
+                        session_id=session_id,
+                        context=data,
+                    ):
+                        if chunk is None or chunk == "":
+                            continue
+                        await manager.send_personal(conn_id, {
+                            "type": "chunk",
+                            "content": chunk,
+                        })
+                else:
+                    # v3.x: 降级到 ChatService
+                    async for chunk in chat_service.chat_stream(
+                        user_input, context=data
+                    ):
+                        if chunk is None or chunk == "":
+                            continue
+                        await manager.send_personal(conn_id, {
+                            "type": "chunk",
+                            "content": chunk,
+                        })
+
                 # 正常结束：done 帧
                 await manager.send_personal(conn_id, {"type": "done"})
 
@@ -338,6 +448,12 @@ async def chat_ws(websocket: WebSocket) -> None:
                 chat_service.set_session_id(None)
         except Exception:
             pass
+        # v4.0: 从 WebSocketGateway 注销连接
+        if ws_gateway is not None:
+            try:
+                await ws_gateway.unregister_connection(conn_id)
+            except Exception:
+                pass
         try:
             manager.disconnect(conn_id)
         except Exception:

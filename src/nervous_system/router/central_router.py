@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Coroutine, Dict, List, Optional
 
 from src.nervous_system.base_module import BaseModule
 from src.nervous_system.router.packet import Packet, PacketType
@@ -131,6 +131,35 @@ class CentralRouter:
         elapsed_ms = (time.time() - start_time) * 1000
         logger.debug("[CentralRouter] 路由耗时 %.3fms: %s -> %s", elapsed_ms, packet.source, packet.target)
         return response
+
+    async def route_stream(self, packet: Packet) -> AsyncIterator[Packet]:
+        """
+        流式路由一个 Packet 到目标模块。
+
+        直接调用目标模块的 handle_stream，绕过同步中间件链，
+        但会记录 trace 并在出错时 yield ERROR/STREAM_ERROR 包。
+        """
+        start_time = time.time()
+        packet.metadata.setdefault("router_hops", []).append({
+            "module": "central_router",
+            "action": "route_stream",
+            "timestamp": start_time,
+        })
+
+        target_module = self._modules.get(packet.target)
+        if target_module is None:
+            yield Packet.error(packet, f"目标模块未找到: {packet.target}", code="MODULE_NOT_FOUND")
+            return
+
+        try:
+            async for chunk in target_module.handle_stream(packet):
+                yield chunk
+        except Exception as exc:
+            logger.exception("[CentralRouter] 流式路由异常: %s", exc)
+            yield packet.stream_error(str(exc), code="ROUTER_ERROR")
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.debug("[CentralRouter] 流式路由耗时 %.3fms: %s -> %s", elapsed_ms, packet.source, packet.target)
 
     async def publish(self, packet: Packet) -> None:
         """

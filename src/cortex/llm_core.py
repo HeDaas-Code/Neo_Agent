@@ -69,7 +69,7 @@ class LLMCore(BaseModule):
             return packet.response({"role": "assistant", "content": reply})
 
         if channel == "llm_stream":
-            # MVP 阶段返回完整回复；后续接入真实流式
+            # 同步场景下返回完整回复；真实流式请使用 handle_stream
             messages = packet.payload.get("messages", [])
             task_type = packet.payload.get("task_type", "main")
             reply = model_router.route(task_type).chat(messages)
@@ -89,6 +89,40 @@ class LLMCore(BaseModule):
             return packet.response(info)
 
         return packet.response({"status": "unknown_channel", "channel": channel})
+
+    async def handle_stream(self, packet: Packet) -> AsyncIterator[Packet]:
+        """
+        处理 LLM 流式请求。
+
+        支持 channel:
+            - llm_stream: 逐 token 返回 content chunk，最后 yield done
+        """
+        channel = packet.channel
+        try:
+            model_router = self._get_model_router()
+        except Exception as exc:
+            yield packet.stream_error(f"LLM 初始化失败: {exc}", code="LLM_INIT_ERROR")
+            return
+
+        if channel == "llm_stream":
+            messages = packet.payload.get("messages", [])
+            task_type = packet.payload.get("task_type", "main")
+            try:
+                async for chunk in model_router.route(task_type).chat_stream(messages):
+                    yield packet.stream_chunk({"role": "assistant", "content": chunk})
+            except Exception as exc:
+                logger.log_error('LLMCore', f'流式处理异常: {exc}', exc)
+                yield packet.stream_error(str(exc), code="LLM_STREAM_ERROR")
+            yield packet.stream_done()
+            return
+
+        # 其他 channel 默认委托给 handle 并 yield done
+        response = await self.handle(packet)
+        if response.is_error():
+            yield response
+            return
+        yield packet.stream_chunk(response.payload)
+        yield packet.stream_done()
 
 
 class LangChainLLM:
@@ -194,6 +228,37 @@ class LangChainLLM:
         except Exception as e:
             logger.log_error('LangChainLLM', f'LLM调用错误: {str(e)}', e)
             return f"抱歉，处理请求时出现错误: {str(e)}"
+
+    async def chat_stream(self, messages: List[Dict[str, str]]) -> AsyncIterator[str]:
+        """流式发送聊天请求，逐 token 返回字符串 chunk。"""
+        try:
+            logger.log_module('LangChainLLM', f'准备流式发送{self.model_type.value}模型请求', {
+                'message_count': len(messages),
+                'model_name': self.model_name
+            })
+
+            for i, msg in enumerate(messages):
+                logger.log_prompt(
+                    'LangChainLLM',
+                    msg['role'],
+                    msg['content'],
+                    {'message_index': i, 'total_messages': len(messages), 'model_type': self.model_type.value}
+                )
+
+            langchain_messages = self._convert_messages_to_langchain(messages)
+            start_time = time.time()
+            async for chunk in self.llm.astream(langchain_messages):
+                content = getattr(chunk, 'content', None)
+                if content:
+                    yield content
+            elapsed_time = time.time() - start_time
+            logger.log_info('LangChainLLM', '流式响应完成', {
+                'elapsed_time': elapsed_time,
+                'model_type': self.model_type.value,
+            })
+        except Exception as e:
+            logger.log_error('LangChainLLM', f'流式LLM调用错误: {str(e)}', e)
+            yield f"抱歉，处理请求时出现错误: {str(e)}"
 
     def chat_with_template(
         self,

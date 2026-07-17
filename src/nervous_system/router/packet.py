@@ -21,6 +21,7 @@ class PacketType(Enum):
     EVENT = "event"          # 事件发布（广播）
     RESPONSE = "response"    # 请求响应
     ERROR = "error"          # 错误响应
+    STREAM = "stream"        # 流式数据包（chunk / done / error）
 
 
 class Priority(Enum):
@@ -97,5 +98,47 @@ class Packet:
             packet_type=PacketType.RESPONSE,
             channel=self.channel,
             payload=payload,
+            metadata=self.metadata,
+        )
+
+    def stream_chunk(self, payload: Dict[str, Any]) -> Packet:
+        """
+        基于当前请求包构造流式数据包。
+        """
+        return Packet(
+            trace_id=self.trace_id,
+            source=self.target,
+            target=self.source,
+            packet_type=PacketType.STREAM,
+            channel=self.channel,
+            payload={"stream_event": "chunk", **payload},
+            metadata=self.metadata,
+        )
+
+    def stream_done(self) -> Packet:
+        """
+        基于当前请求包构造流式结束包。
+        """
+        return Packet(
+            trace_id=self.trace_id,
+            source=self.target,
+            target=self.source,
+            packet_type=PacketType.STREAM,
+            channel=self.channel,
+            payload={"stream_event": "done"},
+            metadata=self.metadata,
+        )
+
+    def stream_error(self, message: str, code: str = "STREAM_ERROR") -> Packet:
+        """
+        基于当前请求包构造流式错误包。
+        """
+        return Packet(
+            trace_id=self.trace_id,
+            source=self.target,
+            target=self.source,
+            packet_type=PacketType.STREAM,
+            channel=self.channel,
+            payload={"stream_event": "error", "error": message, "code": code},
             metadata=self.metadata,
         )

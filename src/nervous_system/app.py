@@ -28,8 +28,10 @@ from src.limbic.amygdala.module import AmygdalaModule
 from src.limbic.hippocampus.module import HippocampusModule
 from src.limbic.hippocampus.simple_hippocampus import SimpleHippocampus
 from src.prefrontal.module import PrefrontalModule
+from src.prefrontal.workflow_module import WorkflowModule
 from src.nervous_system.gateway.http_gateway import HTTPGateway
 from src.nervous_system.gateway.llm_gateway import LLMGateway
+from src.nervous_system.gateway.ws_gateway import WebSocketGateway
 from src.nervous_system.router.central_router import CentralRouter
 from src.nervous_system.router.pipeline import AuditMiddleware, TimingMiddleware
 
@@ -44,6 +46,7 @@ class NeoApp:
     def __init__(self) -> None:
         self.router = CentralRouter()
         self.http_gateway = HTTPGateway(self.router)
+        self.ws_gateway = WebSocketGateway(self.router)
         self.llm_gateway = LLMGateway(self.router)
         self.echo_cortex = EchoCortex(self.router)
         self.hippocampus = SimpleHippocampus(self.router)
@@ -51,6 +54,7 @@ class NeoApp:
         self.amygdala = AmygdalaModule(self.router)
         self.hypothalamus = HypothalamusModule(self.router)
         self.prefrontal = PrefrontalModule(self.router)
+        self.workflow = WorkflowModule(self.router)
         self.cerebellum = CerebellumModule(self.router)
         self.llm_core = LLMCore(self.router)
 
@@ -67,12 +71,14 @@ class NeoApp:
         self.router.register_module(self.amygdala.module_id, self.amygdala)
         self.router.register_module(self.hypothalamus.module_id, self.hypothalamus)
         self.router.register_module(self.prefrontal.module_id, self.prefrontal)
+        self.router.register_module(self.workflow.module_id, self.workflow)
         self.router.register_module(self.cerebellum.module_id, self.cerebellum)
         self.router.register_module(self.llm_core.module_id, self.llm_core)
         self.router.register_module(self.llm_gateway.module_id, self.llm_gateway)
 
         await self.router.initialize()
         await self.http_gateway.start()
+        await self.ws_gateway.start()
         logger.info("[NeoApp] v4.0 MVP 初始化完成")
 
     async def shutdown(self) -> None:
@@ -80,6 +86,7 @@ class NeoApp:
         关闭应用。
         """
         await self.http_gateway.stop()
+        await self.ws_gateway.stop()
         await self.router.shutdown()
         logger.info("[NeoApp] v4.0 MVP 已关闭")
 

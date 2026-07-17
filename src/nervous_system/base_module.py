@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict
 
 if TYPE_CHECKING:
     from src.nervous_system.router.central_router import CentralRouter
@@ -51,6 +51,24 @@ class BaseModule(ABC):
         处理来自 CentralRouter 的 Packet，返回响应 Packet。
         """
         ...
+
+    async def handle_stream(self, packet: "Packet") -> AsyncIterator["Packet"]:
+        """
+        处理来自 CentralRouter 的流式请求。
+
+        默认实现一次性 yield 响应包的 chunk / done 事件；
+        子类可重写以提供真正的异步生成器流式输出。
+        """
+        from src.nervous_system.router.packet import PacketType
+
+        response = await self.handle(packet)
+        if response.is_error():
+            yield response
+            return
+
+        if response.packet_type == PacketType.RESPONSE:
+            yield packet.stream_chunk(response.payload)
+        yield packet.stream_done()
 
     async def emit(self, channel: str, payload: Dict[str, Any]) -> None:
         """
