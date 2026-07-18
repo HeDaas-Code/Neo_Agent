@@ -6,16 +6,18 @@
 """
 
 import os
+import re
 import json
 import time
+import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncIterator
 from dotenv import load_dotenv
 import requests
 from src.core.database_manager import DatabaseManager
-from src.core.long_term_memory import LongTermMemoryManager
+from src.core.long_term_memory import LongTermMemoryManager, OpenLoopTracker
 from src.tools.debug_logger import get_debug_logger
-from src.core.emotion_analyzer import EmotionRelationshipAnalyzer
+from src.core.emotion_analyzer import EmotionRelationshipAnalyzer, PlutchikEmotionWheel
 from src.tools.agent_vision import AgentVisionTool
 from src.core.event_manager import EventManager, EventType, EventStatus, NotificationEvent, TaskEvent
 from src.tools.interrupt_question_tool import InterruptQuestionTool
@@ -24,6 +26,10 @@ from src.tools.expression_style import ExpressionStyleManager
 from src.core.schedule_manager import ScheduleManager, ScheduleType, SchedulePriority
 from src.tools.schedule_intent_tool import ScheduleIntentTool
 from src.core.schedule_generator import TemporaryScheduleGenerator
+from src.core.life_state import LifeStateManager
+from src.core.dream_diary import DreamDiaryManager
+from src.core.creative_writer import CreativeProjectManager
+from src.core.proactive_engine import ProactiveEngine
 from src.nps.nps_registry import NPSRegistry
 from src.nps.nps_invoker import NPSInvoker
 
@@ -324,7 +330,7 @@ class SiliconFlowLLM:
         self.max_tokens = main_config['max_tokens']
 
         if not self.config.is_valid():
-            print("警告: 未设置有效的API密钥，请在.env文件中配置SILICONFLOW_API_KEY")
+            print("警告: 未设置有效的API密钥，请在.env文件中配置LLM_API_KEY（兼容旧 SILICONFLOW_API_KEY）")
         else:
             # 打印多层模型配置
             print(self.config.get_summary())
@@ -407,7 +413,46 @@ class ChatAgent:
         
         # 初始化临时日程生成器
         self.schedule_generator = TemporaryScheduleGenerator(schedule_manager=self.schedule_manager)
-        
+
+        # 初始化生活状态机（P1）
+        self.life_state_manager = LifeStateManager(
+            db_manager=self.db,
+            character_info=self.character.get_info_dict(),
+        )
+
+        # 初始化梦境与日记管理器（P1）
+        self.dream_diary_manager = DreamDiaryManager(
+            db_manager=self.db,
+            life_state=self.life_state_manager,
+            long_term_memory=self.memory_manager,
+            character_info=self.character.get_info_dict(),
+        )
+
+        # 初始化情绪轮（P2，与累加评分并行）
+        self.emotion_wheel = PlutchikEmotionWheel(db_manager=self.db)
+        # 初始化未完话题跟踪器（P2）
+        self.open_loop_tracker = OpenLoopTracker(db_manager=self.db)
+
+        # 初始化长期创作项目管理器（P3）
+        self.creative_writer = CreativeProjectManager(
+            db_manager=self.db,
+            character_info=self.character.get_info_dict(),
+            life_state=self.life_state_manager,
+            dream_diary=self.dream_diary_manager,
+        )
+
+        # 初始化主动决策引擎（P4）
+        self.proactive_engine = ProactiveEngine(
+            db_manager=self.db,
+            event_manager=self.event_manager,
+            life_state=self.life_state_manager,
+            emotion_wheel=self.emotion_wheel,
+            open_loop_tracker=self.open_loop_tracker,
+            creative_writer=self.creative_writer,
+        )
+        # 跟踪上次用户消息时间，用于空闲检测
+        self._last_user_message_at = datetime.now()
+
         # 初始化NPS工具系统
         self.nps_registry = NPSRegistry()
         self.nps_invoker = NPSInvoker(registry=self.nps_registry)
@@ -462,6 +507,30 @@ class ChatAgent:
 
         # 1. 从用户输入中提取相关主体并检索知识
         relevant_knowledge = self.memory_manager.knowledge_base.get_relevant_knowledge_for_query(user_input)
+
+        # 1.1 P2: 未完话题检测（理解阶段第 1 步追加）
+        try:
+            loop_result = self.open_loop_tracker.update_from_message(
+                user=getattr(self, 'current_user', 'default'),
+                text=user_input,
+            )
+            if loop_result:
+                debug_logger.log_info('ChatAgent', '未完话题已捕获', {
+                    'topic': loop_result.get('topic', ''),
+                    'uuid': loop_result.get('uuid', ''),
+                })
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'未完话题检测失败: {str(e)}', e)
+
+        # 1.2 P2: 解析已匹配的未完话题（用户已回应了之前的话题）
+        try:
+            resolved = self.open_loop_tracker.resolve_matching_loop(user_input)
+            if resolved:
+                debug_logger.log_info('ChatAgent', '已解析未完话题', {
+                    'topic': resolved.get('topic', ''),
+                })
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'未完话题解析失败: {str(e)}', e)
 
         # 2. 检测环境切换意图
         switch_intent = self.vision_tool.detect_environment_switch_intent(user_input)
@@ -666,6 +735,20 @@ class ChatAgent:
             'nps_used': nps_context is not None
         })
 
+        # P3: 空闲时手动触发创作推进（用户无消息 N 分钟）
+        try:
+            now_ts = datetime.now()
+            idle_minutes = (now_ts - self._last_user_message_at).total_seconds() / 60.0
+            if idle_minutes >= 30:  # 默认 30 分钟视为空闲
+                # 推进已到期项目
+                self.creative_writer.maybe_advance_creative_projects()
+                # 满足条件则尝试立项
+                self.creative_writer.maybe_start_creative_project(idle_checked=True)
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'空闲创作推进失败: {e}', e)
+        finally:
+            self._last_user_message_at = datetime.now()
+
         # 添加用户消息到记忆
         self.memory_manager.add_message('user', user_input)
 
@@ -815,6 +898,61 @@ class ChatAgent:
                 'reason': '未进行过情感分析'
             })
 
+        # P2: 当下情绪（Plutchik 8 基本情绪，与累加评分平行）
+        try:
+            emotion_state = {'emotions': {}}
+            last_state = getattr(self, '_last_emotion_wheel_state', None)
+            if last_state:
+                emotion_state = self.emotion_wheel.decay_emotions(last_state)
+            emotion_hint = self.emotion_wheel.format_emotion_hint(emotion_state)
+            if emotion_hint:
+                messages.append({'role': 'system', 'content': emotion_hint})
+                self._last_emotion_wheel_state = emotion_state
+                debug_logger.log_prompt('ChatAgent', 'system', emotion_hint, {
+                    'stage': '当下情绪（Plutchik）',
+                    'prompt_length': len(emotion_hint)
+                })
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'情绪轮提示注入失败: {str(e)}', e)
+
+        # P2: 未完话题上下文（与 generate_tone_prompt 平行注入）
+        try:
+            open_loop_prompt = self.open_loop_tracker.format_for_prompt(hint=user_input[:30])
+            if open_loop_prompt:
+                messages.append({'role': 'system', 'content': open_loop_prompt})
+                debug_logger.log_prompt('ChatAgent', 'system', open_loop_prompt, {
+                    'stage': '未完话题上下文',
+                    'prompt_length': len(open_loop_prompt)
+                })
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'未完话题注入失败: {str(e)}', e)
+
+        # 添加生活状态提示（P1：与 generate_tone_prompt 平行注入）
+        try:
+            life_state_prompt = self.life_state_manager.format_state_for_prompt()
+            if life_state_prompt:
+                messages.append({'role': 'system', 'content': life_state_prompt})
+                debug_logger.log_prompt('ChatAgent', 'system', life_state_prompt, {
+                    'stage': '生活状态提示',
+                    'prompt_length': len(life_state_prompt)
+                })
+                debug_logger.log_info('ChatAgent', '已添加生活状态提示到系统消息')
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'生活状态提示注入失败: {str(e)}', e)
+
+        # 添加最近日记上下文（P1）
+        try:
+            diary_context = self.dream_diary_manager.recent_diary_context(count=3)
+            if diary_context:
+                messages.append({'role': 'system', 'content': diary_context})
+                debug_logger.log_prompt('ChatAgent', 'system', diary_context, {
+                    'stage': '最近日记上下文',
+                    'context_length': len(diary_context)
+                })
+                debug_logger.log_info('ChatAgent', '已添加最近日记上下文到系统消息')
+        except Exception as e:
+            debug_logger.log_error('ChatAgent', f'日记上下文注入失败: {str(e)}', e)
+
         # 添加智能体个性化表达提示
         agent_expression_prompt = self.expression_style_manager.generate_agent_expression_prompt()
         if agent_expression_prompt:
@@ -907,6 +1045,165 @@ class ChatAgent:
         debug_logger.log_module('ChatAgent', '对话处理完成', '已自动保存到数据库')
 
         return response
+
+    async def chat_stream(
+        self,
+        user_input: str,
+        *,
+        user_id: str = "default",
+        cancel_event: Optional[asyncio.Event] = None,
+        context: Optional[Dict] = None,
+    ) -> AsyncIterator[str]:
+        """
+        异步流式生成回复。
+        Stream the agent's reply asynchronously as token/chunk strings.
+
+        行为策略 (简化版，避免破坏现有 chat() 同步方法):
+        1. 优先尝试 LangChain LLM 的 astream() 方法（如果 LLM 支持）
+        2. 降级到 run_in_executor 包装同步 chat()，按 token 切片模拟流式输出
+        3. 整链路使用 try/except 保护，astream 失败不破坏同步 chat()
+        4. 支持外部 cancel_event：消费者或上层可设置事件来提前终止流式输出
+
+        Args:
+            user_input: 用户输入的消息
+            user_id: 用户标识（仅记录/扩展位，目前未直接使用）
+            cancel_event: 取消事件；set 后流式提前退出
+            context: 可选的额外上下文（向后兼容，预留扩展位）
+
+        Yields:
+            每个 token / chunk 字符串
+
+        Raises:
+            不主动抛异常；异常会被 yield "[stream error] ..." 后 StopIteration
+        """
+        # ===== 前置：取消信号快速检测 =====
+        if cancel_event is not None and cancel_event.is_set():
+            return
+
+        # ===== 策略 1：尝试 LangChain astream =====
+        used_astream = False
+        try:
+            llm_obj = getattr(self, 'llm', None)
+            if llm_obj is not None and hasattr(llm_obj, 'astream'):
+                # 构造 messages（与 chat() 保持相同输入格式）
+                try:
+                    stream_messages = self._build_messages(user_input, context)
+                except Exception as build_err:
+                    debug_logger.log_error(
+                        'ChatAgent', f'chat_stream 构建消息失败: {str(build_err)}', build_err
+                    )
+                    stream_messages = None
+
+                if stream_messages is not None:
+                    try:
+                        async for chunk in llm_obj.astream(stream_messages):
+                            # 取消检查：消费者请求中断
+                            if cancel_event is not None and cancel_event.is_set():
+                                return
+                            # LangChain AIMessageChunk / str 兼容
+                            if hasattr(chunk, 'content') and chunk.content is not None:
+                                content = chunk.content
+                                if isinstance(content, str) and content:
+                                    yield content
+                            elif isinstance(chunk, str) and chunk:
+                                yield chunk
+                            else:
+                                text = str(chunk)
+                                if text:
+                                    yield text
+                        used_astream = True
+                    except (AttributeError, NotImplementedError) as stream_err:
+                        debug_logger.log_error(
+                            'ChatAgent', f'LLM.astream 不可用，降级到同步: {str(stream_err)}', stream_err
+                        )
+                    except Exception as stream_err:
+                        # 其它异常也降级，避免破坏同步 chat()
+                        debug_logger.log_error(
+                            'ChatAgent', f'LLM.astream 调用失败，降级到同步: {str(stream_err)}', stream_err
+                        )
+        except Exception as outer_err:
+            debug_logger.log_error(
+                'ChatAgent', f'chat_stream astream 路径异常: {str(outer_err)}', outer_err
+            )
+
+        if used_astream:
+            return
+
+        # ===== 策略 2：降级到 run_in_executor + 同步 chat() =====
+        try:
+            loop = asyncio.get_event_loop()
+            full_response = await loop.run_in_executor(
+                None, self.chat, user_input
+            )
+        except asyncio.CancelledError:
+            # 取消时直接向上传播
+            raise
+        except Exception as e:
+            debug_logger.log_error(
+                'ChatAgent', f'chat_stream 同步降级调用失败: {str(e)}', e
+            )
+            yield f"[stream error] {e}"
+            return
+
+        if not full_response:
+            return
+
+        # 按"非空白词 + 尾部空白"切片，模拟 token 流式输出
+        # 每个 token 视作 1-3 个字符的等效单元，间隔 40ms 避免网络洪水
+        try:
+            tokens = re.findall(r'\S+\s*|\s+', full_response)
+            if not tokens:
+                # 正则未匹配（极端情况下），退化为按 2 字符切片
+                tokens = [full_response[i:i + 2] for i in range(0, len(full_response), 2)]
+                if not tokens:
+                    tokens = list(full_response)
+
+            for token in tokens:
+                # 取消检查
+                if cancel_event is not None and cancel_event.is_set():
+                    return
+                # 允许取消信号传播
+                await asyncio.sleep(0)
+                yield token
+                # 模拟流式延迟：40ms（30-50ms 区间内），平衡流畅度与带宽
+                await asyncio.sleep(0.04)
+        except asyncio.CancelledError:
+            raise
+        except Exception as slice_err:
+            debug_logger.log_error(
+                'ChatAgent', f'chat_stream 分片失败: {str(slice_err)}', slice_err
+            )
+            # 兜底：一次性把全部内容推出去
+            yield full_response
+
+    def _build_messages(
+        self,
+        user_input: str,
+        context: Optional[Dict] = None,
+    ) -> List[Dict[str, str]]:
+        """
+        为流式模式构建 LLM 输入消息列表。
+
+        注意：chat() 的 message 构建过程较长（含理解/检索/上下文注入），
+        此处提供一个最小可用版本以保证 astream 路径可用。完整构建仍由 chat() 完成。
+        context 参数保留以备未来扩展。
+        """
+        messages: List[Dict[str, str]] = []
+        # 系统提示（若可用）
+        try:
+            if hasattr(self, 'system_prompt') and self.system_prompt:
+                messages.append({'role': 'system', 'content': self.system_prompt})
+            elif hasattr(self, 'character') and hasattr(self.character, 'get_system_prompt'):
+                messages.append(
+                    {'role': 'system', 'content': self.character.get_system_prompt()}
+                )
+        except Exception:
+            # 忽略系统提示构建错误，不阻塞流式输出
+            pass
+
+        # 用户本轮消息
+        messages.append({'role': 'user', 'content': user_input})
+        return messages
 
     def _build_knowledge_context(self, relevant_knowledge: Dict[str, Any]) -> str:
         """

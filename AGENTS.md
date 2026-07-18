@@ -33,11 +33,8 @@ Matt Pocock 默认 5 类状态机标签。详见 [[docs/agents/triage-labels]]�
 ## 快速命令
 
 ```bash
-# 启动 GUI（需要 Tkinter）
+# 启动 Web / API
 python main.py
-
-# 启动方式 2（推荐用 run.py——自动加项目根到 sys.path）
-python run.py
 
 # 运行测试
 pytest

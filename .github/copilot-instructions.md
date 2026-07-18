@@ -9,7 +9,7 @@ Neo Agent is an intelligent conversation agent system based on LangChain, suppor
 - **Language**: Python 3.8+
 - **Main Framework**: LangChain (langchain, langchain-community, langchain-core)
 - **Database**: SQLite for persistent storage
-- **GUI**: Tkinter for graphical user interface
+- **GUI**: Web GUI (FastAPI + React + Vite)
 - **API**: SiliconFlow API for LLM integration
 - **Configuration**: python-dotenv for environment management
 
@@ -25,8 +25,6 @@ Neo Agent is an intelligent conversation agent system based on LangChain, suppor
 - `event_manager.py` - Event-driven system for notifications and tasks
 - `multi_agent_coordinator.py` - Multi-agent collaboration system
 - `agent_vision.py` - Vision tool with LLM-based environment perception
-- `gui_enhanced.py` - Main GUI application
-- `database_gui.py` - Database management GUI
 - `base_knowledge.py` - Immutable core knowledge management
 
 ### Supporting Modules
@@ -108,10 +106,10 @@ Neo Agent is an intelligent conversation agent system based on LangChain, suppor
 
 ### GUI Development
 
-- Use Tkinter conventions consistent with existing code
-- Maintain the modern, user-friendly interface style
-- Support real-time updates and visual feedback
-- Include proper error dialogs in Chinese
+- Web GUI is built with React + TypeScript + Vite + Ant Design
+- Backend API is FastAPI; WebSocket endpoints provide real-time updates
+- Keep frontend state management predictable and debuggable
+- Provide user-friendly error feedback in Chinese
 
 ### Event System
 

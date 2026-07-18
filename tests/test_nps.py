@@ -337,7 +337,7 @@ class TestNPSIntegration(unittest.TestCase):
         """测试完整工作流程"""
         # 使用项目实际的NPS工具目录
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        tools_dir = os.path.join(project_root, 'NPS', 'tool')
+        tools_dir = os.path.join(project_root, 'src', 'nps', 'tool')
         
         # 创建注册表并扫描
         registry = NPSRegistry(tools_dir=tools_dir)

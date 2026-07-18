@@ -102,6 +102,29 @@
 }
 ```
 
+### Plutchik 情绪维度输出（P2 扩展，与累加评分并行）
+
+`PlutchikEmotionWheel` 在 prompt 注入端使用，**不需要** LLM 直接返回该结构；LLMHelper 通过 `format_emotion_hint` 渲染当下情绪。但若分析任务需直接输出 8 基本情绪，则按以下结构（仅在调用方显式启用时使用）：
+
+```json
+{
+  "emotion_wheel": {
+    "joy": 0.7,
+    "trust": 0.6,
+    "fear": 0.1,
+    "surprise": 0.3,
+    "sadness": 0.1,
+    "disgust": 0.0,
+    "anger": 0.0,
+    "anticipation": 0.5
+  },
+  "compound": "开心但有点期待",
+  "tone_label": "明显喜悦"
+}
+```
+
+8 个维度取值范围 `[0, 1]`；`compound` 是"主导+次要"复合表达；`tone_label` 是 1-3 词语气标签。
+
 ## 分析原则
 
 1. **站在角色立场**：从 {character_name} 的视角进行分析
