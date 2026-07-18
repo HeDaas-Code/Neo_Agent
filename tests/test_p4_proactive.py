@@ -130,8 +130,9 @@ class TestMainEntryPoint(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), '..', 'main.py')
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-        # v4.1: main.py 已移除 Tkinter 分支，固定透传给 run_web.main()
-        self.assertIn('run_web.main()', content)
+        # v4.1: main.py 已移除 Tkinter 分支，作为 run.py 的薄兼容层
+        self.assertIn('run.main', content)
+        self.assertNotIn('run_web.main()', content)
         self.assertNotIn('--tk', content)
         self.assertNotIn('ENABLE_WEB_GUI', content)
 

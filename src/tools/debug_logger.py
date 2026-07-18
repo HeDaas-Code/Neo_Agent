@@ -10,8 +10,10 @@ import asyncio
 import inspect
 import threading
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Union
 import json
+
+from src.tools.unified_logger import get_unified_logger, LogLevel
 
 
 class DebugLogger:
@@ -35,6 +37,12 @@ class DebugLogger:
         """
         self.debug_mode = debug_mode
         self.log_file = log_file or 'debug.log'
+
+        # Stage v4.1: 接入 UnifiedLogger，统一前后端日志格式与输出
+        self._unified = get_unified_logger(
+            log_file=self.log_file,
+            debug_mode=self.debug_mode,
+        )
 
         # 内存中的日志列表（用于GUI显示）
         self.logs: List[Dict[str, Any]] = []
@@ -195,6 +203,31 @@ class DebugLogger:
         except Exception as e:
             print(f"✗ 写入日志文件失败: {e}")
 
+    def _log_to_unified(
+        self,
+        level: str,
+        module_name: str,
+        message: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        将日志同时转发到 UnifiedLogger。
+
+        保持 source='backend'，因为 DebugLogger 当前仅用于后端模块。
+        前端日志由独立的 /ws/frontend-logs 直接写入 UnifiedLogger。
+        """
+        try:
+            self._unified.log(
+                level=level,
+                module=module_name,
+                message=message,
+                source="backend",
+                extra=extra,
+            )
+        except Exception as e:
+            # 不得反向调用日志，避免循环
+            print(f"✗ 转发 UnifiedLogger 失败: {e}")
+
     def log_module(self, module_name: str, action: str, details: str = ""):
         """
         记录模块运行信息
@@ -226,6 +259,12 @@ class DebugLogger:
         self._write_to_file(message)
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="INFO",
+            module_name=module_name,
+            message=f"{action} | {details}" if details else action,
+            extra={"type": "module", "action": action, "details": details},
+        )
 
     def log_prompt(self, module_name: str, prompt_type: str, prompt_content: str, metadata: Dict[str, Any] = None):
         """
@@ -265,6 +304,17 @@ class DebugLogger:
         self._write_to_file(f"  完整内容:\n{prompt_content}\n")
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="DEBUG",
+            module_name=module_name,
+            message=f"{prompt_type} | {display_content}",
+            extra={
+                "type": "prompt",
+                "prompt_type": prompt_type,
+                "content": prompt_content,
+                "metadata": metadata,
+            },
+        )
 
     def log_request(self, module_name: str, api_url: str, payload: Dict[str, Any], headers: Dict[str, str] = None):
         """
@@ -305,6 +355,17 @@ class DebugLogger:
         self._write_to_file(f"  完整Payload:\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n")
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="DEBUG",
+            module_name=module_name,
+            message=api_url,
+            extra={
+                "type": "request",
+                "api_url": api_url,
+                "payload": payload,
+                "headers": safe_headers,
+            },
+        )
 
     def log_response(self, module_name: str, response_data: Any, status_code: int = 200, elapsed_time: float = 0):
         """
@@ -343,6 +404,17 @@ class DebugLogger:
         self._write_to_file(f"  完整响应:\n{response_str}\n")
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="INFO",
+            module_name=module_name,
+            message=f"状态码:{status_code} | 耗时:{elapsed_time:.2f}s | {display_response}",
+            extra={
+                "type": "response",
+                "status_code": status_code,
+                "elapsed_time": elapsed_time,
+                "response": response_data,
+            },
+        )
 
     def log_error(self, module_name: str, error_message: str, exception: Exception = None):
         """
@@ -403,6 +475,17 @@ class DebugLogger:
             self._write_to_file(f"  完整堆栈:\n{traceback_info}")
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="ERROR",
+            module_name=module_name,
+            message=error_message,
+            extra={
+                "type": "error",
+                "exception": str(exception) if exception else None,
+                "file_info": file_info,
+                "traceback": traceback_info,
+            },
+        )
 
     def log_info(self, module_name: str, message: str, data: Any = None):
         """
@@ -435,6 +518,12 @@ class DebugLogger:
         self._write_to_file(log_message)
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="INFO",
+            module_name=module_name,
+            message=message,
+            extra={"type": "info", "data": data},
+        )
 
     def log_warn(self, module_name: str, message: str, data: Any = None):
         """
@@ -463,6 +552,12 @@ class DebugLogger:
         self._write_to_file(log_message)
         self._notify_listeners(log_entry)
         self._notify_subscribers(log_entry)
+        self._log_to_unified(
+            level="WARN",
+            module_name=module_name,
+            message=message,
+            extra={"type": "warn", "data": data},
+        )
 
     def get_logs(self, log_type: str = None, module_name: str = None, limit: int = None) -> List[Dict[str, Any]]:
         """
@@ -505,7 +600,7 @@ class DebugLogger:
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
         """
-        从内存缓冲读取历史日志（Stage B.5 新增）。
+        从内存缓冲读取历史日志（Stage B.5 新增，v4.1 扩展 UnifiedLogger 前端日志）。
 
         Args:
             module: 模块名筛选（精确匹配，可选）
@@ -533,6 +628,17 @@ class DebugLogger:
         end_cmp = end.strip() if isinstance(end, str) and end.strip() else None
 
         result: List[Dict[str, Any]] = []
+        seen_keys: set = set()
+
+        def _key(e: Dict[str, Any]) -> str:
+            return "|".join([
+                str(e.get("timestamp", "")),
+                str(e.get("module", "")),
+                str(e.get("message", "")),
+                str(e.get("source", "")),
+            ])
+
+        # 1) 旧格式日志（后端模块产生）
         for entry in self.logs:
             if not isinstance(entry, dict):
                 continue
@@ -551,9 +657,34 @@ class DebugLogger:
                     continue
                 if end_cmp and ts > end_cmp:
                     continue
+            key = _key(entry)
+            seen_keys.add(key)
             result.append(entry)
 
-        # 限制返回数量（保留最后 limit 条 = 时间最新的 limit 条）
+        # 2) UnifiedLogger 缓冲（包含前端日志 source='frontend'）
+        try:
+            unified_logs = self._unified.get_buffer(
+                module=module,
+                level=level,
+                start=start,
+                end=end,
+                limit=limit * 2,
+            )
+            for entry in unified_logs:
+                if not isinstance(entry, dict):
+                    continue
+                # 旧格式日志已覆盖后端 source，避免重复
+                if entry.get("source") == "backend":
+                    key = _key(entry)
+                    if key in seen_keys:
+                        continue
+                seen_keys.add(_key(entry))
+                result.append(entry)
+        except Exception as e:
+            print(f"✗ 读取 UnifiedLogger 缓冲失败: {e}")
+
+        # 按时间戳排序并限制数量
+        result.sort(key=lambda x: str(x.get("timestamp", "")))
         if len(result) > limit:
             result = result[-limit:]
         return result
@@ -562,13 +693,29 @@ class DebugLogger:
         """清空内存中的日志"""
         self.logs.clear()
         self.log_stats = {key: 0 for key in self.log_stats}
+        try:
+            self._unified.clear_buffer()
+        except Exception as e:
+            print(f"✗ 清空 UnifiedLogger 缓冲失败: {e}")
         print("✓ 日志已清空")
 
     def get_statistics(self) -> Dict[str, Any]:
-        """获取日志统计信息"""
+        """获取日志统计信息（合并旧 stats 与 UnifiedLogger stats）。"""
+        unified_stats = {}
+        try:
+            unified_stats = self._unified.get_statistics()
+        except Exception as e:
+            print(f"✗ 获取 UnifiedLogger 统计失败: {e}")
+
+        by_type = self.log_stats.copy()
+        for lvl, count in (unified_stats.get("by_level") or {}).items():
+            key = str(lvl).lower()
+            by_type[key] = by_type.get(key, 0) + count
+
         return {
-            'total_logs': len(self.logs),
-            'by_type': self.log_stats.copy(),
+            'total_logs': len(self.logs) + (unified_stats.get("total_logs") or 0),
+            'by_type': by_type,
+            'by_source': unified_stats.get("by_source", {}),
             'debug_mode': self.debug_mode,
             'log_file': self.log_file
         }
@@ -684,6 +831,13 @@ def init_debug_logger(debug_mode: bool = False, log_file: str = None):
         log_file: 日志文件路径
     """
     global _global_logger
+    # 同步重置 UnifiedLogger，确保参数一致
+    from src.tools.unified_logger import get_unified_logger
+    get_unified_logger(
+        log_file=log_file or 'debug.log',
+        debug_mode=debug_mode,
+        reset=True,
+    )
     _global_logger = DebugLogger(debug_mode=debug_mode, log_file=log_file)
     return _global_logger
 

@@ -29,6 +29,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -57,6 +58,9 @@ FRONTEND_DIST_CANDIDATES = (
     PROJECT_ROOT / "src" / "web" / "frontend" / "dist",
     PROJECT_ROOT / "src" / "web" / "static",
 )
+
+# PID 文件路径
+PID_FILE = PROJECT_ROOT / ".neo-agent.pid"
 
 
 # ============================================================
@@ -194,6 +198,57 @@ def stop_frontend_dev(frontend_proc: Optional[subprocess.Popen]) -> None:
 
 
 # ============================================================
+# PID 文件管理
+# ============================================================
+
+def read_pid_file() -> Optional[dict]:
+    """读取 PID 文件，返回 {'pid': int, 'port': int, 'started_at': str} 或 None。"""
+    if not PID_FILE.is_file():
+        return None
+    try:
+        import json
+        data = json.loads(PID_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "pid" in data:
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def write_pid_file(pid: int, port: int) -> None:
+    """写入 PID 文件。"""
+    import json
+    from datetime import datetime, timezone
+    data = {
+        "pid": pid,
+        "port": port,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        PID_FILE.write_text(json.dumps(data), encoding="utf-8")
+    except Exception as e:
+        log("supervisor", C_RED, f"写入 PID 文件失败: {e}")
+
+
+def remove_pid_file() -> None:
+    """删除 PID 文件。"""
+    try:
+        if PID_FILE.is_file():
+            PID_FILE.unlink()
+    except Exception:
+        pass
+
+
+def is_process_alive(pid: int) -> bool:
+    """检查进程是否存活。"""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+# ============================================================
 # 入口
 # ============================================================
 
@@ -214,10 +269,12 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    """Web GUI 启动主函数。可被 main.py --web 调用。"""
-    args = _parse_args()
+def run_web_server(args: argparse.Namespace) -> int:
+    """
+    启动 Web/API 服务（可被 run.py / main.py 调用）。
 
+    负责 PID 文件管理、前端 dev server 拉起、uvicorn 启动与关闭。
+    """
     # 0) 启动前自检
     check_web_dependencies()
 
@@ -230,6 +287,19 @@ def main() -> int:
         not args.no_dev
         and os.getenv("ENABLE_FRONTEND_DEV", "0") == "1"
     )
+
+    # 3) 检查并写入 PID 文件
+    existing = read_pid_file()
+    if existing and is_process_alive(existing.get("pid", -1)):
+        log("supervisor", C_RED,
+            f"检测到已有 Neo Agent 进程在运行 (PID {existing['pid']}, "
+            f"端口 {existing.get('port', '?')})")
+        log("supervisor", C_RED,
+            "请先执行: python run.py stop")
+        return 1
+    if existing:
+        remove_pid_file()
+    write_pid_file(pid=os.getpid(), port=args.port)
 
     frontend_proc: Optional[subprocess.Popen] = None
     reader_thread: Optional[threading.Thread] = None
@@ -246,7 +316,7 @@ def main() -> int:
             )
             reader_thread.start()
 
-    # 3) 单进程模式：自动挂载前端构建产物
+    # 4) 单进程模式：自动挂载前端构建产物
     if not args.no_static:
         dist_dir = find_frontend_dist()
         if dist_dir is not None:
@@ -261,7 +331,7 @@ def main() -> int:
                 log("supervisor", C_DIM,
                     "或设置 ENABLE_FRONTEND_DEV=1 启动 vite dev server")
 
-    # 4) 安装信号处理：SIGINT / SIGTERM 优雅关闭
+    # 5) 安装信号处理：SIGINT / SIGTERM 优雅关闭
     shutdown_requested = threading.Event()
 
     def _signal_handler(signum, _frame):
@@ -271,10 +341,10 @@ def main() -> int:
         log("supervisor", C_SUPER,
             f"收到信号 {signum}，开始优雅关闭...")
 
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    original_sigint = signal.signal(signal.SIGINT, _signal_handler)
+    original_sigterm = signal.signal(signal.SIGTERM, _signal_handler)
 
-    # 5) 启动 uvicorn
+    # 6) 启动 uvicorn
     uvicorn_config = uvicorn.Config(
         "src.web.backend.main:app",
         host=args.host,
@@ -300,12 +370,25 @@ def main() -> int:
         traceback.print_exc()
         rc = 1
     finally:
-        # 6) 先停前端 dev server，再等 reader 线程退出
+        # 7) 先停前端 dev server，再等 reader 线程退出
         stop_frontend_dev(frontend_proc)
         if reader_thread is not None and reader_thread.is_alive():
             reader_thread.join(timeout=2)
+        remove_pid_file()
+        # 恢复信号处理
+        try:
+            signal.signal(signal.SIGINT, original_sigint)
+            signal.signal(signal.SIGTERM, original_sigterm)
+        except Exception:
+            pass
 
     return rc
+
+
+def main() -> int:
+    """Web GUI 启动主函数。可被 main.py / run.py 调用。"""
+    args = _parse_args()
+    return run_web_server(args)
 
 
 if __name__ == "__main__":

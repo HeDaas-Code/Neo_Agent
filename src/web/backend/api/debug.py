@@ -22,8 +22,8 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 # 确保从项目根目录能正确 import src.*
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -284,6 +284,101 @@ async def get_debug_stats() -> dict:
             "log_file": "",
             "error": str(exc),
         }
+
+
+@router.post("/logs/ingest")
+async def ingest_frontend_logs(request: Request) -> JSONResponse:
+    """
+    REST 兜底端点：批量接收前端日志并写入 UnifiedLogger。
+
+    请求体：
+        [{"level":"ERROR","module":"frontend","message":"...", ...}, ...]
+
+    返回：
+        {"accepted": N, "rejected": M}
+
+    异常返回 200 + error 字段，避免前端上报失败时连锁报错。
+    """
+    try:
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=200,
+            content={"accepted": 0, "rejected": 0, "error": f"invalid json: {exc}"},
+        )
+
+    if not isinstance(body, list):
+        return JSONResponse(
+            status_code=200,
+            content={"accepted": 0, "rejected": 0, "error": "request body must be a list"},
+        )
+
+    # 批量上限
+    if len(body) > 200:
+        body = body[:200]
+
+    accepted = 0
+    rejected = 0
+    max_message_length = 8192
+
+    try:
+        from src.tools.unified_logger import get_unified_logger
+        unified = get_unified_logger()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=200,
+            content={"accepted": 0, "rejected": 0, "error": f"logger unavailable: {exc}"},
+        )
+
+    level_mapping = {
+        "debug": "DEBUG",
+        "info": "INFO",
+        "log": "INFO",
+        "warn": "WARN",
+        "warning": "WARN",
+        "error": "ERROR",
+        "fatal": "FATAL",
+        "critical": "FATAL",
+    }
+
+    for raw in body:
+        if not isinstance(raw, dict):
+            rejected += 1
+            continue
+
+        level = level_mapping.get(str(raw.get("level")).lower(), str(raw.get("level") or "INFO").upper())
+        module = str(raw.get("module") or "frontend")
+        message = str(raw.get("message") or "")
+
+        if not module or not message:
+            rejected += 1
+            continue
+
+        if len(message) > max_message_length:
+            message = f"{message[:max_message_length]}...[truncated]"
+
+        extra = raw.get("extra")
+        if not isinstance(extra, dict):
+            extra = {}
+        for key in ("url", "userAgent", "sessionId", "rawLevel"):
+            val = raw.get(key)
+            if val is not None:
+                extra[key] = val
+
+        try:
+            unified.log(
+                level=level,
+                module=module,
+                message=message,
+                source="frontend",
+                trace_id=raw.get("trace_id") or raw.get("sessionId"),
+                extra=extra,
+            )
+            accepted += 1
+        except Exception:  # noqa: BLE001
+            rejected += 1
+
+    return JSONResponse(status_code=200, content={"accepted": accepted, "rejected": rejected})
 
 
 __all__ = ["router"]

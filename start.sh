@@ -9,7 +9,7 @@
 #   2. 创建/激活 .venv（若不存在）
 #   3. pip install -r requirements.txt -r requirements-web.txt
 #   4. （可选）cd src/web/frontend && npm install
-#   5. ENABLE_FRONTEND_DEV=1 python run_web.py
+#   5. ENABLE_FRONTEND_DEV=1 python run.py web
 
 set -e
 
@@ -90,4 +90,4 @@ fi
 # 5) 启动 Web GUI
 # ============================================================
 echo "[start] 启动 Neo Agent Web GUI..."
-exec env ENABLE_FRONTEND_DEV="$ENABLE_FRONTEND_DEV" python run_web.py "$@"
+exec env ENABLE_FRONTEND_DEV="$ENABLE_FRONTEND_DEV" python run.py web "$@"

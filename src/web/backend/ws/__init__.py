@@ -83,6 +83,20 @@ except Exception as e:  # noqa: BLE001
     except Exception:
         pass
 
+# Stage v4.1: 前端日志统一采集
+# 注：该 router 聚合到 ws_router 后，由 main.py 统一挂载到 /ws/*
+try:
+    from src.web.backend.ws.frontend_logs import router as _frontend_logs_router
+    _routers.append(_frontend_logs_router)
+    _loaded['frontend_logs'] = True
+except Exception as e:  # noqa: BLE001
+    _loaded['frontend_logs'] = False
+    try:
+        from src.tools.debug_logger import get_debug_logger
+        get_debug_logger().log_warn('ws', f'failed to import frontend_logs router: {e}')
+    except Exception:
+        pass
+
 
 # 统一 router（保留空 router 以便 main.py 无脑 include_router）
 router = APIRouter()
