@@ -138,7 +138,7 @@ class WebSocketGateway(BaseGateway):
         """根据 WebSocket 路径解析目标模块。"""
         if path == "/ws/chat" or path.endswith("/ws/chat"):
             return "prefrontal.workflow"
-        return "cortex.echo"
+        return "cortex.llm_core"
 
     def _resolve_channel(self, path: str) -> str:
         """根据 WebSocket 路径解析业务通道。"""

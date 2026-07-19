@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Coroutine
+from typing import Any, AsyncIterator, Callable, Coroutine
 
 from src.nervous_system.router.packet import Packet
 
@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 NextHandler = Callable[[Packet], Coroutine[Any, Any, Packet]]
 Middleware = Callable[[Packet, NextHandler], Coroutine[Any, Any, Packet]]
+StreamNextHandler = Callable[[Packet], AsyncIterator[Packet]]
+StreamMiddleware = Callable[[Packet, StreamNextHandler], AsyncIterator[Packet]]
 
 
 class AuditMiddleware:
@@ -108,3 +110,43 @@ class AuthMiddleware:
                 metadata=packet.metadata,
             )
         return await next_handler(packet)
+
+
+class StreamAuditMiddleware:
+    """
+    流式审计中间件：记录流式 Packet 的路由路径与结束状态。
+    """
+
+    name = "stream_audit"
+
+    async def __call__(self, packet: Packet, next_handler: StreamNextHandler) -> AsyncIterator[Packet]:
+        logger.info(
+            "[Audit] trace=%s stream %s -> %s type=%s channel=%s",
+            packet.trace_id,
+            packet.source,
+            packet.target,
+            packet.packet_type.value,
+            packet.channel,
+        )
+        try:
+            async for chunk in next_handler(packet):
+                yield chunk
+        finally:
+            logger.info("[Audit] trace=%s stream ended", packet.trace_id)
+
+
+class StreamTimingMiddleware:
+    """
+    流式耗时中间件：记录流式请求的总处理耗时。
+    """
+
+    name = "stream_timing"
+
+    async def __call__(self, packet: Packet, next_handler: StreamNextHandler) -> AsyncIterator[Packet]:
+        start = time.time()
+        async for chunk in next_handler(packet):
+            chunk.metadata.setdefault("timings", []).append({
+                "middleware": self.name,
+                "elapsed_ms": (time.time() - start) * 1000,
+            })
+            yield chunk

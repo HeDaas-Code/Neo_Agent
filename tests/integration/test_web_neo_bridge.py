@@ -3,7 +3,7 @@ Phase 6 集成测试：验证 Web 后端通过 neo_bridge 调用 v4 神经系统
 
 测试范围：
 - /api/health 返回 v4 模块状态
-- /api/v4/gateway/{target}/{channel} 能路由到 cortex.echo
+- /api/v4/gateway/{target}/{channel} 能路由到 v4 模块
 - 对未知模块返回错误响应而不是崩溃
 - /api/emotion/latest 在 v4 可用时走 AmygdalaModule 并返回兼容格式
 """
@@ -12,11 +12,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.web.backend.main import app
+from src.nervous_system.base_module import BaseModule
+from src.nervous_system.router.packet import Packet
+
+
+class FakeEchoModule(BaseModule):
+    """模拟已移除的 EchoCortex，用于网关路由测试。"""
+    module_id = "cortex.echo"
+    module_type = "cortex"
+
+    async def handle(self, packet: Packet) -> Packet:
+        content = packet.payload.get("content", "")
+        return packet.response({"role": "assistant", "content": f"echo:{content}"})
 
 
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as c:
+        from src.web.backend.main import get_neo_app
+        neo = get_neo_app()
+        if neo is not None:
+            neo.router.register_module(FakeEchoModule.module_id, FakeEchoModule(neo.router))
         yield c
 
 
@@ -26,7 +42,7 @@ def test_health_includes_v4_modules(client):
     data = response.json()
     assert data["status"] == "ok"
     assert isinstance(data["v4_modules"], list)
-    assert "cortex.echo" in data["v4_modules"]
+    assert "cortex.llm_core" in data["v4_modules"]
 
 
 def test_v4_gateway_echo_chat(client):

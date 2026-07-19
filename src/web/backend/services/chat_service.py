@@ -23,6 +23,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.version import __version__
+
 
 # ----------------------------------------------------------------------
 # 工具：检查方法签名是否接受某个 keyword 参数
@@ -528,11 +530,20 @@ class ChatService:
 
     def get_stats(self) -> Dict[str, Any]:
         """
-        返回服务状态与版本号。
+        返回服务状态、版本号与能力声明。
         """
         return {
             "agent_loaded": self._agent is not None,
-            "version": "3.0.0",
+            "version": __version__,
+            "path": "v3_chat_agent",
+            "capabilities": {
+                "streaming": True,
+                "tool_calling": False,
+                "memory": True,
+                "emotion": True,
+                "schedule": True,
+                "session_persistence": True,
+            },
         }
 
 

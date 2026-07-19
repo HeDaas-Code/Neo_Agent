@@ -28,6 +28,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.version import __version__
+
 
 PLUTCHIK_KEYS = (
     'joy', 'trust', 'fear', 'surprise',
@@ -460,7 +462,7 @@ class EmotionService:
             "wheel_loaded": self._wheel is not None,
             "cache_size": len(self._cache),
             "cache_ttl_seconds": self.CACHE_TTL_SECONDS,
-            "version": "1.0.0",
+            "version": __version__,
         }
 
 

@@ -21,6 +21,7 @@ from src.nervous_system.router.packet import Packet, PacketType
 logger = logging.getLogger(__name__)
 
 Middleware = Callable[[Packet, Callable[[Packet], Coroutine[Any, Any, Packet]]], Coroutine[Any, Any, Packet]]
+StreamMiddleware = Callable[[Packet, Callable[[Packet], AsyncIterator[Packet]]], AsyncIterator[Packet]]
 EventHandler = Callable[[Packet], Coroutine[Any, Any, None]]
 
 
@@ -40,6 +41,7 @@ class CentralRouter:
         self._modules: Dict[str, BaseModule] = {}
         self._subscribers: Dict[str, List[EventHandler]] = {}
         self._middlewares: List[Middleware] = []
+        self._stream_middlewares: List[StreamMiddleware] = []
         self._event_queue: asyncio.Queue[Packet] = asyncio.Queue()
         self._event_task: Optional[asyncio.Task] = None
         self._running = False
@@ -64,6 +66,12 @@ class CentralRouter:
         添加中间件。中间件按添加顺序执行。
         """
         self._middlewares.append(middleware)
+
+    def add_stream_middleware(self, middleware: StreamMiddleware) -> None:
+        """
+        添加流式中间件。流式中间件按添加顺序执行。
+        """
+        self._stream_middlewares.append(middleware)
 
     def subscribe(self, channel: str, handler: EventHandler) -> None:
         """
@@ -136,8 +144,8 @@ class CentralRouter:
         """
         流式路由一个 Packet 到目标模块。
 
-        直接调用目标模块的 handle_stream，绕过同步中间件链，
-        但会记录 trace 并在出错时 yield ERROR/STREAM_ERROR 包。
+        通过流式中间件链调用目标模块的 handle_stream，
+        记录 trace 并在出错时 yield ERROR/STREAM_ERROR 包。
         """
         start_time = time.time()
         packet.metadata.setdefault("router_hops", []).append({
@@ -146,13 +154,9 @@ class CentralRouter:
             "timestamp": start_time,
         })
 
-        target_module = self._modules.get(packet.target)
-        if target_module is None:
-            yield Packet.error(packet, f"目标模块未找到: {packet.target}", code="MODULE_NOT_FOUND")
-            return
-
+        handler = self._build_stream_handler()
         try:
-            async for chunk in target_module.handle_stream(packet):
+            async for chunk in handler(packet):
                 yield chunk
         except Exception as exc:
             logger.exception("[CentralRouter] 流式路由异常: %s", exc)
@@ -185,6 +189,32 @@ class CentralRouter:
 
         handler: Callable[[Packet], Coroutine[Any, Any, Packet]] = final_handler
         for middleware in reversed(self._middlewares):
+            current = middleware
+            next_handler = handler
+            handler = lambda packet, m=current, n=next_handler: m(packet, n)
+
+        return handler
+
+    def _build_stream_handler(self) -> Callable[[Packet], AsyncIterator[Packet]]:
+        """
+        构建流式中间件链，最终调用目标模块的 handle_stream。
+        """
+        async def final_handler(packet: Packet) -> AsyncIterator[Packet]:
+            if packet.packet_type == PacketType.EVENT:
+                # 事件类型直接分发，不返回流式数据
+                await self._dispatch_event(packet)
+                return
+
+            target_module = self._modules.get(packet.target)
+            if target_module is None:
+                yield Packet.error(packet, f"目标模块未找到: {packet.target}", code="MODULE_NOT_FOUND")
+                return
+
+            async for chunk in target_module.handle_stream(packet):
+                yield chunk
+
+        handler: Callable[[Packet], AsyncIterator[Packet]] = final_handler
+        for middleware in reversed(self._stream_middlewares):
             current = middleware
             next_handler = handler
             handler = lambda packet, m=current, n=next_handler: m(packet, n)

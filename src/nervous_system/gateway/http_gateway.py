@@ -48,10 +48,15 @@ class HTTPGateway(BaseGateway):
         """
         处理 HTTP 请求。
 
-        当前 MVP 仅支持 /api/v4/chat，转发给 cortex.echo 或 cortex.llm_core。
+        当前 MVP 仅支持 /api/v4/chat，转发给 prefrontal.workflow。
         """
         trace_id = request.metadata.get("trace_id") or uuid.uuid4().hex
         user_id = request.metadata.get("user_id") or "default"
+
+        payload = dict(request.body)
+        # /api/v4/chat 的对外协议使用 content，内部 chat_workflow 使用 user_input
+        if request.path.startswith("/api/v4/chat") and "content" in payload and "user_input" not in payload:
+            payload["user_input"] = payload["content"]
 
         packet = Packet(
             trace_id=trace_id,
@@ -59,7 +64,7 @@ class HTTPGateway(BaseGateway):
             target=self._resolve_target(request.path),
             packet_type=PacketType.REQUEST,
             channel=self._resolve_channel(request.path),
-            payload=request.body,
+            payload=payload,
             metadata={
                 "user_id": user_id,
                 "http_method": request.method,
@@ -118,17 +123,17 @@ class HTTPGateway(BaseGateway):
         根据路径解析目标模块。MVP 阶段硬编码映射。
         """
         if path.startswith("/api/v4/chat"):
-            return "cortex.echo"
+            return "prefrontal.workflow"
         if path.startswith("/api/v4/memory"):
-            return "limbic.hippocampus"
-        return "cortex.echo"
+            return "limbic.hippocampus.full"
+        return "prefrontal.workflow"
 
     def _resolve_channel(self, path: str) -> str:
         """
         根据路径解析业务通道。
         """
         if path.startswith("/api/v4/chat"):
-            return "chat"
+            return "chat_workflow"
         if path.startswith("/api/v4/memory"):
-            return "memory"
-        return "default"
+            return "memory_query"
+        return "chat_workflow"

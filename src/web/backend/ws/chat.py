@@ -264,9 +264,11 @@ async def chat_ws(websocket: WebSocket) -> None:
         pass
 
     try:
+        path_label = "v4_neo" if ws_gateway is not None else "v3_chat_agent"
         await manager.send_personal(conn_id, {
             "type": "system",
             "message": "connected to /ws/chat",
+            "path": path_label,
         })
     except Exception:
         pass

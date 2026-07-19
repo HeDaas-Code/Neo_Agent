@@ -37,6 +37,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.version import __version__
+
 try:
     from src.web.backend.services.emotion_service import emotion_service
 except Exception:  # noqa: BLE001
@@ -247,7 +249,7 @@ async def get_emotion_stats() -> Dict[str, Any]:
             "analyzer_loaded": False,
             "wheel_loaded": False,
             "cache_size": 0,
-            "version": "1.0.0",
+            "version": __version__,
         }
     try:
         return emotion_service.get_stats()
@@ -256,7 +258,7 @@ async def get_emotion_stats() -> Dict[str, Any]:
             "analyzer_loaded": False,
             "wheel_loaded": False,
             "cache_size": 0,
-            "version": "1.0.0",
+            "version": __version__,
         }
 
 

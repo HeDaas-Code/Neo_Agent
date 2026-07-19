@@ -61,7 +61,7 @@ async def neo_request(
     通过 CentralRouter 向指定 v4 模块发送请求并返回响应 Packet。
 
     Args:
-        target: 目标模块 ID，例如 "cortex.echo"、"limbic.amygdala"。
+        target: 目标模块 ID，例如 "cortex.llm_core"、"limbic.amygdala"。
         channel: 业务通道，例如 "chat"、"emotion_latest"。
         payload: 业务数据字典。
         metadata: 可选元数据（user_id、trace_id 等）。

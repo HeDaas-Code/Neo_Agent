@@ -3,8 +3,8 @@
 """
 Neo Agent - Unified Launcher
 Neo Agent 统一启动入口
-
-自 v4.1 起，本文件成为项目主要入口点，提供子命令式 CLI：
+>
+自 v4.1.0 起，本文件成为项目主要入口点，提供子命令式 CLI：
     python run.py web        # 启动 Web/API（默认）
     python run.py web --no-dev --no-static --port 8080
     python run.py stop       # 停止正在运行的 Neo Agent 进程

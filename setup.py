@@ -15,9 +15,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
 with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
-# Read version from src/__init__.py
+# Read version from src/version.py
 version = {}
-with open(os.path.join("src", "__init__.py"), "r", encoding="utf-8") as fh:
+with open(os.path.join("src", "version.py"), "r", encoding="utf-8") as fh:
     for line in fh:
         if line.startswith("__version__"):
             exec(line, version)

@@ -3,8 +3,8 @@
 """
 Neo Agent - Main Entry Point (Compatibility Wrapper)
 Neo Agent 主程序入口（兼容层）
-
-自 v4.1 起，统一入口已迁移至 run.py。本文件保留为薄兼容层，
+>
+自 v4.1.0 起，统一入口已迁移至 run.py。本文件保留为薄兼容层，
 使原有 `python main.py` 调用继续工作，实际逻辑全部委托给 run.py。
 
 用法：

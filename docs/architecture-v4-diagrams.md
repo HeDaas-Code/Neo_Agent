@@ -199,8 +199,8 @@ graph TB
     end
 
     subgraph "大脑皮层 - Cortex"
-        LLM_Core[LLMCore<br/>cortex.llm_core<br/>LLM 推理核心]
-        Echo[EchoCortex<br/>cortex.echo<br/>MVP 回声测试]
+        LLM_Core[LLMCore<br/>cortex.llm_core<br/>LLM 推理核心 + 工具调用]
+        ToolRegistry[ToolRegistry<br/>cortex.tools<br/>工具注册表]
         ModelRouter[ModelRouter<br/>模型路由器]
         MainLLM[Main LLM<br/>主模型]
         ToolLLM[Tool LLM<br/>工具模型]
@@ -209,7 +209,6 @@ graph TB
 
     subgraph "边缘系统 - Limbic"
         subgraph "海马体 - Hippocampus"
-            Hippo[SimpleHippocampus<br/>limbic.hippocampus<br/>MVP 记忆]
             HippoFull[HippocampusModule<br/>limbic.hippocampus.full<br/>完整记忆]
             SessionStore[SessionStore<br/>会话存储]
             MemoryMgr[LongTermMemoryManager<br/>长期记忆]

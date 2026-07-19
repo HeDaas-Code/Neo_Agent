@@ -10,7 +10,7 @@
 
 Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，采用类神经系统多层模型架构，具备角色扮演、长效记忆管理、情感关系分析、智能日程管理以及可观测的统一日志能力。
 
-自 v4.1 起，项目统一了入口与日志体系：`run.py` 成为唯一主入口，`UnifiedLogger` 贯通前后端日志，前端 console 日志可通过 WebSocket 实时回流到后端集中存储与分析。
+自 v4.1.0 起，项目统一了入口与日志体系：`run.py` 成为唯一主入口，`UnifiedLogger` 贯通前后端日志，前端 console 日志可通过 WebSocket 实时回流到后端集中存储与分析。
 
 ---
 
@@ -73,7 +73,7 @@ Neo Agent 是一个基于 LangChain + LangGraph 的智能对话代理系统，�
 - **cerebellum**: 小脑，NPS 工具 / 视觉 / 表达风格
 - **hypothalamus**: 下丘脑，生命状态 / 用户习惯
 
-#### 📜 统一日志系统（v4.1）
+#### 📜 统一日志系统（v4.1.0）
 - **格式统一**: timestamp / level / module / message / source / trace_id / extra
 - **前后端贯通**: 前端 `logger.ts` 拦截 `console.*`，通过 `/ws/frontend-logs` 实时上报
 - **多 Handler 输出**: 文件、内存缓冲、WebSocket 广播、外部转发可扩展
@@ -201,7 +201,7 @@ Neo_Agent/
 ├── examples/                  # 示例代码
 ├── docs/                      # 文档
 ├── main.py                    # 兼容层入口（委托 run.py）
-├── run.py                     # 统一 CLI 入口（v4.1 主入口）
+├── run.py                     # 统一 CLI 入口（v4.1.0 主入口）
 ├── run_web.py                 # Web 启动实现（被 run.py 复用）
 ├── start.sh                   # 一键启动脚本
 ├── requirements.txt           # 核心依赖
@@ -235,7 +235,7 @@ Neo_Agent/
 | `/ws/events` | 全局事件流 |
 | `/ws/debug` | 调试日志流 |
 | `/ws/proactive` | 主动消息推送 |
-| `/ws/frontend-logs` | 前端日志回流（v4.1） |
+| `/ws/frontend-logs` | 前端日志回流（v4.1.0） |
 
 ---
 
@@ -263,7 +263,7 @@ Neo Agent 采用模块化的提示词工程系统：
 
 Neo Agent is a LangChain + LangGraph-based intelligent conversation agent system with a nervous-system-inspired multi-layer architecture. It features role-playing, long-term memory management, emotional relationship analysis, intelligent schedule management, and observable unified logging.
 
-Since v4.1, the project unifies the entry point and logging system: `run.py` is the single main entry, and `UnifiedLogger` carries logs across the frontend and backend, allowing frontend console logs to flow back to the backend in real time via WebSocket.
+Since v4.1.0, the project unifies the entry point and logging system: `run.py` is the single main entry, and `UnifiedLogger` carries logs across the frontend and backend, allowing frontend console logs to flow back to the backend in real time via WebSocket.
 
 ---
 
@@ -425,7 +425,7 @@ Neo_Agent/
 ├── examples/                  # Example code
 ├── docs/                      # Documentation
 ├── main.py                    # Compatibility wrapper (delegates to run.py)
-├── run.py                     # Unified CLI entry (v4.1 main entry)
+├── run.py                     # Unified CLI entry (v4.1.0 main entry)
 ├── run_web.py                 # Web launcher implementation (reused by run.py)
 ├── start.sh                   # One-click launcher
 ├── requirements.txt           # Core dependencies
@@ -459,7 +459,7 @@ Neo_Agent/
 | `/ws/events` | Global event stream |
 | `/ws/debug` | Debug log stream |
 | `/ws/proactive` | Proactive message push |
-| `/ws/frontend-logs` | Frontend log backflow (v4.1) |
+| `/ws/frontend-logs` | Frontend log backflow (v4.1.0) |
 
 ---
 

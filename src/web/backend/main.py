@@ -27,16 +27,18 @@ try:
     from src.nervous_system.app import NeoApp
     from src.nervous_system.router.packet import Packet, PacketType
     from src.web.backend.services.neo_bridge import set_neo_app
+    from src.version import __version__
 except Exception:  # noqa: BLE001
     NeoApp = None  # type: ignore
     Packet = None  # type: ignore
     PacketType = None  # type: ignore
     set_neo_app = None  # type: ignore
+    __version__ = "4.1.0"  # type: ignore
 
 # FastAPI 应用实例
 app = FastAPI(
     title="Neo Agent Web",
-    version="3.0.0",
+    version=__version__,
     description="Neo Agent Web GUI 后端服务",
 )
 
@@ -76,7 +78,7 @@ async def health_check() -> dict:
     """
     result = {
         "status": "ok",
-        "version": "3.0.0",
+        "version": __version__,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "v4_status": "ok",
         "v4_modules": [],

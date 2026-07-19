@@ -1,4 +1,4 @@
-# Neo Agent v3.0.0 — 本地开发环境配置
+# Neo Agent v4.1.0 — 本地开发环境配置
 
 > 5 分钟跑起来 Web GUI。
 
@@ -155,7 +155,7 @@ Neo_Agent/
 
 健康检查应返回：
 ```json
-{"status":"ok","version":"3.0.0","timestamp":"2026-07-14T..."}
+{"status":"ok","version":"4.1.0","timestamp":"2026-07-14T..."}
 ```
 
 ## 常见工作流

@@ -1,13 +1,13 @@
 """
 nervous_system/app.py - v4.0 MVP FastAPI 入口。
-
+>
 这是一个独立的入口，用于验证新的神经系统架构：
 - CentralRouter
 - HTTP Gateway
-- EchoCortex
-- SimpleHippocampus
+- WebSocket Gateway
+- LLM Gateway
 
-不会破坏现有的 v3.1.0 Web 后端。
+不会破坏现有的 Web 后端。
 """
 
 from __future__ import annotations
@@ -21,19 +21,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.cerebellum.module import CerebellumModule
-from src.cortex.echo_cortex import EchoCortex
 from src.cortex.llm_core import LLMCore
 from src.hypothalamus.module import HypothalamusModule
 from src.limbic.amygdala.module import AmygdalaModule
 from src.limbic.hippocampus.module import HippocampusModule
-from src.limbic.hippocampus.simple_hippocampus import SimpleHippocampus
 from src.prefrontal.module import PrefrontalModule
 from src.prefrontal.workflow_module import WorkflowModule
 from src.nervous_system.gateway.http_gateway import HTTPGateway
 from src.nervous_system.gateway.llm_gateway import LLMGateway
 from src.nervous_system.gateway.ws_gateway import WebSocketGateway
 from src.nervous_system.router.central_router import CentralRouter
-from src.nervous_system.router.pipeline import AuditMiddleware, TimingMiddleware
+from src.nervous_system.router.pipeline import (
+    AuditMiddleware,
+    StreamAuditMiddleware,
+    StreamTimingMiddleware,
+    TimingMiddleware,
+)
+from src.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +52,6 @@ class NeoApp:
         self.http_gateway = HTTPGateway(self.router)
         self.ws_gateway = WebSocketGateway(self.router)
         self.llm_gateway = LLMGateway(self.router)
-        self.echo_cortex = EchoCortex(self.router)
-        self.hippocampus = SimpleHippocampus(self.router)
         self.hippocampus_full = HippocampusModule(self.router)
         self.amygdala = AmygdalaModule(self.router)
         self.hypothalamus = HypothalamusModule(self.router)
@@ -58,15 +60,29 @@ class NeoApp:
         self.cerebellum = CerebellumModule(self.router)
         self.llm_core = LLMCore(self.router)
 
+    @property
+    def capabilities(self) -> dict:
+        """
+        声明 v4 神经系统能力集合，便于前端/调用方感知路径差异。
+        """
+        return {
+            "streaming": True,
+            "tool_calling": True,
+            "memory": True,
+            "emotion": True,
+            "schedule": True,
+            "version": __version__,
+        }
+
     async def initialize(self) -> None:
         """
         注册模块、添加中间件、初始化。
         """
         self.router.add_middleware(AuditMiddleware())
         self.router.add_middleware(TimingMiddleware())
+        self.router.add_stream_middleware(StreamAuditMiddleware())
+        self.router.add_stream_middleware(StreamTimingMiddleware())
 
-        self.router.register_module(self.echo_cortex.module_id, self.echo_cortex)
-        self.router.register_module(self.hippocampus.module_id, self.hippocampus)
         self.router.register_module(self.hippocampus_full.module_id, self.hippocampus_full)
         self.router.register_module(self.amygdala.module_id, self.amygdala)
         self.router.register_module(self.hypothalamus.module_id, self.hypothalamus)
@@ -79,7 +95,7 @@ class NeoApp:
         await self.router.initialize()
         await self.http_gateway.start()
         await self.ws_gateway.start()
-        logger.info("[NeoApp] v4.0 MVP 初始化完成")
+        logger.info("[NeoApp] v%s 初始化完成", __version__)
 
     async def shutdown(self) -> None:
         """
@@ -88,7 +104,7 @@ class NeoApp:
         await self.http_gateway.stop()
         await self.ws_gateway.stop()
         await self.router.shutdown()
-        logger.info("[NeoApp] v4.0 MVP 已关闭")
+        logger.info("[NeoApp] v%s 已关闭", __version__)
 
 
 # 全局应用实例
@@ -106,9 +122,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Neo Agent v4.0 MVP",
-    version="4.0.0-mvp",
-    description="基于人脑认知架构的新一代 Neo Agent MVP",
+    title="Neo Agent",
+    version=__version__,
+    description="基于人脑认知架构的新一代 Neo Agent",
     lifespan=lifespan,
 )
 
@@ -124,13 +140,24 @@ app.add_middleware(
 @app.get("/api/v4/health")
 async def health_v4() -> dict:
     """
-    v4.0 健康检查。
+    v4 健康检查。
     """
     return {
         "status": "ok",
-        "version": "4.0.0-mvp",
+        "version": __version__,
         "modules": list(neo_app.router._modules.keys()),
+        "capabilities": neo_app.capabilities,
     }
+
+
+@app.get("/api/v4/capabilities")
+async def capabilities_v4() -> dict:
+    """
+    v4 能力清单。
+
+    明确声明 v4 神经系统支持的能力，便于与 v3 ChatService 路径做差异对比。
+    """
+    return neo_app.capabilities
 
 
 @app.post("/api/v4/chat")

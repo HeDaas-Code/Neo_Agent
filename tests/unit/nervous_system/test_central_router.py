@@ -10,6 +10,7 @@ import pytest
 from src.nervous_system.base_module import BaseModule
 from src.nervous_system.router.central_router import CentralRouter
 from src.nervous_system.router.packet import Packet, PacketType
+from src.nervous_system.router.pipeline import StreamAuditMiddleware, StreamTimingMiddleware
 
 
 class EchoModule(BaseModule):
@@ -27,6 +28,19 @@ class SlowModule(BaseModule):
     async def handle(self, packet: Packet) -> Packet:
         await asyncio.sleep(0.01)
         return packet.response({"slow": True})
+
+
+class StreamEchoModule(BaseModule):
+    module_id = "test.stream_echo"
+    module_type = "test"
+
+    async def handle(self, packet: Packet) -> Packet:
+        return packet.response({"echo": packet.payload})
+
+    async def handle_stream(self, packet: Packet):
+        for i in range(3):
+            yield packet.stream_chunk({"index": i})
+        yield packet.stream_done()
 
 
 def test_register_and_route():
@@ -127,5 +141,66 @@ def test_event_publish_and_subscribe():
         asyncio.run(_run())
         assert len(received) == 1
         assert received[0]["event"] == "test"
+    finally:
+        asyncio.run(router.shutdown())
+
+
+def test_route_stream_with_middleware():
+    """
+    流式路由应执行流式中间件链。
+    """
+    router = CentralRouter()
+    router.add_stream_middleware(StreamAuditMiddleware())
+    router.add_stream_middleware(StreamTimingMiddleware())
+
+    async def _run():
+        await router.initialize()
+        module = StreamEchoModule(router)
+        router.register_module(module.module_id, module)
+
+        packet = Packet(
+            source="test.client",
+            target="test.stream_echo",
+            packet_type=PacketType.REQUEST,
+            channel="chat",
+            payload={"msg": "hello"},
+        )
+        chunks = [chunk async for chunk in router.route_stream(packet)]
+        assert len(chunks) == 4  # 3 chunks + done
+        for i, chunk in enumerate(chunks[:3]):
+            assert chunk.payload["stream_event"] == "chunk"
+            assert chunk.payload["index"] == i
+        assert chunks[-1].payload["stream_event"] == "done"
+        # 验证中间件记录了耗时
+        assert any(t["middleware"] == "stream_timing" for t in chunks[0].metadata.get("timings", []))
+
+    try:
+        asyncio.run(_run())
+    finally:
+        asyncio.run(router.shutdown())
+
+
+def test_route_stream_to_unknown_module():
+    """
+    流式路由到未注册模块应返回 MODULE_NOT_FOUND 错误包。
+    """
+    router = CentralRouter()
+
+    async def _run():
+        await router.initialize()
+        packet = Packet(
+            source="test.client",
+            target="test.unknown",
+            packet_type=PacketType.REQUEST,
+            channel="chat",
+            payload={},
+        )
+        chunks = [chunk async for chunk in router.route_stream(packet)]
+        assert len(chunks) == 1
+        assert chunks[0].is_error()
+        assert "未找到" in chunks[0].payload["error"]
+
+    try:
+        asyncio.run(_run())
     finally:
         asyncio.run(router.shutdown())

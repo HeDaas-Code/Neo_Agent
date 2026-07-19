@@ -4,8 +4,7 @@ HippocampusModule - 海马体模块（v4.0 神经系统接入层）。
 将 src.limbic.hippocampus 中的记忆、会话、知识库能力包装为 BaseModule，
 使其可以通过 CentralRouter 被其他模块调用。
 
-当前保留 SimpleHippocampus（module_id: limbic.hippocampus）作为 MVP 轻量实现，
-本模块使用 module_id: limbic.hippocampus.full，提供更完整的持久化能力。
+module_id: limbic.hippocampus.full，提供持久化记忆、会话与知识库能力。
 """
 
 from __future__ import annotations
