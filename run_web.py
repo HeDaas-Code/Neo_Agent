@@ -10,8 +10,8 @@ Stage A.5: 启动入口
 - 单进程模式（默认）：
   * 启动 uvicorn (默认 0.0.0.0:8000)
   * 若 src/web/frontend/dist/ 或 src/web/static/ 存在，则将其作为静态资源挂载：
-      /         -> SPA 入口 (index.html, html=True)
       /assets   -> 构建产物 assets 子目录
+      /         -> SPA 入口 (index.html, 通过 catch-all 路由 fallback)
   * 若不存在：仅以 API 模式启动，提示 "请先 cd src/web/frontend && npm run build"
 - 开发模式（ENABLE_FRONTEND_DEV=1）：
   * 上述 uvicorn + 静态挂载
@@ -115,9 +115,17 @@ def find_frontend_dist() -> Optional[Path]:
 # ============================================================
 
 def mount_static(app, dist_dir: Path) -> bool:
-    """将前端构建产物挂载到 FastAPI app；返回是否成功挂载。"""
+    """将前端构建产物挂载到 FastAPI app；返回是否成功挂载。
+
+    注意：
+    - /assets 使用 StaticFiles 正常挂载
+    - / 不使用 StaticFiles(html=True)，而是用一个 catch-all GET 路由返回
+      index.html，避免 StaticFiles 拦截 WebSocket 升级请求导致 AssertionError。
+    """
     try:
         from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+        from starlette.exceptions import HTTPException as StarletteHTTPException
     except Exception as e:  # noqa: BLE001
         log("supervisor", C_RED,
             f"无法导入 fastapi.staticfiles: {e}")
@@ -129,10 +137,19 @@ def mount_static(app, dist_dir: Path) -> bool:
                   name="frontend-assets")
         log("supervisor", C_SUPER, f"已挂载 /assets -> {assets_dir}")
 
-    # SPA fallback: html=True 自动为未匹配路径返回 index.html
-    app.mount("/", StaticFiles(directory=str(dist_dir), html=True),
-              name="frontend-spa")
-    log("supervisor", C_SUPER, f"已挂载 SPA 静态资源 / -> {dist_dir}")
+    index_path = dist_dir / "index.html"
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa_fallback(path: str):
+        """SPA fallback：任何未匹配的 GET 路径都返回 index.html。"""
+        # 显式排除 API / WS 前缀，保留安全网
+        if path.startswith(("api/", "ws/", "docs", "redoc", "openapi.json")):
+            raise StarletteHTTPException(status_code=404)
+        if index_path.is_file():
+            return FileResponse(str(index_path))
+        raise StarletteHTTPException(status_code=404)
+
+    log("supervisor", C_SUPER, f"已挂载 SPA fallback / -> {dist_dir}/index.html")
     return True
 
 
