@@ -41,6 +41,8 @@ export interface FrontendLoggerOptions {
   interceptConsole?: boolean;
 }
 
+type ConsoleMethod = (...args: unknown[]) => void;
+
 interface LoggerInternalState {
   ws: WebSocket | null;
   status: 'closed' | 'connecting' | 'open';
@@ -48,7 +50,7 @@ interface LoggerInternalState {
   timer: ReturnType<typeof setInterval> | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   sessionId: string;
-  originalConsole: Partial<typeof console>;
+  originalConsole: Partial<Record<keyof typeof console, ConsoleMethod>>;
   isDestroyed: boolean;
 }
 
@@ -183,7 +185,8 @@ class FrontendLogger {
       (level) => {
         const original = this.state.originalConsole[level];
         if (original) {
-          console[level] = original as typeof console[typeof level];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (console as any)[level] = original;
         }
       },
     );
