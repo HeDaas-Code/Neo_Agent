@@ -1,167 +1,34 @@
-# Neo Agent - 智能对话代理系统
+# Neo Agent · Agentic 虚拟群友
 
-[English](#english) | [简体中文](#中文)
+Neo Agent 已完成从单体 Tkinter/SQLite 程序到原子化、插件化虚拟群友运行时的主架构迁移。当前主线使用 **Textual TUI + LangChain + PyVDisk**，旧 Tk/SQLite/NPS 运行路径与源码已移除；不提供旧数据兼容层。
 
----
+## 开发分支
 
-## 中文
+当前重构分支：`Dev`。
 
-### 简介
-
-Neo Agent 是一个基于 LangChain 的智能对话代理系统，具备角色扮演、长效记忆管理、情感关系分析和智能日程管理功能。
-
-### 主要特性
-
-- 🧠 **分层记忆系统**: 短期记忆、长期记忆、知识库、基础知识
-- 💭 **智能对话**: 角色扮演、连续对话、记忆检索、情感理解
-- 📊 **情感分析**: 印象评估、累计评分、关系可视化
-- 🖥️ **现代化GUI**: 基于Tkinter的友好界面
-- 📅 **事件驱动**: 通知事件、任务事件、日程管理
-- 🗄️ **数据管理**: SQLite存储、数据迁移、备份恢复
-
-### 快速开始
-
-#### 安装依赖
+## 快速开始
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-#### 配置环境
-
-```bash
-cp example.env .env
-# 编辑 .env 文件，填入你的API密钥和配置
-```
-
-#### 运行应用
-
-```bash
-# 方式1: 使用主入口（推荐）
+cp example.env .env  # 按需填写模型服务配置
 python main.py
-
-# 方式2: 使用简化启动器（如果遇到导入问题）
-python run.py
-
-# 方式3: 如果已安装包
-neo-agent
 ```
 
-**常见问题 / Troubleshooting:**
-- 如果遇到导入错误，请确保在项目根目录运行
-- 确保已安装所有依赖: `pip install -r requirements.txt`
-- Windows用户可能需要使用 `python` 而不是 `python3`
+默认数据镜像为 `~/.neo-agent/runtime.vdisk`，可通过 `NEO_VDISK_PATH` 改写。终端内使用方向键选择模块、Enter 进入，数字键快速跳转、`r` 刷新、`q` 退出。
 
-### 项目结构
+## 新运行时边界
 
-```
-Neo_Agent/
-├── src/                    # 源代码
-│   ├── core/              # 核心模块
-│   ├── gui/               # GUI模块
-│   ├── tools/             # 工具模块
-│   └── nps/               # NPS工具系统
-├── tests/                 # 测试文件
-├── examples/              # 示例代码
-├── main.py               # 主入口（推荐）
-├── run.py                # 简化启动器
-├── requirements.txt      # 依赖列表
-├── example.env          # 环境变量示例
-└── LICENSE              # 许可证
-```
+- `neo_agent/ui/`：全局运营控制台与交互导航。
+- `neo_agent/storage/`：唯一持久化边界；`DiskStore` 使用 PyVDisk AgentSandbox 的受限接口。
+- `neo_agent/tools/`：把 PyVDisk 审计/授权过的 JSON Schema 工具转换成 LangChain `StructuredTool`。
+- `neo_agent/runtime/`：LangChain 有界工具调用循环与可持久化对话记录。
+- `characters/<id>/profile.json`、`groups/<id>/`、`runtime/`：虚拟角色、群组及运行检查点所在的 DataDisk 命名空间。
+- `main.py`、`run.py`：仅启动新 TUI，不再启动 Tk GUI。
 
-### 核心模块
+PyVDisk 是 Git 依赖，工作树版本来自 `HeDaas-Code/pyvdisk`；其 DataDisk/VFS/Vector/Log/WAL 与 AgentSandbox 构成唯一存储及工具执行基础。镜像容器内部细节由 PyVDisk 管理，Neo Agent 不另行使用 sqlite 或裸文件做运行时持久化。
 
-- **chat_agent**: 对话代理核心
-- **database_manager**: 统一数据库管理
-- **emotion_analyzer**: 情感关系分析
-- **event_manager**: 事件驱动系统
-- **knowledge_base**: 知识库管理
-- **long_term_memory**: 长期记忆系统
-- **schedule_manager**: 日程管理
+## 模块地图与后续开发方向
 
-### 许可证
-
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
----
-
-## English
-
-### Introduction
-
-Neo Agent is a LangChain-based intelligent conversation agent system with role-playing, long-term memory management, emotional relationship analysis, and intelligent schedule management capabilities.
-
-### Key Features
-
-- 🧠 **Hierarchical Memory System**: Short-term memory, long-term memory, knowledge base, base knowledge
-- 💭 **Intelligent Conversation**: Role-playing, continuous dialogue, memory retrieval, emotional understanding
-- 📊 **Emotion Analysis**: Impression assessment, cumulative scoring, relationship visualization
-- 🖥️ **Modern GUI**: User-friendly Tkinter-based interface
-- 📅 **Event-Driven**: Notification events, task events, schedule management
-- 🗄️ **Data Management**: SQLite storage, data migration, backup and recovery
-
-### Quick Start
-
-#### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-#### Configure Environment
-
-```bash
-cp example.env .env
-# Edit .env file with your API keys and configuration
-```
-
-#### Run Application
-
-```bash
-# Method 1: Use main entry point (recommended)
-python main.py
-
-# Method 2: Use simplified launcher (if import issues occur)
-python run.py
-
-# Method 3: If package is installed
-neo-agent
-```
-
-**Troubleshooting:**
-- If you encounter import errors, ensure you're running from the project root directory
-- Make sure all dependencies are installed: `pip install -r requirements.txt`
-- Windows users may need to use `python` instead of `python3`
-
-### Project Structure
-
-```
-Neo_Agent/
-├── src/                    # Source code
-│   ├── core/              # Core modules
-│   ├── gui/               # GUI modules
-│   ├── tools/             # Utility modules
-│   └── nps/               # NPS tool system
-├── tests/                 # Test files
-├── examples/              # Example code
-├── main.py               # Main entry point (recommended)
-├── run.py                # Simplified launcher
-├── requirements.txt      # Dependencies
-├── example.env          # Environment variables template
-└── LICENSE              # License file
-```
-
-### Core Modules
-
-- **chat_agent**: Conversation agent core
-- **database_manager**: Unified database management
-- **emotion_analyzer**: Emotional relationship analysis
-- **event_manager**: Event-driven system
-- **knowledge_base**: Knowledge base management
-- **long_term_memory**: Long-term memory system
-- **schedule_manager**: Schedule management
-
-### License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
+旧 GUI 管理功能已按迁移矩阵纳入 Textual 控制台与领域服务；新运行时覆盖角色、会话、记忆/知识、关系/情绪、环境/域、事件、日程、表达、协作、配置和新版 NPS。持久化统一走 PyVDisk，Agent 编排与工具采用 LangChain。迁移矩阵、现存产品能力边界以及下一阶段深化建议见 [`docs/PRODUCT_ROADMAP.md`](docs/PRODUCT_ROADMAP.md)。

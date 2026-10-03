@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neo-agent"
+version = "2.0.0"
+description = "Atomic, plugin-oriented virtual group-member agent"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+  "langchain>=0.3.0",
+  "langchain-core>=0.3.0",
+  "langchain-openai>=0.2.0",
+  "python-dotenv>=1.0.0",
+  "textual>=0.80.0",
+  "pyvdisk @ git+https://github.com/HeDaas-Code/pyvdisk.git@1ca863f4373fbb1ec72748922365a733139cf0ff",
+]
+
+[project.scripts]
+neo-agent = "main:main"
+
+[tool.setuptools]
+packages = ["neo_agent", "neo_agent.storage", "neo_agent.tools", "neo_agent.ui", "neo_agent.runtime", "neo_agent.plugins", "neo_agent.nps"]
+py-modules = ["main"]

@@ -1,321 +1,68 @@
-# Technical Documentation / 技术文档
+# Neo Agent 2.x 技术架构
 
-## 项目架构 / Project Architecture
+> 本文描述当前唯一受支持的运行时。旧 Tk/SQLite/NPS 源码、旧测试和旧 GUI 校验脚本已移除；本项目不提供旧 API 或数据格式兼容。后续产品路线见 [`docs/PRODUCT_ROADMAP.md`](docs/PRODUCT_ROADMAP.md)。
 
-### 目录结构 / Directory Structure
+## 产品边界
 
-```
-Neo_Agent/
-├── src/                      # 源代码 / Source code
-│   ├── core/                # 核心业务逻辑 / Core business logic
-│   │   ├── chat_agent.py           # 对话代理主类
-│   │   ├── database_manager.py     # 数据库管理器
-│   │   ├── emotion_analyzer.py     # 情感分析器
-│   │   ├── event_manager.py        # 事件管理器
-│   │   ├── knowledge_base.py       # 知识库管理
-│   │   ├── long_term_memory.py     # 长期记忆系统
-│   │   ├── base_knowledge.py       # 基础知识管理
-│   │   ├── multi_agent_coordinator.py  # 多代理协调器
-│   │   ├── schedule_manager.py     # 日程管理器
-│   │   ├── schedule_generator.py   # 日程生成器
-│   │   └── schedule_similarity_checker.py  # 日程相似度检查
-│   │
-│   ├── gui/                 # 图形界面 / GUI components
-│   │   ├── gui_enhanced.py         # 主界面
-│   │   ├── database_gui.py         # 数据库管理界面
-│   │   ├── nps_gui.py             # NPS管理界面
-│   │   ├── schedule_gui.py        # 日程管理界面
-│   │   └── settings_migration_gui.py  # 设置迁移界面
-│   │
-│   ├── tools/               # 工具模块 / Utility modules
-│   │   ├── agent_vision.py         # 智能体视觉工具
-│   │   ├── debug_logger.py         # 调试日志工具
-│   │   ├── expression_style.py     # 表达风格管理
-│   │   ├── interrupt_question_tool.py  # 中断问题工具
-│   │   ├── schedule_intent_tool.py # 日程意图工具
-│   │   ├── settings_migration.py   # 设置迁移工具
-│   │   └── tooltip_utils.py        # 提示工具
-│   │
-│   └── nps/                 # NPS工具系统 / NPS tool system
-│       ├── nps_invoker.py          # NPS调用器
-│       ├── nps_registry.py         # NPS注册表
-│       └── tool/                   # NPS工具
-│           └── systime.py          # 系统时间工具
-│
-├── tests/                   # 测试文件 / Test files
-│   ├── test_chat_agent.py
-│   ├── test_database_manager.py
-│   ├── test_event_manager.py
-│   └── ...
-│
-├── examples/                # 示例代码 / Example code
-│   ├── demo_domain_feature.py
-│   ├── example_schedule.py
-│   └── example_schedule_similarity.py
-│
-├── main.py                  # 主入口 / Main entry point
-├── setup.py                 # 安装脚本 / Setup script
-├── requirements.txt         # 依赖列表 / Dependencies
-├── example.env             # 环境变量模板 / Environment template
-├── README.md               # 项目说明 / Project README
-├── CONTRIBUTING.md         # 贡献指南 / Contributing guide
-├── CHANGELOG.md            # 更新日志 / Changelog
-└── LICENSE                 # 许可证 / License
+Neo Agent 的目标是可配置、可组合、能在群聊中自然互动的虚拟群友 Agentic。运行时采用 LangChain 的模型与工具协议，管理界面采用 Textual TUI，唯一运行时持久化边界为 PyVDisk 的 DataDisk 公共 API。Neo Agent 不直接打开 PyVDisk 镜像结构、不自建 SQLite/主机目录持久化，也不为旧数据格式提供兼容。
+
+## 当前模块
+
+| 模块 | 职责 |
+|---|---|
+| `neo_agent/ui/tui.py` | 全局运营控制台：角色、对话、事件、日程、知识、关系、环境/域、插件、审计、记忆、频道、配置、实体、表达风格和协作流程。 |
+| `neo_agent/storage/disk_store.py`、`vfs_workspace.py` | PyVDisk `AgentSandbox` 适配、领域文档、向量记忆、LogDisk 事件、检查点/持久队列、日程和事件/任务专属 VFS 工作区。 |
+| `neo_agent/runtime/agent.py` | 有界 LangChain 工具调用、上下文组合及会话/记忆写入。 |
+| `neo_agent/runtime/domain_services.py` | 知识、记忆、关系、环境/域、频道等领域服务。 |
+| `neo_agent/runtime/emotion.py`、`expression.py` | 关系情绪分析和表达风格/用户习惯学习。 |
+| `neo_agent/runtime/scheduler.py`、`neo_agent/services/scheduling.py` | 到期队列 worker、日程规划建议和人机协作提醒服务。 |
+| `neo_agent/plugins/` | 原子插件契约、注册表、PyVDisk 工具和日程事件插件。 |
+| `neo_agent/nps/runtime.py` | `neo.nps/v1` manifest、VScript 主控与受限 Python 扩展桥。 |
+| `main.py`、`neo_agent/__main__.py` | TUI 入口；启动与关闭 DataDisk 资源。 |
+| `tests/v2/` | 新运行时服务、持久化重开、TUI Pilot、队列、权限/审计及插件测试。 |
+
+## 运行数据流
+
+```text
+Textual 操作员 / 群消息入口（平台 adapter 尚待建设）
+    → AgentRuntime
+    → LangChain Model + 已授权的工具
+    → PluginRegistry / PyVDisk AgentSandbox
+    → PyVDisk DataDisk FS / Vector / Log / Checkpoint / DurableQueue
 ```
 
-### 核心模块说明 / Core Modules
+- 对话、角色及领域实体以 PyVDisk 管理的文档形式保存。
+- 语义记忆使用 PyVDisk 向量 API；事件及可审计运行轨迹写入 LogDisk。
+- 可管理事件记录和工作流任务的附属文件分别限定在 `/workspaces/events/{id}` 与 `/workspaces/tasks/{id}`；只能通过 `VFSWorkspace` 相对路径 API 访问，拒绝绝对路径和目录穿越，不存在主机文件系统回退。
+- 日程通知经持久队列调度；队列状态、尝试、失败和完成应可审计。
+- 外部消息发送尚未闭环；当前“已投递到待发送/outbox”状态不等价于外部平台送达。
+- 密钥通过环境变量注入，不能写入频道公开配置或配置导出。
+- 事件/任务工作区严格位于 PyVDisk 镜像内的 DataDisk VFS；禁止使用宿主机目录、临时文件、SQLite 或绝对路径承载/操作其工作产物。只有镜像本身可由启动配置指定主机路径。
 
-#### 1. chat_agent.py - 对话代理
-主要的对话代理类，负责：
-- 管理对话流程
-- 处理用户输入
-- 调用LLM生成回复
-- 管理记忆系统集成
+## 插件与隔离
 
-**主要类**: `ChatAgent`
+新版 NPS bundle 格式为 `neo.nps/v1`。Manifest 描述工具参数 schema 与 capability；VScript 作为主控语言。可选 Python 扩展只有在显式声明 `python.call` 后才运行，并通过独立受限进程/隔离机制调用。导入、启停、一次性测试、删除、导出和执行应保留审计记录。旧 `.NPS` 格式不兼容。插件不得通过普通 Python 代码绕开 AgentSandbox 的 capability 边界。
 
-#### 2. database_manager.py - 数据库管理
-统一的数据库管理接口：
-- SQLite数据库操作
-- 数据持久化
-- 查询优化
-- 数据迁移
-
-**主要类**: `DatabaseManager`
-
-#### 3. emotion_analyzer.py - 情感分析
-情感关系分析系统：
-- 印象评估
-- 累计评分
-- 关系分类
-- 情感可视化
-
-**主要类**: `EmotionAnalyzer`
-
-#### 4. event_manager.py - 事件管理
-事件驱动系统：
-- 通知事件
-- 任务事件
-- 事件调度
-- 回调处理
-
-**主要类**: `EventManager`
-
-#### 5. knowledge_base.py - 知识库
-知识提取和管理：
-- 知识提取
-- 知识存储
-- 知识检索
-- 知识更新
-
-**主要类**: `KnowledgeBase`
-
-#### 6. long_term_memory.py - 长期记忆
-长期记忆系统：
-- 记忆概括
-- 主题提取
-- 时间线管理
-- 记忆检索
-
-**主要类**: `LongTermMemory`
-
-### 使用方法 / Usage
-
-#### 安装 / Installation
+## 本地开发
 
 ```bash
-# 克隆仓库
-git clone https://github.com/HeDaas-Code/Neo_Agent.git
-cd Neo_Agent
-
-# 安装依赖
+python3 -m venv .venv
+. .venv/bin/activate
 pip install -r requirements.txt
-
-# 或使用 setup.py 安装
-pip install -e .
+cp example.env .env  # 按需设置模型凭据与模型名
+python -m neo_agent   # 或 python main.py
 ```
 
-#### 配置 / Configuration
+默认镜像路径是 `~/.neo-agent/runtime.vdisk`，可用 `NEO_VDISK_PATH` 覆盖。测试与静态检查：
 
 ```bash
-# 复制环境变量模板
-cp example.env .env
-
-# 编辑 .env 文件，设置必要的配置
-# - API密钥
-# - 角色设定
-# - 系统参数
+.venv/bin/python -m pytest -q
+.venv/bin/python -m compileall -q neo_agent tests/v2
+git diff --check
 ```
 
-#### 运行 / Running
+当前 pytest 配置仅发现新架构测试 `tests/v2/`。旧功能迁移矩阵已核对，旧运行路径与旧测试已清理；产品深化项目（群平台接入、主动发言仲裁、自动记忆学习等）属于后续能力，不是旧模块兼容目标。
 
-```bash
-# 启动GUI应用
-python main.py
+## 功能深化方向
 
-# 或使用命令行工具（安装后）
-neo-agent
-```
-
-#### 导入模块 / Importing Modules
-
-```python
-# 导入核心模块
-from src.core.chat_agent import ChatAgent
-from src.core.database_manager import DatabaseManager
-from src.core.emotion_analyzer import EmotionAnalyzer
-
-# 导入GUI组件
-from src.gui.gui_enhanced import EnhancedChatDebugGUI
-
-# 导入工具
-from src.tools.debug_logger import get_debug_logger
-from src.tools.tooltip_utils import ToolTip
-```
-
-### 开发指南 / Development Guide
-
-#### 代码规范 / Code Standards
-
-1. **Python风格**: 遵循 PEP 8
-2. **文档字符串**: 使用中文或英文编写详细说明
-3. **类型提示**: 为函数参数和返回值添加类型注解
-4. **导入顺序**: 标准库 → 第三方库 → 本地模块
-
-#### 测试 / Testing
-
-```bash
-# 运行所有测试
-python -m pytest tests/
-
-# 运行特定测试
-python -m pytest tests/test_chat_agent.py
-
-# 生成覆盖率报告
-python -m pytest --cov=src tests/
-```
-
-#### 添加新功能 / Adding New Features
-
-1. 在相应模块目录中创建新文件
-2. 更新对应的 `__init__.py`
-3. 添加单元测试
-4. 更新文档
-
-### 依赖管理 / Dependencies
-
-主要依赖：
-- `langchain` - LLM框架
-- `langchain-community` - LangChain社区扩展
-- `python-dotenv` - 环境变量管理
-- `requests` - HTTP请求
-- `tkinter` - GUI框架（Python标准库）
-
-### 数据流 / Data Flow
-
-```
-用户输入 → ChatAgent → 
-    ├─→ 短期记忆 (最近20轮)
-    ├─→ 长期记忆 (历史概括)
-    ├─→ 知识库 (提取的知识)
-    ├─→ LLM API (生成回复)
-    └─→ 情感分析 (更新关系)
-           ↓
-        生成回复 → GUI显示
-```
-
-### 记忆层次 / Memory Hierarchy
-
-```
-优先级从高到低:
-
-1. 基础知识 (BaseKnowledge)
-   - 预设的核心知识
-   - 不可修改
-   
-2. 知识库 (KnowledgeBase)
-   - 从对话中提取
-   - 永久存储
-   
-3. 长期记忆 (LongTermMemory)
-   - 历史对话概括
-   - 主题和时间线
-   
-4. 短期记忆 (Short-term)
-   - 最近20轮对话
-   - 详细内容
-```
-
-### 配置参数 / Configuration Parameters
-
-环境变量说明（在 `.env` 中配置）:
-
-```bash
-# API配置
-API_BASE_URL=https://api.siliconflow.cn/v1/chat/completions
-API_KEY=your_api_key_here
-MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-
-# 角色设定
-CHARACTER_NAME=Neo
-CHARACTER_PERSONALITY=友善、专业、有帮助
-CHARACTER_BACKGROUND=智能助手
-CHARACTER_HOBBIES=学习新知识、帮助用户
-
-# 系统参数
-SHORT_TERM_MEMORY_SIZE=20
-LONG_TERM_SUMMARIZE_INTERVAL=20
-KNOWLEDGE_EXTRACT_INTERVAL=5
-DEBUG_MODE=False
-```
-
-### 扩展性 / Extensibility
-
-#### 添加新的LLM提供商
-
-1. 修改 `src/core/chat_agent.py` 中的API调用逻辑
-2. 添加新的配置参数
-3. 更新环境变量模板
-
-#### 添加新的GUI组件
-
-1. 在 `src/gui/` 创建新模块
-2. 继承 `tkinter` 相关类
-3. 在主界面中集成
-
-#### 添加新的工具
-
-1. 在 `src/tools/` 创建新模块
-2. 实现必要的接口
-3. 在需要的地方导入使用
-
-### 性能优化 / Performance Optimization
-
-- 使用数据库索引加速查询
-- 异步处理长时间操作
-- 缓存常用数据
-- 批量处理数据库操作
-
-### 安全考虑 / Security Considerations
-
-- 不在代码中硬编码API密钥
-- 使用 `.env` 文件管理敏感信息
-- `.gitignore` 中排除敏感文件
-- 输入验证和清理
-
-### 故障排除 / Troubleshooting
-
-#### 常见问题
-
-1. **ImportError**: 确保安装了所有依赖 `pip install -r requirements.txt`
-2. **API错误**: 检查 `.env` 中的API配置
-3. **数据库错误**: 检查文件权限和路径
-
-### 许可证 / License
-
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
-### 联系方式 / Contact
-
-- GitHub: https://github.com/HeDaas-Code/Neo_Agent
-- Issues: https://github.com/HeDaas-Code/Neo_Agent/issues
+迁移闭环后，产品开发建议按离线群聊模拟器 → 关系/记忆审核工作台 → 单平台人工确认的真实群聊闭环推进；再深化主动发言仲裁、多群关系、圈内语言审核学习和多模态表达。详见产品路线图。

@@ -1,245 +1,33 @@
-# Copilot Instructions for Neo Agent
+# Neo Agent 开发约定
 
-## Project Overview
+## 当前主线
 
-Neo Agent is an intelligent conversation agent system based on LangChain, supporting role-playing, long-term memory management, and emotional relationship analysis. The system is designed primarily for Chinese users with bilingual (Chinese/English) documentation.
+Neo Agent 已迁移为原子化、插件化的虚拟群友 Agentic。受支持运行时由 Python 3.10+、Textual TUI、LangChain 和 PyVDisk DataDisk 组成。`neo_agent/` 是唯一应用运行路径。
 
-## Technology Stack
+## 架构边界
 
-- **Language**: Python 3.8+
-- **Main Framework**: LangChain (langchain, langchain-community, langchain-core)
-- **Database**: SQLite for persistent storage
-- **GUI**: Tkinter for graphical user interface
-- **API**: SiliconFlow API for LLM integration
-- **Configuration**: python-dotenv for environment management
+- `neo_agent/ui/`：全局 Textual 运营控制台；交互通过领域服务，不把业务逻辑塞进 widget 回调。
+- `neo_agent/runtime/`、`neo_agent/services/`：Agent 编排、领域服务、日程/人机协作流程。
+- `neo_agent/plugins/`、`neo_agent/nps/`：声明式 capability、LangChain 工具及新版 `neo.nps/v1`。VScript 主控，可选 Python 扩展必须经过隔离桥和审计。
+- `neo_agent/storage/`：唯一应用持久化边界，使用 PyVDisk 公开的 AgentSandbox、DataDisk FS/Vector/Log/Checkpoint/Queue API。
+- 不得在 Neo Agent 运行时直接使用 SQLite、裸主机文件持久化、PyVDisk 镜像内部结构或不受限 shell 来绕过存储/工具权限。
+- 不迁移、不读取旧 SQLite/JSON/NPS 数据，不提供旧格式兼容层。密钥通过环境变量等受控机制提供，不写入数据导出。
 
-## Code Organization
+## 代码与测试
 
-### Core Modules
-
-- `chat_agent.py` - Main conversation agent with memory management
-- `database_manager.py` - Unified database operations with SQLite
-- `long_term_memory.py` - Long-term memory summarization and management
-- `knowledge_base.py` - Knowledge extraction and storage from conversations
-- `emotion_analyzer.py` - Emotion and relationship analysis
-- `event_manager.py` - Event-driven system for notifications and tasks
-- `multi_agent_coordinator.py` - Multi-agent collaboration system
-- `agent_vision.py` - Vision tool with LLM-based environment perception
-- `gui_enhanced.py` - Main GUI application
-- `database_gui.py` - Database management GUI
-- `base_knowledge.py` - Immutable core knowledge management
-
-### Supporting Modules
-
-- `debug_logger.py` - Debug logging system
-- `interrupt_question_tool.py` - User interaction tool during task execution
-- `expression_style.py` - Character expression style management
-- `test_event_system.py` - Event system testing
-
-## Coding Conventions
-
-### Language and Comments
-
-- **Primary Language**: Chinese for code comments, docstrings, and variable names that represent domain concepts
-- **Documentation**: Maintain bilingual (Chinese/English) documentation in `docs/` folder
-- **Docstrings**: Use Chinese for detailed docstrings explaining functionality
-- Example:
-  ```python
-  from typing import List, Dict, Any
-  
-  def analyze_emotion(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-      """
-      分析情感关系
-      
-      Args:
-          messages: 对话消息列表
-          
-      Returns:
-          包含印象描述和评分的字典
-      """
-  ```
-
-### Python Style
-
-- Follow PEP 8 style guidelines
-- Use type hints for function parameters and return values
-- Use docstrings for all classes and public methods
-- Prefer descriptive variable names in Chinese for domain-specific concepts
-- Use English for technical terms and common programming constructs
-
-### Memory and Data Management
-
-- All persistent data uses SQLite through `DatabaseManager`
-- Short-term memory: Recent 20 conversation rounds
-- Long-term memory: Summarized historical conversations
-- Knowledge base: Extracted factual information from conversations
-- Base knowledge: Predefined immutable core knowledge
-
-### Environment Configuration
-
-- All configurable parameters should be in `.env` file
-- Use `example.env` as template
-- Never commit actual API keys or sensitive data
-- Use `os.getenv()` with sensible defaults
-
-### Error Handling
-
-- Use try-except blocks for external API calls
-- Log errors using the debug logger
-- Provide meaningful error messages in Chinese
-- Gracefully handle API failures and timeouts
-
-## Development Guidelines
-
-### Adding New Features
-
-1. Consider memory and database implications
-2. Update relevant documentation in both Chinese and English
-3. Add debug logging for important operations
-4. Maintain backward compatibility with existing data
-5. Update `example.env` if new configuration is needed
-
-### Database Changes
-
-- Use `DatabaseManager` for all database operations
-- Test data migration from JSON to SQLite if applicable
-- Ensure proper error handling and transaction management
-- Document schema changes
-
-### GUI Development
-
-- Use Tkinter conventions consistent with existing code
-- Maintain the modern, user-friendly interface style
-- Support real-time updates and visual feedback
-- Include proper error dialogs in Chinese
-
-### Event System
-
-- Use `EventManager` for event-driven functionality
-- Support both notification events and task events
-- Enable multi-agent coordination for complex tasks
-- Implement proper event status tracking
-
-## Testing
-
-### Test Structure
-
-- Tests are located in `tests/` directory
-- Use descriptive test names in English
-- Test both success and failure scenarios
-- Mock external API calls when appropriate
-
-### Running Tests
+- Python 3.10+，遵循 PEP 8，公共 API 增加类型提示和清晰 docstring。
+- 注释与用户可见错误可使用中文，标识符使用清晰英文。
+- 每项领域行为都应有服务级测试；Textual 交互使用 Pilot；持久化测试必须覆盖关闭并重开镜像。
+- 插件测试应覆盖能力拒绝、异常/超时和审计；队列测试覆盖到期、重试/失败与可观测状态。
+- `pytest.ini` 收集 `tests/v2/` 中的新架构测试；旧功能迁移已完成，旧测试与旧实现不再保留。新增功能必须为新架构补充服务级、存储重开和必要的 Textual Pilot 测试。
+- 修改后运行：
 
 ```bash
-python -m pytest tests/
+.venv/bin/python -m pytest -q
+.venv/bin/python -m compileall -q neo_agent tests/v2
+ git diff --check
 ```
 
-### Manual Testing
+## 产品目标和迁移门禁
 
-- Use `gui_enhanced.py` for GUI testing
-- Test with various character configurations
-- Verify memory persistence across sessions
-- Check emotion analysis with different conversation patterns
-
-## Dependencies
-
-- Keep `requirements.txt` minimal and up-to-date
-- Use version constraints (>=) for flexibility
-- Document any system-level dependencies
-- Test with clean virtual environment
-
-## Key Design Patterns
-
-### Memory Hierarchy
-
-- Short-term: Detailed recent conversations
-- Long-term: Summarized history
-- Knowledge base: Extracted facts
-- Base knowledge: Core immutable knowledge
-
-### Character System
-
-- Configurable via environment variables
-- Supports custom personality, background, hobbies
-- Used for role-playing and emotion analysis
-
-### Event-Driven Architecture
-
-- Notification events: Immediate information sharing
-- Task events: Complex multi-agent tasks
-- Interrupt questions: User interaction during execution
-- Visual progress tracking in GUI
-
-## Common Pitfalls to Avoid
-
-1. **Don't** hardcode file paths - use environment variables
-2. **Don't** mix JSON and database storage - use `DatabaseManager` consistently
-3. **Don't** skip debug logging for important operations
-4. **Don't** forget to update both Chinese and English documentation
-5. **Don't** commit sensitive data like API keys
-6. **Don't** break backward compatibility without migration path
-
-## Security Considerations
-
-- Never expose API keys in code
-- Validate user inputs in GUI and event handlers
-- Sanitize data before database insertion
-- Use secure API communication (HTTPS)
-
-## Build and Run
-
-### Setup
-
-```bash
-pip install -r requirements.txt
-cp example.env .env
-# Edit .env with your configuration
-```
-
-### Run Application
-
-```bash
-python gui_enhanced.py
-```
-
-### Debug Mode
-
-Enable in `.env`:
-```
-DEBUG_MODE=True
-DEBUG_LOG_FILE=debug.log
-```
-
-## Contributing
-
-- Follow existing code style and conventions
-- Add tests for new functionality
-- Update documentation for significant changes
-- Use meaningful commit messages in English
-- Keep changes focused and minimal
-
-## API Integration
-
-- Primary API: SiliconFlow for LLM chat completions
-- Use `requests` library for API calls
-- Implement timeout and retry logic
-- Handle rate limiting gracefully
-- Log all API interactions when debug mode is enabled
-
-## Vision System
-
-The `agent_vision.py` module provides intelligent environment perception:
-
-- **LLM-based semantic understanding**: Uses LLM to analyze user queries and determine if environment information is needed (e.g., "你在哪？" / "Where are you?")
-- **Keyword matching fallback**: When LLM is unavailable, falls back to keyword matching for common phrases
-- **Environment description simulation**: Provides textual environment descriptions to simulate visual perception without actual image processing
-- **Intelligent context detection**: Automatically identifies both explicit and implicit requests for environmental information
-- **Configurable parameters**: Vision LLM temperature, max tokens, and timeout can be configured via environment variables
-
-## Multi-Agent System
-
-- Coordinator manages multiple agents
-- Task decomposition and delegation
-- Progress tracking and result aggregation
-- Support for interrupt questions during execution
+优先纵向交付可操作闭环。旧用户功能迁移映射见路线图；后续深化目标包括离线群聊模拟、可解释发言仲裁、关系/记忆审核工作台及真实平台人工确认闭环。具体状态见 `docs/PRODUCT_ROADMAP.md`。
