@@ -11,6 +11,10 @@ from textual.message import Message
 
 from .client import AgentClient
 from .theme import FULL_THEME
+from .commands import (
+    CommandPalette, ConfigPanel, ExportPanel, ImportPanel,
+    COMMAND_PANEL_CSS
+)
 
 
 class StatusBar(Static):
@@ -454,7 +458,7 @@ class MainContent(Container):
 class NeoAgentApp(App):
     """Neo Agent 主应用"""
     
-    CSS = FULL_THEME
+    CSS = FULL_THEME + COMMAND_PANEL_CSS
     TITLE = "Neo Agent"
     BINDINGS = [
         ("q", "quit", "退出"),
@@ -524,9 +528,98 @@ class NeoAgentApp(App):
             main_content = self.query_one("#main-content", MainContent)
             await main_content.switch_to(view_id)
     
-    async def action_command_mode(self):
-        """命令模式（未实现）"""
-        self.notify("命令模式开发中...", severity="information")
+    def action_command_mode(self):
+        """打开命令面板"""
+        self.run_worker(self._open_command_palette())
+    
+    async def _open_command_palette(self):
+        """打开命令面板（worker）"""
+        result = await self.push_screen_wait(CommandPalette())
+        if result:
+            await self.handle_command(result)
+    
+    async def handle_command(self, cmd_data: dict):
+        """处理命令"""
+        command = cmd_data.get("command", "")
+        args = cmd_data.get("args", [])
+        
+        if command == "config":
+            await self.open_config_panel()
+        
+        elif command == "debug":
+            if args and args[0] in ["on", "off"]:
+                enabled = args[0] == "on"
+                try:
+                    await self.client.call("system.set_debug", {"enabled": enabled})
+                    status = "开启" if enabled else "关闭"
+                    self.notify(f"Debug 模式已{status}", severity="information")
+                except Exception as e:
+                    self.notify(f"设置失败: {e}", severity="error")
+            else:
+                self.notify("用法: debug on | debug off", severity="warning")
+        
+        elif command == "export":
+            export_type = args[0] if args else "character"
+            await self.open_export_panel(export_type)
+        
+        elif command == "import":
+            if args:
+                await self.import_data(args[0])
+            else:
+                await self.open_import_panel()
+        
+        else:
+            self.notify(f"未知命令: {command}", severity="warning")
+    
+    async def open_config_panel(self):
+        """打开配置面板"""
+        try:
+            # 获取当前配置
+            current_config = await self.client.call("system.get_config", {})
+        except Exception:
+            current_config = {
+                "llm_model": "gpt-4",
+                "pyvdisk_path": "~/.neo_agent/data",
+                "timezone": "Asia/Shanghai",
+                "debug_mode": False
+            }
+        
+        result = await self.push_screen_wait(ConfigPanel(current_config))
+        if result:
+            try:
+                await self.client.call("system.update_config", result)
+                self.notify("配置已保存", severity="information")
+            except Exception as e:
+                self.notify(f"保存失败: {e}", severity="error")
+    
+    async def open_export_panel(self, export_type: str):
+        """打开导出面板"""
+        result = await self.push_screen_wait(ExportPanel(export_type))
+        if result:
+            try:
+                export_path = result["path"]
+                export_type = result["type"]
+                data = await self.client.call("system.export_data", {
+                    "type": export_type,
+                    "path": export_path
+                })
+                self.notify(f"导出成功: {export_path}", severity="information")
+            except Exception as e:
+                self.notify(f"导出失败: {e}", severity="error")
+    
+    async def open_import_panel(self):
+        """打开导入面板"""
+        result = await self.push_screen_wait(ImportPanel())
+        if result:
+            await self.import_data(result["path"])
+    
+    async def import_data(self, file_path: str):
+        """导入数据"""
+        try:
+            await self.client.call("system.import_data", {"path": file_path})
+            self.notify(f"导入成功: {file_path}", severity="information")
+        except Exception as e:
+            self.notify(f"导入失败: {e}", severity="error")
     
     async def on_unmount(self):
         """应用退出时断开连接"""
