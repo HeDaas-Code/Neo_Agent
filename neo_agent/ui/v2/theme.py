@@ -1,234 +1,7 @@
-"""琥珀温暖主题：五级深度 + 精心设计的配色"""
+"""Neo Agent TUI 琥珀主题"""
 
-# Textual CSS 主题
-AMBER_THEME = """
-/* ========== 琥珀温暖主题 ========== */
-
-* {
-    scrollbar-background: $surface-1;
-    scrollbar-color: $accent-muted;
-    scrollbar-color-hover: $accent-primary;
-}
-
-Screen {
-    background: $surface-0;
-}
-
-/* ========== 顶栏状态栏 ========== */
-.status-bar {
-    background: $surface-1;
-    color: $text-primary;
-    height: 1;
-    dock: top;
-    padding: 0 1;
-}
-
-.status-item {
-    color: $text-secondary;
-}
-
-.status-active {
-    color: $status-active;
-}
-
-/* ========== 底栏 ========== */
-.footer {
-    background: $surface-1;
-    color: $text-secondary;
-    height: 1;
-    dock: bottom;
-    padding: 0 1;
-}
-
-/* ========== 左侧导航 ========== */
-.sidebar {
-    width: 25;
-    background: $surface-1;
-    border-right: solid $surface-3;
-}
-
-.nav-item {
-  width: 100%;
-  height: auto;
-  padding: 1 2;
-  color: $text-primary;
-  background: transparent;
-  border: none;
-  text-align: left;
-}
-
-NavigationItem {
-  width: 100%;
-  height: auto;
-  min-height: 3;
-  background: transparent;
-  border: none;
-}
-
-NavigationItem > .button--label {
-  width: 100%;
-  text-align: left;
-}
-
-.nav-item:hover {
-    background: $surface-2;
-    color: $accent-primary;
-}
-
-.nav-item.--active {
-    background: $surface-3;
-    color: $accent-primary;
-    border-left: solid $accent-primary;
-}
-
-.nav-section-header {
-    color: $text-dim;
-    background: $surface-1;
-    padding: 1 2 0 2;
-}
-
-/* ========== 主内容区 ========== */
-.main-content {
-    background: $surface-0;
-    padding: 1 2;
-}
-
-/* ========== 对话视图 ========== */
-.chat-container {
-    height: 1fr;
-    background: $surface-0;
-}
-
-.chat-log {
-    background: $surface-0;
-    color: $text-primary;
-    height: 1fr;
-    border: solid $surface-3;
-}
-
-.chat-input-container {
-    height: auto;
-    background: $surface-1;
-    padding: 1;
-}
-
-Input {
-    background: $surface-2;
-    color: $text-primary;
-    border: solid $surface-4;
-}
-
-Input:focus {
-    border: solid $accent-primary;
-}
-
-/* ========== 按钮 ========== */
-Button {
-    background: $surface-2;
-    color: $text-primary;
-    border: solid $surface-4;
-    height: auto;
-    min-width: 10;
-}
-
-Button:hover {
-    background: $surface-3;
-    color: $accent-primary;
-    border: solid $accent-primary;
-}
-
-Button.-primary {
-    background: $accent-primary;
-    color: $surface-0;
-    border: none;
-}
-
-Button.-primary:hover {
-    background: $accent-secondary;
-}
-
-/* ========== 数据表格 ========== */
-DataTable {
-    background: $surface-0;
-    color: $text-primary;
-}
-
-DataTable > .datatable--header {
-    background: $surface-2;
-    color: $accent-primary;
-}
-
-DataTable > .datatable--cursor {
-    background: $surface-3;
-}
-
-/* ========== 加载指示器 ========== */
-LoadingIndicator {
-    background: $surface-1;
-    color: $accent-primary;
-}
-
-/* ========== 模态面板 ========== */
-.modal-overlay {
-    background: rgba(5, 3, 2, 0.8);
-}
-
-.modal-panel {
-    background: $surface-1;
-    border: solid $accent-primary;
-    padding: 2;
-}
-
-.modal-title {
-    color: $accent-primary;
-    text-style: bold;
-}
-
-/* ========== 命令面板 ========== */
-.command-palette {
-    background: $surface-1;
-    border: solid $accent-primary;
-    height: auto;
-    max-height: 20;
-}
-
-.command-input {
-    background: $surface-2;
-    color: $text-primary;
-}
-
-.command-suggestions {
-    background: $surface-1;
-    color: $text-secondary;
-}
-
-/* ========== 标签与状态 ========== */
-.tag {
-    background: $surface-3;
-    color: $text-primary;
-    padding: 0 1;
-}
-
-.tag-active {
-    background: $accent-primary;
-    color: $surface-0;
-}
-
-.status-connected {
-    color: $status-success;
-}
-
-.status-disconnected {
-    color: $status-error;
-}
-
-.status-loading {
-    color: $status-active;
-}
-"""
-
-# CSS 变量定义
-AMBER_VARIABLES = """
+FULL_THEME = """
+/* ============ 全局变量 ============ */
 $surface-0: #050302;
 $surface-1: #0A0805;
 $surface-2: #12100D;
@@ -247,7 +20,282 @@ $status-active: #E9A568;
 $status-idle: #8A6B4F;
 $status-error: #D97757;
 $status-success: #A8C079;
-"""
 
-# 完整主题
-FULL_THEME = AMBER_VARIABLES + "\n" + AMBER_THEME
+/* ============ 全局样式 ============ */
+Screen {
+    background: $surface-0;
+    color: $text-primary;
+}
+
+/* ============ 状态栏 ============ */
+#status-bar {
+    dock: top;
+    height: 1;
+    background: $surface-1;
+    color: $accent-primary;
+    content-align: center middle;
+    text-style: bold;
+}
+
+.status-bar {
+    width: 100%;
+    background: $surface-1;
+    color: $accent-primary;
+    text-align: center;
+}
+
+/* ============ 底栏 ============ */
+#footer {
+    dock: bottom;
+    height: 1;
+    background: $surface-1;
+    color: $text-secondary;
+    content-align: center middle;
+}
+
+.footer {
+    background: $surface-1;
+    color: $text-secondary;
+    text-align: center;
+}
+
+/* ============ 主布局 ============ */
+#main-layout {
+    width: 100%;
+    height: 100%;
+}
+
+/* ============ 侧边栏 ============ */
+.sidebar {
+    width: 20;
+    background: $surface-1;
+    border-right: solid $surface-3;
+    padding: 1;
+}
+
+.nav-section-header {
+    background: $surface-1;
+    color: $text-dim;
+    height: 1;
+    margin-bottom: 1;
+    text-align: center;
+}
+
+.nav-item {
+    background: $surface-1;
+    color: $text-secondary;
+    height: 3;
+    width: 100%;
+    margin-bottom: 1;
+    border: none;
+    text-align: left;
+}
+
+.nav-item:hover {
+    background: $surface-2;
+    color: $accent-primary;
+}
+
+.nav-item:focus {
+    background: $surface-3;
+    color: $accent-primary;
+    text-style: bold;
+}
+
+.nav-hint {
+    background: $surface-1;
+    color: $text-dim;
+    height: 1;
+    margin-bottom: 1;
+}
+
+/* ============ 主内容区 ============ */
+.main-content {
+    width: 100%;
+    height: 100%;
+    background: $surface-0;
+    padding: 1 2;
+}
+
+/* ============ 视图容器 ============ */
+.view-container {
+    width: 100%;
+    height: 100%;
+    background: $surface-0;
+}
+
+.view-title {
+    height: 3;
+    content-align: center middle;
+    text-style: bold;
+    color: $accent-primary;
+    margin-bottom: 1;
+}
+
+.placeholder-view {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    background: $surface-1;
+    color: $text-dim;
+}
+
+/* ============ 对话视图 ============ */
+.chat-log {
+    height: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+.chat-input-container {
+    height: 3;
+    width: 100%;
+}
+
+.chat-input {
+    width: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    margin-right: 1;
+}
+
+#send-button {
+    width: 10;
+    background: $accent-primary;
+    color: $surface-0;
+}
+
+#send-button:hover {
+    background: $accent-secondary;
+}
+
+/* ============ 数据表格 ============ */
+.data-table {
+    height: 1fr;
+    background: $surface-1;
+    border: solid $surface-3;
+    margin-bottom: 1;
+}
+
+DataTable > .datatable--header {
+    background: $surface-2;
+    color: $accent-primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $surface-3;
+    color: $text-primary;
+}
+
+/* ============ 搜索栏 ============ */
+.search-bar {
+    height: 3;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.search-input {
+    width: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    margin-right: 1;
+}
+
+#search-memory {
+    width: 10;
+    background: $accent-primary;
+    color: $surface-0;
+}
+
+/* ============ 结果日志 ============ */
+.results-log {
+    height: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
+/* ============ 详情面板 ============ */
+.detail-panel {
+    height: 15;
+    background: $surface-1;
+    border: solid $surface-3;
+    padding: 1;
+    margin-top: 1;
+}
+
+.detail-title {
+    height: 1;
+    color: $accent-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.detail-content {
+    height: 1fr;
+    color: $text-secondary;
+}
+
+/* ============ 过滤栏 ============ */
+.filter-bar {
+    height: 3;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.filter-bar Button {
+    margin-right: 1;
+}
+
+/* ============ 操作按钮 ============ */
+.action-button {
+    width: 15;
+    height: 3;
+    background: $accent-muted;
+    color: $text-primary;
+    margin-top: 1;
+}
+
+.action-button:hover {
+    background: $accent-primary;
+}
+
+/* ============ 输入框通用 ============ */
+Input {
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+}
+
+Input:focus {
+    border: solid $accent-primary;
+}
+
+/* ============ 按钮通用 ============ */
+Button {
+    background: $surface-2;
+    color: $text-primary;
+}
+
+Button:hover {
+    background: $surface-3;
+    color: $accent-primary;
+}
+
+Button.-primary {
+    background: $accent-primary;
+    color: $surface-0;
+    text-style: bold;
+}
+
+Button.-primary:hover {
+    background: $accent-secondary;
+}
+"""
