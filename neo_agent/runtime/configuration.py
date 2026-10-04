@@ -12,7 +12,7 @@ class ConfigurationService:
     not a transcript/event-log export. PyVDisk remains the persistence API.
     """
 
-    FORMAT = "neo-agent/config/v1"
+    FORMAT = "neo-agent/config/v2"
     COLLECTIONS = (
         "knowledge", "base_knowledge", "relationships", "environments", "domains",
         "channels", "memories", "entities", "emotions", "expressions", "short_term",
@@ -22,7 +22,7 @@ class ConfigurationService:
         "apikey", "accesstoken", "refreshtoken", "password", "passwd", "secret",
         "credential", "privatekey", "authorization", "bearer", "token",
     )
-    TOP_LEVEL_KEYS = frozenset({"format", "characters", *COLLECTIONS})
+    TOP_LEVEL_KEYS = frozenset({"format", "character", *COLLECTIONS})
     CATEGORY_LABELS = {
         "knowledge": "知识库",
         "base_knowledge": "基础知识",
@@ -93,7 +93,12 @@ class ConfigurationService:
         selected = self._selected_categories(categories)
         config = {"format": self.FORMAT}
         if "characters" in selected:
-            config["characters"] = self.store.characters(include_archived=True)
+            from neo_agent.runtime.control import SingleRoleService
+            rows = self.store.characters(include_archived=False)
+            active = SingleRoleService(self.store).active()
+            if len(rows) > 1 and active is None:
+                raise ValueError("存在多个活动角色；请先选择唯一主角色再导出配置")
+            config["character"] = active
         for namespace in self.COLLECTIONS:
             if namespace in selected:
                 config[namespace] = self.store.list_documents(namespace)
@@ -108,21 +113,15 @@ class ConfigurationService:
         if self.contains_secret_key(config):
             raise ValueError("配置导入不得包含密钥字段；请先移除密钥并通过环境变量配置")
 
-        normalized = {"format": self.FORMAT, "characters": [], **{ns: [] for ns in self.COLLECTIONS}}
-        characters = config.get("characters", [])
-        if not isinstance(characters, list):
-            raise ValueError("characters 必须是数组")
-        seen_characters: set[str] = set()
-        for row in characters:
-            if not isinstance(row, dict) or not isinstance(row.get("id"), str):
-                raise ValueError("每个 character 必须是包含字符串 id 的对象")
-            self.store.validate_character_id(row["id"])
-            if row["id"] in seen_characters:
-                raise ValueError(f"characters 中存在重复 ID：{row['id']}")
-            seen_characters.add(row["id"])
-            if not str(row.get("name", "")).strip():
-                raise ValueError(f"character {row['id']} 的 name 不能为空")
-            normalized["characters"].append(dict(row))
+        normalized = {"format": self.FORMAT, "character": None, **{ns: [] for ns in self.COLLECTIONS}}
+        character = config.get("character")
+        if character is not None:
+            if not isinstance(character, dict) or not isinstance(character.get("id"), str):
+                raise ValueError("character 必须是包含字符串 id 的对象")
+            self.store.validate_character_id(character["id"])
+            if not str(character.get("name", "")).strip():
+                raise ValueError(f"character {character['id']} 的 name 不能为空")
+            normalized["character"] = dict(character)
 
         for namespace in self.COLLECTIONS:
             records = config.get(namespace, [])
@@ -148,16 +147,27 @@ class ConfigurationService:
     def preview(self, config: Any, *, categories: Any = None) -> dict[str, Any]:
         validated = self.validate(config)
         selected = self._selected_categories(categories)
-        counts = {name: len(validated[name]) for name in selected if validated[name]}
+        counts = self._counts(validated, selected)
         return {"format": self.FORMAT, "categories": list(selected), "counts": counts, "total": sum(counts.values())}
+
+    @staticmethod
+    def _counts(validated: dict[str, Any], selected: tuple[str, ...]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for name in selected:
+            count = (1 if validated.get("character") is not None else 0) if name == "characters" else len(validated.get(name, []))
+            if count:
+                counts[name] = count
+        return counts
 
     def import_config(self, config: Any, *, categories: Any = None) -> dict[str, int]:
         """Validate the complete bundle before applying selected document writes."""
         validated = self.validate(config)
         selected = self._selected_categories(categories)
-        if "characters" in selected:
-            for character in validated["characters"]:
-                self.store.save_character(character["id"], character)
+        if "characters" in selected and validated["character"] is not None:
+            from neo_agent.runtime.control import SingleRoleService
+            character = validated["character"]
+            self.store.save_character(character["id"], character)
+            SingleRoleService(self.store).initialize(character["id"])
         for namespace in self.COLLECTIONS:
             if namespace not in selected:
                 continue
@@ -170,6 +180,6 @@ class ConfigurationService:
                     )
                 else:
                     self.store.save_document(namespace, record["id"], record)
-        counts = {name: len(validated[name]) for name in selected if validated[name]}
+        counts = self._counts(validated, selected)
         self.store.append_event("configuration.imported", {"format": self.FORMAT, "categories": list(selected), "counts": counts})
         return counts

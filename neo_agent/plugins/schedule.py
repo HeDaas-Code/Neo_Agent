@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from neo_agent.services.scheduling import InterruptQuestionService, SchedulePlanningService
 
@@ -10,10 +11,16 @@ from neo_agent.plugins.base import PluginContext, PluginManifest
 
 
 class CreateScheduleArgs(BaseModel):
-    schedule_id: str = Field(description="Stable schedule identifier")
+    schedule_id: str = Field(default="", description="Optional stable identifier; generated automatically when omitted")
     title: str = Field(description="Short schedule title")
     due_at: str = Field(description="ISO-8601 timestamp including timezone")
+    end_at: str = Field(default="", description="Optional ISO-8601 end timestamp including timezone")
     description: str = Field(default="", description="Optional details")
+    purpose: str = Field(default="", description="Why this activity exists; used for scene selection")
+    category: Literal["agent", "shared"] = Field(default="agent", description="Agent personal activity or explicit shared activity")
+    participants: list[Literal["agent", "user"]] = Field(default_factory=list, description="Participants; shared activities require both")
+    place_id: str = Field(default="", description="Optional generated/visited place binding")
+    area_id: str = Field(default="", description="Optional place area binding")
 
 
 class DetectScheduleIntentArgs(BaseModel):
@@ -63,8 +70,8 @@ class ScheduleEventPlugin:
         plugin_id="core.events-schedules",
         name="事件与日程",
         version="1.0.0",
-        description="向 PyVDisk LogDisk 写入领域事件，并通过 DurableQueue 建立持久化日程提醒任务。",
-        capabilities=("events.append", "schedules.create", "queue.enqueue"),
+        description="将角色行程、用户日程或双方共同活动保存到 PyVDisk，并记录领域事件；不会投递或暂存提醒。",
+        capabilities=("events.append", "schedules.create"),
     )
 
     def load_tools(self, context: PluginContext):
@@ -113,9 +120,16 @@ class ScheduleEventPlugin:
             ),
             StructuredTool.from_function(
                 name="create_schedule",
-                description="创建日程并登记一个持久化提醒任务。创建外部提醒/发送消息仍需平台执行器。",
-                func=lambda schedule_id, title, due_at, description="": context.store.create_schedule(
-                    schedule_id, {"title": title, "due_at": due_at, "description": description}
+                description="创建生活日程记录，不发送通知；明确标记共同参与时才关联双方日历。",
+                func=lambda schedule_id, title, due_at, end_at="", description="", purpose="",
+                             category="agent", participants=None, place_id="", area_id="": context.store.create_schedule(
+                    schedule_id or None, {
+                        "title": title, "due_at": due_at, **({"end_at": end_at} if end_at else {}),
+                        "description": description, "purpose": purpose, "category": category,
+                        "participants": participants or (["agent", "user"] if category == "shared" else ["agent"]),
+                        **({"place_id": place_id, "area_id": area_id, "scene_binding": True}
+                           if place_id or area_id else {}),
+                    }, actor="agent"
                 ),
                 args_schema=CreateScheduleArgs,
             ),

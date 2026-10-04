@@ -37,12 +37,42 @@ class RelationshipService(DomainService):
     def __init__(self, store: Any):
         super().__init__(store, "relationships")
 
-    def record_interaction(self, relationship_id: str, *, note: str, delta: float = 0.0) -> dict[str, Any]:
+    def record_interaction(self, relationship_id: str, *, note: str, delta: float = 0.0,
+                           confidence: float = 0.0, round_id: str | None = None) -> dict[str, Any]:
+        """Record a turn's proposed change; persist it only after repeated evidence."""
+        import hashlib
+        import uuid
+        confidence = max(0.0, min(1.0, float(confidence)))
+        proposed = max(-3.0, min(3.0, float(delta)))
+        evidence_round = str(round_id or uuid.uuid4().hex)
+        ledger_path = f"/runtime/relationship-evidence/{hashlib.sha256(relationship_id.encode()).hexdigest()[:16]}.json"
+        ledger = self.store.read_json(ledger_path, default={"relationship_id": relationship_id, "rounds": {}})
+        rounds = dict(ledger.get("rounds", {}))
+        if confidence >= 0.8 and proposed:
+            rounds.setdefault(evidence_round, {"change": proposed, "confidence": confidence})
+        direction = 1 if proposed > 0 else -1 if proposed < 0 else 0
+        evidence = [row for row in rounds.values()
+                    if (1 if float(row.get("change", 0)) > 0 else -1 if float(row.get("change", 0)) < 0 else 0) == direction
+                    and direction != 0]
+        committed = direction != 0 and confidence >= 0.8 and len(evidence) >= 3
+        change = proposed if committed else 0.0
+        if committed:
+            rounds = {}
+        self.store.write_json(ledger_path, {"relationship_id": relationship_id, "rounds": rounds})
         current = self.get(relationship_id) or {"score": 0.0, "interactions": []}
-        score = max(-100.0, min(100.0, float(current.get("score", 0.0)) + float(delta)))
+        score = max(-100.0, min(100.0, float(current.get("score", 0.0)) + change))
         interactions = list(current.get("interactions", []))
-        interactions.append({"note": note, "delta": float(delta)})
-        return self.save(relationship_id, {**current, "score": score, "interactions": interactions[-200:]})
+        interactions.append({"note": str(note)[:500], "proposed_delta": proposed,
+                             "delta": change, "confidence": confidence,
+                             "evidence_round": evidence_round, "evidence_count": len(evidence),
+                             "persistent_update": committed})
+        saved = self.save(relationship_id, {**current, "score": score, "interactions": interactions[-200:]})
+        self.store.append_event("relationship.interaction.evidence", {
+            "relationship_id": relationship_id, "evidence_round": evidence_round,
+            "confidence": confidence, "evidence_count": len(evidence),
+            "persistent_update": committed, "score_change": change,
+        })
+        return saved
 
 
 class EnvironmentService(DomainService):

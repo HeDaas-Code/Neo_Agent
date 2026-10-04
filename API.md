@@ -119,34 +119,33 @@ relationship.record_interaction("mika:user-7", note="一起讨论桌游", delta=
 
 `EnvironmentService` 提供环境、环境物体、连接关系、可移动性和视觉使用审计；`DomainRegistry` 管理域成员与当前域；`EmotionService` 保存关系情绪分析结果；`ExpressionService` 管理表达风格和用户习惯；`ChannelService` 管理新格式频道配置。服务层的实际方法签名以对应模块为准，TUI 是当前完整的人工操作入口。
 
-## 日程、队列和人工协作
+## 日程、行程与场景
+
+日程是角色生活状态和对话上下文，不是提醒工具。系统不投递、不暂存提醒，也没有日程 outbox/通知队列。日程分为 Agent 个人、用户个人（只读信息）和双方共同活动；用户记录不可被 Agent 修改，且只有 Agent 与共同活动可以驱动场景。
 
 ```python
-from neo_agent.runtime import ScheduleWorker
-from neo_agent.services import InterruptQuestionService, SchedulePlanningService
-
-planner = SchedulePlanningService(store)
-slots = planner.find_free_slots("2026-10-02T09:00:00+08:00", "2026-10-03T18:00:00+08:00")
-intent = planner.detect_intent("下周三下午3点安排项目复盘")
-suggestions = planner.temporary_suggestions(
-    "2026-10-03T09:00:00+08:00", "2026-10-03T18:00:00+08:00",
-    character_name="米卡", hobbies="桌游", context="最近聊过合作游戏",
+from datetime import datetime
+from neo_agent.runtime import (
+    DailyItineraryService, SceneService, SceneScheduler, ScheduleDecisionService,
 )
-similar = planner.compare_similar({
-    "title": "一起玩桌游", "due_at": "2026-10-03T14:00:00+08:00",
-})
 
-worker = ScheduleWorker(store)
-worker.run_once()  # 到期任务经 PyVDisk DurableQueue 投递/处理并记录结果
-
-questions = InterruptQuestionService(store)
-request = questions.ask("这个提醒要发送到哪个群？", conversation_id="group_42")
-questions.resolve(request["id"], "项目群")
+scenes = SceneService(store)
+scenes.ensure_initial_environment()  # 幂等创建“日常起点”地点、区域和物件
+itinerary = DailyItineraryService(store, scene_service=scenes)
+plan = itinerary.ensure_for_day(now=datetime.now().astimezone())
+# TUI 启动时与运行中由 scheduler 补齐计划、协调冲突并切换当前场景
+scheduler = SceneScheduler(store, scenes=scenes)
+actions = scheduler.run_once()  # 从唯一活动角色读取角色设定
+print(scenes.current_context())
 ```
 
-计划建议不会自动覆盖冲突日程；需要操作员确认的流程会保留待确认状态。worker 的投递、重试、失败和提醒事件应通过 PyVDisk 队列状态及运行审计追踪。
-`SchedulePlanningService.detect_intent()` 可选接入支持 `with_structured_output` 的 LangChain 模型，按角色、当前时间和对话上下文解析创建/邀约、查询、空闲时段意图，返回标题、时间、参与对象、置信度及需澄清字段；该分析只产出建议，不会直接创建或修改日程。没有模型时使用保守规则解析，覆盖明确日期、今天/明天/后天、周一至周日/下周几和常见中文时段。缺少日期时间/标题或模型置信度不足时返回 `needs_clarification`。
-自然语言覆盖仍受模型能力、提示词和时区上下文限制；规则回退不等价于通用语言理解，也不支持跨时区偏好推断。临时活动建议与同日相似项判断同样可选使用结构化 LangChain 模型；建议严格限制在已计算的空闲时段内，不会直接写入数据盘。TUI 预览建议并填入日程表单后仍需操作者点击创建；命中相似项时先阻止写入，再由独立按钮确认继续。
+每日计划按机器本地时区及本地日期幂等保存；持续运行时于当地 00:05 生成新一天计划，TUI 启动恢复会立即补齐缺失计划。迟启动时仅物化尚未结束的活动，失败状态包含错误、重试时间和尝试次数。地点、区域、物件、行程与审计均通过 `DiskStore` / PyVDisk VFS 文档 API 持久化。未访问场景为待用场景；首次进入后地点布局固定，之后可持续记录物件状态变化。已访问地点构成可复用的场景池。
+
+`ScheduleDecisionService` 为共同活动冲突生成结构化自主决定，只可调整/取消 Agent 自己或共同活动，不修改用户个人日程；决定摘要及审计可在 TUI 查看。`SceneScheduler` 在启动恢复并按到期时间切换到绑定场景；没有结束时间的地点活动持续至下一条场景日程，最迟当地日终回到初始环境。用户日程和无场景绑定的既有记录不驱动场景。
+
+`SchedulePlanningService` 可用于把自然语言解析为日程建议，但建议本身不创建提醒。自然语言缺少足够日期、时间、标题或参与方信息时应先澄清。
+
+人工新增/编辑入口仅在 Debug 开启时显示；Agent 自动创作仍按已启用工具能力执行，不受 Debug 开关限制。
 
 ## 插件与新版 NPS
 
@@ -188,7 +187,7 @@ manager.import_json(serialized, enabled=False)
 from neo_agent.runtime import ConfigurationService
 
 config = ConfigurationService(store)
-bundle = config.export()                    # neo-agent/config/v1；递归过滤密钥字段
+bundle = config.export()                    # neo-agent/config/v2；递归过滤密钥字段
 knowledge_only = config.export(categories=["knowledge"])
 preview = config.preview(bundle)            # 校验并返回类别/记录数量，不写入数据盘
 counts = config.import_config(bundle, categories=["characters", "knowledge"])

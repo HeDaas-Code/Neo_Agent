@@ -13,7 +13,7 @@ import uuid
 from pathlib import PurePosixPath
 from typing import Any
 
-from pyvdisk import AgentSandbox, DurableQueue
+from pyvdisk import AgentSandbox
 
 from .vfs_workspace import VFSWorkspace
 
@@ -30,10 +30,9 @@ class DiskStore:
         self._ensure_dir("/runtime/conversations")
         self._ensure_dir("/workspaces/events")
         self._ensure_dir("/workspaces/tasks")
-        for namespace in ("knowledge", "memories", "relationships", "environments", "domains", "channels", "plugins", "base_knowledge", "entities", "short_term", "long_term", "emotions", "expressions", "workflows", "groups", "event_records", "question_requests", "environment_objects", "environment_connections", "vision_logs"):
+        for namespace in ("knowledge", "memories", "relationships", "environments", "domains", "channels", "plugins", "base_knowledge", "entities", "short_term", "long_term", "emotions", "expressions", "workflows", "groups", "event_records", "question_requests", "environment_objects", "environment_connections", "vision_logs", "places", "areas", "itineraries", "schedule_decisions", "scene_audits"):
             self._ensure_dir(f"/{namespace}")
         self._ensure_event_stream()
-        self.schedule_queue = DurableQueue(checkpoint_store=self.sandbox.disk.checkpoints, namespace="neo-agent-schedules", max_attempts=8, backoff_base=15, backoff_max=900)
         self._ensure_memory_collection()
 
     @classmethod
@@ -209,7 +208,7 @@ class DiskStore:
         """Validate an ID accepted by namespaced PyVDisk documents."""
         return DiskStore._validate_id(value, field)
 
-    DOCUMENT_NAMESPACES = frozenset({"knowledge", "memories", "relationships", "environments", "domains", "channels", "base_knowledge", "entities", "short_term", "long_term", "emotions", "expressions", "workflows", "groups", "event_records", "question_requests", "environment_objects", "environment_connections", "vision_logs"})
+    DOCUMENT_NAMESPACES = frozenset({"knowledge", "memories", "relationships", "environments", "domains", "channels", "base_knowledge", "entities", "short_term", "long_term", "emotions", "expressions", "workflows", "groups", "event_records", "question_requests", "environment_objects", "environment_connections", "vision_logs", "places", "areas", "itineraries", "schedule_decisions", "scene_audits"})
 
     def list_documents(self, namespace: str) -> list[dict[str, Any]]:
         if namespace not in self.DOCUMENT_NAMESPACES:
@@ -235,6 +234,14 @@ class DiskStore:
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
         old = self.get_document(namespace, document_id)
+        if old and namespace == "places" and old.get("layout_frozen"):
+            immutable = ("name", "description", "environment_id", "tags", "purpose_tags", "layout")
+            if any(key in document and document[key] != old.get(key) for key in immutable):
+                raise ValueError("首次访问后地点设定与布局已固定；只能更新场景物件状态")
+        if old and namespace == "areas" and old.get("layout_frozen"):
+            immutable = ("place_id", "name", "description")
+            if any(key in document and document[key] != old.get(key) for key in immutable):
+                raise ValueError("首次访问后区域设定与布局已固定；只能更新场景物件状态")
         record = {**(old or {}), **document, "id": document_id,
                   "created_at": (old or {}).get("created_at", now), "updated_at": now}
         # Event/task workspace paths are canonical and always point into the
@@ -397,8 +404,22 @@ class DiskStore:
         properties = values.get("properties", {})
         if not isinstance(properties, dict):
             raise ValueError("properties must be a JSON object")
+        area_id = values.get("area_id")
+        place_id = values.get("place_id")
+        if area_id:
+            area_id = self._validate_id(str(area_id), "area_id")
+            area = self.get_document("areas", area_id)
+            if area is None:
+                raise KeyError(f"unknown scene area: {area_id}")
+            if place_id and area.get("place_id") != place_id:
+                raise ValueError("scene object area does not belong to the specified place")
+        if place_id:
+            place_id = self._validate_id(str(place_id), "place_id")
+            if self.get_document("places", place_id) is None:
+                raise KeyError(f"unknown scene place: {place_id}")
         return self.save_document("environment_objects", object_id, {
             **values, "environment_id": environment_id, "name": name,
+            "area_id": area_id, "place_id": place_id,
             "priority": priority, "properties": properties,
             "visible": bool(values.get("visible", True)),
         })
@@ -556,32 +577,6 @@ class DiskStore:
         self.append_event("domain.switched", {"domain_id": domain_id, "environment_id": target["id"]})
         return {"domain": domain, "environment": self.get_document("environments", target["id"])}
 
-    def advance_recurring_schedule(self, schedule_id: str, *, occurred_at: str) -> dict[str, Any] | None:
-        """Advance a weekly schedule after delivery; block the next occurrence on a conflict."""
-        schedule = self.get_schedule(schedule_id)
-        if schedule is None or schedule.get("type") != "recurring":
-            return schedule
-        from datetime import datetime, timedelta
-        current_due = datetime.fromisoformat(schedule["due_at"].replace("Z", "+00:00"))
-        next_due = current_due + timedelta(days=7)
-        changes = {"due_at": next_due.isoformat(), "last_occurrence_at": occurred_at,
-                   "status": "pending", "queue_revision": int(schedule.get("queue_revision", 1)) + 1}
-        if schedule.get("end_at"):
-            current_end = datetime.fromisoformat(schedule["end_at"].replace("Z", "+00:00"))
-            changes["end_at"] = (current_end + timedelta(days=7)).isoformat()
-        conflicts = self.schedule_conflicts(changes["due_at"], changes.get("end_at", changes["due_at"]),
-                                            priority=schedule.get("priority", "critical"), exclude_id=schedule_id) if changes.get("end_at") else []
-        if conflicts:
-            changes["status"] = "recurrence_blocked"
-            changes["recurrence_conflicts"] = [item["id"] for item in conflicts]
-        updated = {**schedule, **changes}
-        self.write_json(f"/schedules/{schedule_id}.json", updated)
-        self.append_event("schedule.recurrence.advanced" if not conflicts else "schedule.recurrence.blocked", {
-            "schedule_id": schedule_id, "next_due_at": changes["due_at"],
-            "conflicts": changes.get("recurrence_conflicts", []),
-        })
-        return updated
-
     def confirm_schedule(self, schedule_id: str, confirmed: bool) -> dict[str, Any]:
         schedule = self.get_schedule(schedule_id)
         if schedule is None:
@@ -679,10 +674,14 @@ class DiskStore:
                 conflicts.append(existing)
         return conflicts
 
-    def create_schedule(self, schedule_id: str, schedule: dict[str, Any]) -> dict[str, Any]:
-        """Persist a schedule in PyVDisk FS and enqueue its durable reminder."""
-        schedule_id = self._validate_schedule_id(schedule_id)
+    def create_schedule(self, schedule_id: str | None, schedule: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
+        """Persist a lived-context schedule in PyVDisk; no reminder is enqueued."""
+        if schedule_id is None or not str(schedule_id).strip():
+            schedule_id = "sch_" + uuid.uuid4().hex[:16]
+        schedule_id = self._validate_schedule_id(str(schedule_id))
         from datetime import datetime
+        schedule = dict(schedule)
+        actor = str(actor or "system").strip().casefold()
         title = str(schedule.get("title", "")).strip()
         due_at = str(schedule.get("due_at", "")).strip()
         if not title or not due_at:
@@ -694,8 +693,8 @@ class DiskStore:
         if parsed_due.tzinfo is None:
             raise ValueError("due_at must include an explicit timezone")
         schedule_type = str(schedule.get("type", "appointment")).casefold()
-        if schedule_type not in {"appointment", "recurring", "temporary", "reminder", "collaboration", "activity"}:
-            raise ValueError("type must be appointment, recurring, temporary, reminder, collaboration, or activity")
+        if schedule_type not in {"appointment", "recurring", "temporary", "collaboration", "activity"}:
+            raise ValueError("type must be appointment, recurring, temporary, collaboration, or activity")
         schedule["type"] = schedule_type
         if "priority" not in schedule or schedule.get("priority") in (None, ""):
             schedule["priority"] = {"recurring": "critical", "temporary": "low"}.get(schedule_type, "medium")
@@ -710,15 +709,49 @@ class DiskStore:
             if not str(schedule.get("recurrence_pattern", "")).strip():
                 raise ValueError("recurring schedule requires recurrence_pattern")
         end_at = schedule.get("end_at")
+        category = str(schedule.get("category", "shared" if schedule_type == "collaboration" else "agent")).casefold()
+        if category not in {"agent", "user", "shared"}:
+            raise ValueError("schedule category must be agent, user, or shared")
+        if category == "user" and (actor == "agent" or schedule.get("schedule_source") == "autonomous_daily_itinerary"):
+            raise ValueError("Agent-generated operations cannot write user personal schedules")
+        participants = schedule.get("participants")
+        if participants is None:
+            participants = ["agent", "user"] if category == "shared" else [category]
+        if not isinstance(participants, list) or not all(item in {"agent", "user"} for item in participants):
+            raise ValueError("participants must be an array containing agent and/or user")
+        if category == "shared" and set(participants) != {"agent", "user"}:
+            raise ValueError("shared activities must bind both agent and user calendars")
+        if category == "user" and schedule.get("scene_binding"):
+            raise ValueError("user personal schedules cannot drive scene changes")
+        place_id, area_id = schedule.get("place_id"), schedule.get("area_id")
+        if bool(place_id) != bool(area_id):
+            raise ValueError("scene binding requires both place_id and area_id")
+        if place_id:
+            place = self.get_document("places", self._validate_id(str(place_id), "place_id"))
+            area = self.get_document("areas", self._validate_id(str(area_id), "area_id"))
+            if place is None or area is None or area.get("place_id") != place_id:
+                raise ValueError("schedule scene binding references an invalid place/area")
         if end_at:
-            conflicts = self.schedule_conflicts(due_at, str(end_at), priority=priority)
+            end = datetime.fromisoformat(str(end_at).replace("Z", "+00:00"))
+            if end.tzinfo is None or end <= parsed_due:
+                raise ValueError("end_at must include a timezone and be after its start (due_at)")
+        # Agent and operator-owned personal items still obey the existing
+        # priority guard. Shared activities are intentionally allowed through
+        # so ScheduleDecisionService can resolve them against both calendars.
+        if category == "agent" and end_at:
+            conflicts = [item for item in self.schedule_conflicts(
+                due_at, str(end_at), priority=priority, exclude_id=schedule_id
+            ) if item.get("category", "agent") == "agent"]
             if conflicts:
                 raise ValueError("schedule conflicts with equal-or-higher-priority item(s): " + ", ".join(item["id"] for item in conflicts))
         if self.read_json(f"/schedules/{schedule_id}.json") is not None:
             raise ValueError(f"schedule already exists: {schedule_id}")
         record = {**schedule, "id": schedule_id, "title": title, "due_at": due_at,
+                  "category": category, "owner": category,
+                  "participants": list(dict.fromkeys(participants)),
+                  "scene_binding": bool(schedule.get("scene_binding", bool(place_id))),
+                  "schedule_source": str(schedule.get("schedule_source", "user_created")),
                   "status": "pending", "created_at": datetime.now(__import__("datetime").timezone.utc).isoformat()}
-        record["queue_revision"] = 1
         self.write_json(f"/schedules/{schedule_id}.json", record)
         self.append_event("schedule.created", {"schedule_id": schedule_id, "title": title, "due_at": due_at})
         return record
@@ -727,19 +760,24 @@ class DiskStore:
         schedule_id = self._validate_schedule_id(schedule_id)
         return self.read_json(f"/schedules/{schedule_id}.json")
 
-    def update_schedule(self, schedule_id: str, changes: dict[str, Any]) -> dict[str, Any]:
-        """Update a schedule and supersede its queued reminder revision."""
+    def update_schedule(self, schedule_id: str, changes: dict[str, Any], *, actor: str = "system") -> dict[str, Any]:
+        """Update a lived-context schedule without creating notification work."""
         schedule_id = self._validate_schedule_id(schedule_id)
         current = self.get_schedule(schedule_id)
         if current is None:
             raise KeyError(f"unknown schedule: {schedule_id}")
         changes = dict(changes)
+        # Keep datetime bound for every validation path; conditional imports here
+        # otherwise make the later end_at validation raise UnboundLocalError.
+        from datetime import datetime
+        actor = str(actor or "system").strip().casefold()
+        if actor == "agent" and current.get("category", "agent") == "user":
+            raise ValueError("Agent-generated operations cannot modify user personal schedules")
         if "title" in changes:
             changes["title"] = str(changes["title"]).strip()
             if not changes["title"]:
                 raise ValueError("schedule title must not be empty")
         if "due_at" in changes:
-            from datetime import datetime
             try:
                 due = datetime.fromisoformat(str(changes["due_at"]).replace("Z", "+00:00"))
             except ValueError as exc:
@@ -751,10 +789,9 @@ class DiskStore:
             self._schedule_priority_rank(changes["priority"])
         if "type" in changes:
             changes["type"] = str(changes["type"]).casefold()
-            if changes["type"] not in {"appointment", "recurring", "temporary", "reminder", "collaboration", "activity"}:
+            if changes["type"] not in {"appointment", "recurring", "temporary", "collaboration", "activity"}:
                 raise ValueError("unsupported schedule type")
         if "end_at" in changes and changes["end_at"]:
-            from datetime import datetime
             try:
                 end = datetime.fromisoformat(str(changes["end_at"]).replace("Z", "+00:00"))
             except ValueError as exc:
@@ -764,7 +801,6 @@ class DiskStore:
             changes["end_at"] = str(changes["end_at"]).strip()
         updated = {**current, **changes}
         if updated.get("type") == "recurring":
-            from datetime import datetime
             weekday = updated.get("weekday")
             due = datetime.fromisoformat(updated["due_at"].replace("Z", "+00:00"))
             if not isinstance(weekday, int) or not 0 <= weekday <= 6 or due.weekday() != weekday:
@@ -772,27 +808,33 @@ class DiskStore:
             if not str(updated.get("recurrence_pattern", "")).strip():
                 raise ValueError("recurring schedule requires recurrence_pattern")
         if updated.get("end_at"):
-            conflicts = self.schedule_conflicts(updated["due_at"], updated["end_at"],
-                                                priority=updated.get("priority", "medium"), exclude_id=schedule_id)
+            end = datetime.fromisoformat(str(updated["end_at"]).replace("Z", "+00:00"))
+            due = datetime.fromisoformat(str(updated["due_at"]).replace("Z", "+00:00"))
+            if end.tzinfo is None or end <= due:
+                raise ValueError("end_at must include a timezone and be after its start (due_at)")
+        category = str(updated.get("category", "agent")).casefold()
+        if category not in {"agent", "user", "shared"}:
+            raise ValueError("schedule category must be agent, user, or shared")
+        participants = updated.get("participants")
+        if participants is None:
+            participants = ["agent", "user"] if category == "shared" else [category]
+        if not isinstance(participants, list) or not all(item in {"agent", "user"} for item in participants):
+            raise ValueError("participants must be an array containing agent and/or user")
+        if category == "shared" and set(participants) != {"agent", "user"}:
+            raise ValueError("shared activities must bind both agent and user calendars")
+        if category == "user" and (actor == "agent" or updated.get("scene_binding")):
+            raise ValueError("user personal schedules are read-only to Agent and cannot drive scene changes")
+        updated["category"] = category
+        updated["participants"] = list(dict.fromkeys(participants))
+        if category == "agent" and updated.get("end_at"):
+            conflicts = [item for item in self.schedule_conflicts(
+                updated["due_at"], updated["end_at"],
+                priority=updated.get("priority", "medium"), exclude_id=schedule_id
+            ) if item.get("category", "agent") == "agent"]
             if conflicts:
                 raise ValueError("schedule conflicts with equal-or-higher-priority item(s): " + ", ".join(item["id"] for item in conflicts))
-        reschedule = updated.get("status") == "pending" and (
-            updated.get("due_at") != current.get("due_at")
-            or updated.get("end_at") != current.get("end_at")
-            or updated.get("type") != current.get("type")
-            or updated.get("priority") != current.get("priority")
-            or current.get("status") != "pending"
-        )
-        if reschedule:
-            revision = int(current.get("queue_revision", 1)) + 1
-            for task in self.schedule_queue.list():
-                payload = task.payload or {}
-                if payload.get("schedule_id") == schedule_id and task.status in ("queued", "running"):
-                    self.schedule_queue.cancel(task.id)
-            updated["queue_revision"] = revision
         self.write_json(f"/schedules/{schedule_id}.json", updated)
-        self.append_event("schedule.updated", {"schedule_id": schedule_id, "rescheduled": reschedule,
-                                                "queue_revision": updated.get("queue_revision", 1)})
+        self.append_event("schedule.updated", {"schedule_id": schedule_id})
         return updated
 
     def delete_schedule(self, schedule_id: str) -> bool:
@@ -800,9 +842,6 @@ class DiskStore:
         current = self.get_schedule(schedule_id)
         if current is None:
             return False
-        for task in self.schedule_queue.list():
-            if (task.payload or {}).get("schedule_id") == schedule_id and task.status in ("queued", "running"):
-                self.schedule_queue.cancel(task.id)
         self.sandbox.delete(f"/schedules/{schedule_id}.json")
         self.append_event("schedule.deleted", {"schedule_id": schedule_id})
         return True
@@ -815,6 +854,25 @@ class DiskStore:
                 if record:
                     result.append(record)
         return sorted(result, key=lambda item: item.get("due_at", ""))
+
+    def recent_conversation_context(self, *, limit: int = 12) -> str:
+        """Return a compact, user-visible conversation excerpt for world generation."""
+        entries = [entry for entry in self.sandbox.list("/runtime/conversations")
+                   if entry.get("type") == "file" and entry.get("path", "").endswith(".json")]
+        turns: list[dict[str, Any]] = []
+        for entry in entries:
+            transcript = self.read_json(entry["path"], default=[])
+            if isinstance(transcript, list):
+                turns.extend(row for row in transcript if isinstance(row, dict))
+        snippets = []
+        for turn in turns[-max(1, limit):]:
+            user = str(turn.get("user", "")).strip()
+            assistant = str(turn.get("assistant", "")).strip()
+            if user:
+                snippets.append(f"用户：{user[:400]}")
+            if assistant:
+                snippets.append(f"角色：{assistant[:400]}")
+        return "\n".join(snippets)[-5000:]
 
     def schedules_in_range(
         self, start_at: str, end_at: str, *, queryable_only: bool = True,
@@ -892,9 +950,6 @@ class DiskStore:
                     item.get("collaboration_status") in {"pending", "pending_confirmation"}
                     for item in rows
                 )}
-
-    def schedule_tasks(self) -> list[dict[str, Any]]:
-        return [task.__dict__ for task in self.schedule_queue.list()]
 
     def runtime_overview(self) -> dict[str, Any]:
         return {

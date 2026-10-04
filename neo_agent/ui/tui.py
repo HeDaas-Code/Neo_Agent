@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import uuid
+from threading import Lock
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +15,12 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Select, SelectionList, Static, TextArea
+from textual.widgets import Button, Collapsible, Footer, Header, Input, Label, ListItem, ListView, Select, SelectionList, Static, TabbedContent, TabPane, TextArea
 
 from neo_agent.plugins import PluginRegistry
-from neo_agent.runtime import (AgentRuntime, DomainRegistry, EnvironmentService, ScheduleWorker,
-                               ExpressionService, langchain_expression_learner, ConfigurationService)
+from neo_agent.runtime import (AgentRuntime, DomainRegistry, EnvironmentService, SceneService, SceneScheduler,
+                               ExpressionService, langchain_expression_learner, ConfigurationService,
+                               RuntimeControls, SingleRoleService, GroupReplyGate, IncomingMessage)
 from neo_agent.services import SchedulePlanningService
 from neo_agent.storage import DiskStore
 from neo_agent.services import InterruptQuestionService
@@ -25,7 +29,7 @@ from neo_agent.services import InterruptQuestionService
 class NeoConsole(App[None]):
     TITLE = "NEO / AGENT OPERATIONS"
     SUB_TITLE = "VIRTUAL GROUP MEMBER · CONTROL PLANE"
-    NAV_ITEMS = ("总览", "虚拟群友", "对话", "事件流", "日程", "知识库", "关系", "环境与域", "能力与 NPS", "运行记录", "存储与记忆", "频道连接", "系统设置", "实体管理", "表达风格", "人机协作", "任务编排")
+    NAV_ITEMS = ("总览", "虚拟群友", "对话", "事件流", "日程", "知识库", "关系", "环境与域", "能力与 NPS", "运行记录", "存储与记忆", "频道连接", "系统设置", "实体管理", "表达风格", "人机协作", "任务编排", "认知与回放")
     CSS = """
     Screen { background: #0b1020; color: #e7edf7; }
     #shell { height: 1fr; padding: 1 2; }
@@ -39,6 +43,37 @@ class NeoConsole(App[None]):
     .panel { border: round #334155; background: #111a2d; padding: 1 2; height: auto; margin-bottom: 1; }
     .form-row { height: 3; }
     .editor { height: 8; margin: 1 0; }
+    .editor-panel { display: none; height: auto; border: round #334155; background: #111a2d; padding: 1 2; margin-top: 1; }
+    .muted { color: #94a3b8; height: auto; }
+    #character-profile { height: auto; min-height: 8; margin-top: 1; }
+    #character-editor-tabs { height: 19; margin-top: 1; }
+    #character-editor-tabs TabPane { padding: 1; }
+    .section-hint { color: #94a3b8; height: 2; }
+    .editor-drawer { height: auto; border: round #334155; background: #0e1728; margin: 1 0; }
+    .editor-drawer > Contents {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-gutter: 0 1;
+        padding: 1 2;
+    }
+    .editor-drawer > Contents > Label,
+    .editor-drawer > Contents > Static,
+    .editor-drawer > Contents > TextArea,
+    .editor-drawer > Contents > Horizontal,
+    .editor-drawer > Contents > Collapsible,
+    .editor-drawer > Contents > SelectionList { column-span: 2; }
+    .editor-drawer Input, .editor-drawer Select { width: 1fr; height: 3; }
+    .editor-drawer TextArea { width: 1fr; height: 8; margin: 0; }
+    .editor-drawer TextArea.code-editor { height: 12; }
+    .editor-drawer .listing { height: auto; min-height: 3; max-height: 12; }
+    .editor-drawer:focus-within { border: round #55e6c1; }
+    .editor-note { color: #94a3b8; height: auto; margin-bottom: 1; }
+    .editor-section-title { color: #55e6c1; text-style: bold; height: 1; margin-top: 1; }
+    .danger-zone { border: round #7f1d1d; background: #1c1118; padding: 0 1; margin-top: 1; }
+    .danger-zone > Title { color: #fca5a5; }
+    .danger-zone Button { margin-top: 1; }
+    .editor-result { height: auto; min-height: 3; }
     #content { height: 1fr; border: round #334155; background: #111a2d; padding: 1 2; }
     .page { height: 1fr; display: none; }
     .listing { height: 1fr; border: round #334155; background: #111a2d; padding: 1; overflow-y: auto; }
@@ -46,7 +81,9 @@ class NeoConsole(App[None]):
     #character-list { height: 6; }
     #config-categories { height: 10; border: round #334155; margin: 1 0; }
     #characters .character-fields { height: 3; }
-    #characters .profile-editor { height: 4; margin: 0; }
+    #characters .profile-editor { height: 10; min-height: 6; margin: 0; }
+    #characters .editor-actions { height: 3; align-horizontal: right; margin-top: 1; }
+    #chat-character { height: 3; color: #55e6c1; }
     #chat-log { height: 1fr; border: round #334155; padding: 1; overflow-y: auto; }
     #chat-input { height: 5; margin-top: 1; }
     #service-status { height: auto; }
@@ -64,6 +101,7 @@ class NeoConsole(App[None]):
         Binding("ctrl+5", "navigate_by_index(14)", "表达", show=False),
         Binding("ctrl+6", "navigate_by_index(15)", "提问", show=False),
         Binding("ctrl+7", "navigate_by_index(16)", "任务", show=False),
+        Binding("ctrl+8", "navigate_by_index(17)", "认知", show=False),
     ]
 
     def __init__(self, store: DiskStore, *, coordinator_model: Any | None = None,
@@ -76,14 +114,19 @@ class NeoConsole(App[None]):
         self._pending_similar_schedule: dict[str, Any] | None = None
         self.plugin_registry = PluginRegistry(store)
         self.nps = self.plugin_registry.nps
-        self.worker = ScheduleWorker(store)
         self.environment_service = EnvironmentService(store)
+        self.scene_service = SceneService(store, model=schedule_planning_model or coordinator_model)
+        self.scene_scheduler = SceneScheduler(store, model=schedule_planning_model or coordinator_model, scenes=self.scene_service)
         self.domain_registry = DomainRegistry(store)
         self.expression_service = ExpressionService(store)
         self.configuration_service = ConfigurationService(store)
+        self.controls = RuntimeControls(store)
+        self.single_role = SingleRoleService(store)
+        self.group_reply_gate = GroupReplyGate()
         self.question_service = InterruptQuestionService(store)
         self.active_view = "总览"
         self._busy = False
+        self._scene_scheduler_lock = Lock()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -96,374 +139,609 @@ class NeoConsole(App[None]):
                 yield Label("AGENTIC CONTROL PLANE  /  LIVE", classes="eyebrow")
                 yield Static(id="content", classes="page")
                 with VerticalScroll(id="characters", classes="page"):
-                    yield Static(id="character-list", classes="listing")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="角色 ID", id="character-id", classes="form-row")
-                        yield Input(placeholder="显示名称", id="character-name", classes="form-row")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="性别", id="character-gender", classes="form-row")
-                        yield Input(placeholder="身份 / 职业", id="character-role", classes="form-row")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="年龄", id="character-age", classes="form-row")
-                        yield Input(placeholder="身高", id="character-height", classes="form-row")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="体重", id="character-weight", classes="form-row")
-                        yield Input(placeholder="爱好", id="character-hobby", classes="form-row")
-                    yield Label("性格与背景", classes="eyebrow")
-                    yield TextArea(id="character-personality", soft_wrap=True, classes="editor profile-editor")
-                    yield TextArea(id="character-background", soft_wrap=True, classes="editor profile-editor")
+                    yield Label("单角色控制台 · 首次创建林依示范角色；后续自动使用唯一活动角色。", classes="eyebrow")
+                    yield Select([], prompt="存在多个活动角色，请选择唯一主角色", id="primary-character")
+                    yield Button("设为唯一活动角色（归档其余）", id="select-primary-character")
+                    yield Static("", id="character-profile", classes="panel")
                     with Horizontal(classes="actions"):
-                        yield Button("载入角色", id="load-character")
-                        yield Button("创建 / 保存角色", id="save-character", variant="primary")
+                        yield Button("Debug：编辑角色设定", id="edit-character", variant="primary")
                         yield Button("归档角色", id="archive-character", variant="error")
+                    with Vertical(id="character-editor", classes="editor-panel"):
+                        yield Label("角色设定编辑器", classes="eyebrow")
+                        yield Static("按主题分区编辑 · 角色 ID 自动生成并由系统管理", classes="muted")
+                        with Horizontal(classes="editor-actions"):
+                            yield Button("取消", id="cancel-character-edit")
+                            yield Button("保存设定", id="save-character", variant="primary")
+                        with TabbedContent(initial="character-basic", id="character-editor-tabs"):
+                            with TabPane("基础资料", id="character-basic"):
+                                yield Label("身份信息与日常兴趣", classes="section-hint")
+                                with Horizontal(classes="character-fields"):
+                                    yield Input(placeholder="显示名称", id="character-name", classes="form-row")
+                                    yield Input(placeholder="性别", id="character-gender", classes="form-row")
+                                with Horizontal(classes="character-fields"):
+                                    yield Input(placeholder="身份 / 职业", id="character-role", classes="form-row")
+                                    yield Input(placeholder="年龄", id="character-age", classes="form-row")
+                                with Horizontal(classes="character-fields"):
+                                    yield Input(placeholder="身高", id="character-height", classes="form-row")
+                                    yield Input(placeholder="体重", id="character-weight", classes="form-row")
+                                yield Input(placeholder="爱好", id="character-hobby", classes="form-row")
+                            with TabPane("性格表达", id="character-personality-pane"):
+                                yield Label("描述说话方式、性格特点与行为倾向", classes="section-hint")
+                                yield TextArea(id="character-personality", soft_wrap=True, classes="editor profile-editor")
+                            with TabPane("背景故事", id="character-background-pane"):
+                                yield Label("补充经历、关系、日常与世界观；也可以完全重写", classes="section-hint")
+                                yield TextArea(id="character-background", soft_wrap=True, classes="editor profile-editor")
                 with Vertical(id="chat", classes="page"):
-                    yield Select([], prompt="选择虚拟群友", id="chat-character", classes="form-row")
+                    yield Static("", id="chat-character", classes="panel")
                     yield Static(id="chat-log")
                     yield TextArea(id="chat-input", soft_wrap=True)
                     with Horizontal(classes="actions"):
                         yield Button("发送消息", id="send-chat", variant="primary")
                 with VerticalScroll(id="events", classes="page"):
                     yield Static(id="events-list", classes="listing")
-                    yield Input(placeholder="过滤事件类型（可选）", id="event-filter")
-                    yield Button("过滤 / 刷新日志", id="filter-events")
-                    yield Input(placeholder="事件类型，如 group.message", id="event-type")
-                    yield Input(placeholder="事件摘要", id="event-summary")
-                    yield Button("写入不可变事件日志", id="append-event", variant="primary")
+                    with Horizontal(classes="character-fields"):
+                        yield Input(placeholder="过滤事件类型（可选）", id="event-filter")
+                        yield Button("过滤 / 刷新", id="filter-events")
+                    with Collapsible(title="＋ 追加审计事件", collapsed=True, id="event-log-editor", classes="editor-drawer debug-editor"):
+                        yield Label("追加的事件会写入不可变审计日志。", classes="editor-note")
+                        yield Label("事件信息", classes="editor-section-title")
+                        yield Input(placeholder="事件类型，如 group.message", id="event-type")
+                        yield Input(placeholder="事件摘要", id="event-summary")
+                        yield Button("写入不可变事件日志", id="append-event", variant="primary")
                     yield Label("事件管理记录（可更新生命周期；所有操作另写审计日志）", classes="eyebrow")
                     yield Static(id="event-record-list", classes="listing")
-                    yield Input(placeholder="事件记录 ID", id="event-record-id")
-                    yield Input(placeholder="事件标题", id="event-record-title")
-                    yield Input(placeholder="事件类型", id="event-record-type")
-                    yield Input(placeholder="事件详情", id="event-record-details")
-                    yield Input(placeholder="状态：pending / triggered / awaiting_user / needs_review / completed / failed / cancelled", id="event-record-status", value="pending")
-                    with Horizontal(classes="actions"):
-                        yield Button("创建事件", id="create-event-record", variant="primary")
-                        yield Button("更新状态", id="update-event-record")
-                        yield Button("触发事件", id="trigger-event-record")
-                        yield Button("删除记录", id="delete-event-record", variant="error")
+                    with Collapsible(title="＋ 创建 / 管理事件记录", collapsed=True, id="event-record-editor", classes="editor-drawer debug-editor"):
+                        yield Label("由 Agent 建立的工作流事件请在任务编排中推进，不要手动覆盖。", classes="editor-note")
+                        yield Label("新建或定位", classes="editor-section-title")
+                        yield Input(placeholder="事件记录 ID（必填，限 22 位英文 / 数字 / _ / -）", id="event-record-id")
+                        yield Input(placeholder="事件标题", id="event-record-title")
+                        yield Input(placeholder="事件类型", id="event-record-type")
+                        yield Input(placeholder="事件详情", id="event-record-details")
+                        yield Input(placeholder="状态：pending / triggered / awaiting_user / needs_review / completed / failed / cancelled", id="event-record-status", value="pending")
+                        with Horizontal(classes="actions"):
+                            yield Button("创建事件", id="create-event-record", variant="primary")
+                            yield Button("更新状态", id="update-event-record")
+                            yield Button("触发事件", id="trigger-event-record")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除事件记录不可撤销；审计日志仍会保留操作痕迹。", classes="editor-note")
+                            yield Button("删除记录", id="delete-event-record", variant="error")
                 with VerticalScroll(id="human-questions", classes="page"):
                     yield Label("Agent 中断提问 · 待回答请求会持久化，回答后可由会话恢复", classes="eyebrow")
                     yield Static(id="question-list", classes="listing")
-                    yield Input(placeholder="待回答 question_id", id="question-id")
-                    yield Input(placeholder="给 Agent 的回答", id="question-answer")
-                    with Horizontal(classes="actions"):
-                        yield Button("刷新待回答", id="refresh-questions")
-                        yield Button("提交回答", id="resolve-question", variant="primary")
+                    with Collapsible(title="回复 Agent 的澄清问题", collapsed=True, id="question-reply-editor", classes="editor-drawer"):
+                        yield Input(placeholder="待回答 question_id", id="question-id")
+                        yield Input(placeholder="给 Agent 的回答", id="question-answer")
+                        with Horizontal(classes="actions"):
+                            yield Button("刷新待回答", id="refresh-questions")
+                            yield Button("提交回答", id="resolve-question", variant="primary")
                 with VerticalScroll(id="collaboration", classes="page"):
                     yield Label("任务型事件 · LangChain 多角色分析 / 规划 / 执行 / 验收", classes="eyebrow")
-                    yield Input(placeholder="任务标题", id="collaboration-title")
-                    yield TextArea(id="collaboration-description", soft_wrap=True, classes="editor", placeholder="任务描述")
-                    yield Input(placeholder="要求（可选）", id="collaboration-requirements")
-                    yield Input(placeholder="完成标准（可选）", id="collaboration-criteria")
-                    with Horizontal(classes="actions"):
-                        yield Button("发起协作任务", id="start-collaboration", variant="primary")
-                    yield Input(placeholder="恢复等待用户回答的 run_id", id="collaboration-run-id")
-                    with Horizontal(classes="actions"):
-                        yield Button("恢复任务", id="resume-collaboration")
                     yield Static(id="collaboration-runs", classes="listing")
+                    with Collapsible(title="＋ 新建 / 恢复任务", collapsed=True, id="collaboration-editor", classes="editor-drawer debug-editor"):
+                        yield Label("描述目标与验收标准；Agent 会在 PyVDisk VFS 工作区内分步执行。", classes="editor-note")
+                        yield Label("发起新任务", classes="editor-section-title")
+                        yield Input(placeholder="任务标题", id="collaboration-title")
+                        yield TextArea(id="collaboration-description", soft_wrap=True, classes="editor", placeholder="任务描述")
+                        yield Input(placeholder="要求（可选）", id="collaboration-requirements")
+                        yield Input(placeholder="完成标准（可选）", id="collaboration-criteria")
+                        yield Button("发起协作任务", id="start-collaboration", variant="primary")
+                        with Collapsible(title="恢复待答任务", collapsed=True):
+                            yield Label("仅恢复处于等待用户回答状态的运行。", classes="editor-note")
+                            yield Input(placeholder="待恢复 run_id", id="collaboration-run-id")
+                            yield Button("恢复任务", id="resume-collaboration")
                 with VerticalScroll(id="schedules", classes="page"):
                     yield Static(id="schedule-list", classes="listing")
-                    yield Input(placeholder="schedule_id", id="schedule-id")
-                    yield Input(placeholder="标题", id="schedule-title")
-                    yield Input(placeholder="ISO-8601 时间，例如 2026-10-03T18:00:00+08:00", id="schedule-due")
-                    yield Input(placeholder="描述（可选）", id="schedule-description")
-                    yield Input(placeholder="结束时间 ISO-8601（可选）", id="schedule-end")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="类型 appointment / recurring / temporary", id="schedule-type", value="appointment")
-                        yield Input(placeholder="优先级 low / medium / high / critical（按类型默认）", id="schedule-priority")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="周期星期：周一 0 … 周日 6", id="schedule-weekday")
-                        yield Input(placeholder="周期说明，如 every-week", id="schedule-recurrence")
                     with Horizontal(classes="character-fields"):
                         yield Select([("全部日期", "all"), ("今天", "today"), ("明天", "tomorrow"), ("本周", "week")], value="all", id="schedule-date-filter")
-                        yield Select([("全部状态", "all"), ("待处理", "pending"), ("待发送", "awaiting_delivery"), ("已通知", "notified"), ("周期冲突", "recurrence_blocked"), ("已取消", "cancelled")], value="all", id="schedule-status-filter")
+                        yield Select([("全部状态", "all"), ("进行中 / 待开始", "pending"), ("已完成", "completed"), ("已取消", "cancelled"), ("周期冲突", "recurrence_blocked")], value="all", id="schedule-status-filter")
                         yield Button("应用筛选", id="filter-schedules")
-                    with Horizontal(classes="actions"):
-                        yield Button("创建提醒", id="create-schedule", variant="primary")
-                        yield Button("复核后仍然创建", id="confirm-create-similar-schedule", variant="warning", disabled=True)
-                        yield Input(placeholder="要编辑 / 删除的 schedule_id", id="schedule-delete-id")
-                        yield Button("删除日程", id="delete-schedule", variant="error")
-                    yield Label("编辑：填写目标 ID、标题、时间与描述后提交；改时间会重建持久队列任务。", classes="eyebrow")
-                    yield Input(placeholder="编辑目标 schedule_id", id="schedule-edit-id")
-                    yield Input(placeholder="新标题", id="schedule-edit-title")
-                    yield Input(placeholder="新 ISO-8601 时间（含时区）", id="schedule-edit-due")
-                    yield Input(placeholder="新描述", id="schedule-edit-description")
-                    yield Input(placeholder="新结束时间 ISO-8601（可选）", id="schedule-edit-end")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="新类型 appointment / recurring / temporary", id="schedule-edit-type")
-                        yield Input(placeholder="新优先级 low / medium / high / critical", id="schedule-edit-priority")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="周期星期 0–6", id="schedule-edit-weekday")
-                        yield Input(placeholder="周期规则", id="schedule-edit-recurrence")
-                    yield Button("更新日程", id="update-schedule", variant="primary")
-                    yield Label("时间范围 / 空闲时段 / 统计", classes="eyebrow")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="范围开始 ISO-8601（含时区）", id="schedule-range-start")
-                        yield Input(placeholder="范围结束 ISO-8601（含时区）", id="schedule-range-end")
-                        yield Input(placeholder="最短空闲分钟数", id="schedule-free-minutes", value="30")
-                    with Horizontal(classes="actions"):
-                        yield Button("查询范围", id="query-schedule-range")
-                        yield Button("查找空闲时段", id="find-free-slots")
-                        yield Button("日程统计", id="schedule-statistics")
-                        yield Input(placeholder="详情 schedule_id", id="schedule-detail-id")
-                        yield Button("查看详情", id="schedule-details")
-                    yield Static(id="schedule-analysis", classes="listing")
-                    yield Label("临时活动建议 · 仅生成建议；选中并采用后才会写入日程", classes="eyebrow")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="角色名称", id="schedule-character-name", value="智能体")
-                        yield Input(placeholder="角色兴趣", id="schedule-character-hobbies", value="阅读、学习")
-                        yield Input(placeholder="建议时长下限（分钟）", id="schedule-suggestion-minutes", value="60")
-                    yield Input(placeholder="对话上下文（可选）", id="schedule-suggestion-context")
-                    with Horizontal(classes="actions"):
+                    with Collapsible(title="＋ 新建日程记录", collapsed=True, id="schedule-create-editor", classes="editor-drawer debug-editor"):
+                        yield Label("填写明确时间；记录仅作为生活上下文，不会发送或暂存提醒。用户个人日程只读，Agent 不会改写。", classes="editor-note")
+                        yield Label("日程内容与归属", classes="editor-section-title")
+                        yield Input(placeholder="schedule_id（必填且唯一）", id="schedule-id")
+                        yield Input(placeholder="标题", id="schedule-title")
+                        yield Input(placeholder="ISO-8601 时间，例如 2026-10-03T18:00:00+08:00", id="schedule-due")
+                        yield Input(placeholder="结束时间 ISO-8601（可选）", id="schedule-end")
+                        yield Input(placeholder="描述（可选）", id="schedule-description")
+                        yield Select([("Agent 个人", "agent"), ("用户个人（只读信息）", "user"), ("双方共同活动", "shared")], value="agent", id="schedule-category")
+                        yield Label("重复规则与优先级（可选）", classes="editor-section-title")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="类型 appointment / recurring / temporary", id="schedule-type", value="appointment")
+                            yield Input(placeholder="优先级 low / medium / high / critical（按类型默认）", id="schedule-priority")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="周期星期：周一 0 … 周日 6", id="schedule-weekday")
+                            yield Input(placeholder="周期说明，如 every-week", id="schedule-recurrence")
+                        with Horizontal(classes="actions"):
+                            yield Button("创建日程记录", id="create-schedule", variant="primary")
+                            yield Button("复核后仍然创建", id="confirm-create-similar-schedule", variant="warning", disabled=True)
+                    with Collapsible(title="✎ 编辑 / 删除日程", collapsed=True, id="schedule-edit-editor", classes="editor-drawer debug-editor"):
+                        yield Label("编辑或删除 Debug 日程记录；系统不会投递通知。", classes="editor-note")
+                        yield Label("编辑目标", classes="editor-section-title")
+                        yield Input(placeholder="编辑目标 schedule_id", id="schedule-edit-id")
+                        yield Label("日程内容", classes="editor-section-title")
+                        yield Input(placeholder="新标题", id="schedule-edit-title")
+                        yield Input(placeholder="新 ISO-8601 时间（含时区）", id="schedule-edit-due")
+                        yield Input(placeholder="新描述", id="schedule-edit-description")
+                        yield Input(placeholder="新结束时间 ISO-8601（可选）", id="schedule-edit-end")
+                        yield Label("周期与优先级（留空保持原值）", classes="editor-section-title")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="新类型 appointment / recurring / temporary", id="schedule-edit-type")
+                            yield Input(placeholder="新优先级 low / medium / high / critical", id="schedule-edit-priority")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="周期星期 0–6", id="schedule-edit-weekday")
+                            yield Input(placeholder="周期规则", id="schedule-edit-recurrence")
+                        yield Button("保存日程修改", id="update-schedule", variant="primary")
+                        with Collapsible(title="危险操作与协作决策", collapsed=True, classes="danger-zone"):
+                            yield Label("删除会移除持久队列任务；协作决定会改变请求状态。", classes="editor-note")
+                            yield Input(placeholder="要删除的 schedule_id", id="schedule-delete-id")
+                            yield Button("删除日程", id="delete-schedule", variant="error")
+                            yield Button("确认协作", id="confirm-schedule", variant="primary")
+                            yield Button("拒绝协作", id="reject-schedule", variant="error")
+                    with Collapsible(title="⌕ 时间范围与空闲查询", collapsed=True, id="schedule-query-tools", classes="editor-drawer"):
+                        yield Label("范围分析", classes="editor-section-title")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="范围开始 ISO-8601（含时区）", id="schedule-range-start")
+                            yield Input(placeholder="范围结束 ISO-8601（含时区）", id="schedule-range-end")
+                            yield Input(placeholder="最短空闲分钟数", id="schedule-free-minutes", value="30")
+                        with Horizontal(classes="actions"):
+                            yield Button("查询范围", id="query-schedule-range")
+                            yield Button("查找空闲时段", id="find-free-slots")
+                            yield Button("日程统计", id="schedule-statistics")
+                        yield Label("单项详情", classes="editor-section-title")
+                        with Horizontal(classes="actions"):
+                            yield Input(placeholder="详情 schedule_id", id="schedule-detail-id")
+                            yield Button("查看详情", id="schedule-details")
+                        yield Static(id="schedule-analysis", classes="listing editor-result")
+                    with Collapsible(title="✦ 临时活动建议", collapsed=True, id="schedule-suggestions-editor", classes="editor-drawer"):
+                        yield Label("生成建议本身不写入日程；采用建议需要开启 Debug。", classes="editor-note")
+                        with Horizontal(classes="character-fields"):
+                            yield Input(placeholder="角色名称", id="schedule-character-name", value="智能体")
+                            yield Input(placeholder="角色兴趣", id="schedule-character-hobbies", value="阅读、学习")
+                            yield Input(placeholder="建议时长下限（分钟）", id="schedule-suggestion-minutes", value="60")
+                        yield Input(placeholder="对话上下文（可选）", id="schedule-suggestion-context")
                         yield Button("生成活动建议", id="generate-schedule-suggestions")
-                        yield Input(placeholder="采用建议编号（从 1 开始）", id="schedule-suggestion-index", value="1")
-                        yield Button("采用所选建议", id="apply-schedule-suggestion", variant="primary")
-                    yield Static(id="schedule-suggestions", classes="listing")
-                    yield Label("协作确认：选择待处理的日程 ID 后确认或拒绝。拒绝会取消提醒。", classes="eyebrow")
-                    with Horizontal(classes="actions"):
-                        yield Button("确认协作", id="confirm-schedule", variant="primary")
-                        yield Button("拒绝协作", id="reject-schedule", variant="error")
+                        yield Static(id="schedule-suggestions", classes="listing")
+                        with Collapsible(title="采用建议并创建日程", collapsed=True, id="schedule-suggestion-apply", classes="editor-drawer debug-editor"):
+                            with Horizontal(classes="actions"):
+                                yield Input(placeholder="采用建议编号（从 1 开始）", id="schedule-suggestion-index", value="1")
+                                yield Button("采用所选建议", id="apply-schedule-suggestion", variant="primary")
                 with VerticalScroll(id="knowledge", classes="page"):
                     yield Static(id="knowledge-list", classes="listing")
-                    yield Input(placeholder="知识 ID", id="knowledge-id")
-                    yield Input(placeholder="标题", id="knowledge-title")
-                    yield Input(placeholder="搜索关键词", id="knowledge-search")
-                    yield TextArea(id="knowledge-content", soft_wrap=True, classes="editor")
                     with Horizontal(classes="actions"):
-                        yield Button("保存知识", id="save-knowledge", variant="primary")
+                        yield Input(placeholder="搜索关键词", id="knowledge-search")
                         yield Button("搜索", id="search-knowledge")
-                        yield Button("删除知识", id="delete-knowledge", variant="error")
-                    yield Label("基础知识事实（实体 / 分类 / 置信度）", classes="eyebrow")
-                    yield Input(placeholder="事实 ID", id="base-knowledge-id")
-                    yield Input(placeholder="实体名称", id="base-knowledge-entity")
-                    yield Input(placeholder="分类", id="base-knowledge-category")
-                    yield Input(placeholder="置信度 0–1", id="base-knowledge-confidence", value="1")
-                    yield TextArea(id="base-knowledge-content", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
+                    with Collapsible(title="＋ 创建 / 编辑知识条目", collapsed=True, id="knowledge-editor", classes="editor-drawer debug-editor"):
+                        yield Label("按主题组织条目；Agent 自动沉淀的知识也会显示在上方列表。", classes="editor-note")
+                        yield Label("条目身份", classes="editor-section-title")
+                        yield Input(placeholder="知识 ID（必填）", id="knowledge-id")
+                        yield Input(placeholder="标题", id="knowledge-title")
+                        yield TextArea(placeholder="知识内容 / 事实说明", id="knowledge-content", soft_wrap=True, classes="editor")
+                        yield Button("保存知识条目", id="save-knowledge", variant="primary")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除不可撤销；请先确认上方 ID。", classes="editor-note")
+                            yield Button("删除知识", id="delete-knowledge", variant="error")
+                    with Collapsible(title="＋ 编辑基础知识事实", collapsed=True, id="base-knowledge-editor", classes="editor-drawer debug-editor"):
+                        yield Label("适合记录实体相关的稳定事实；置信度取值 0–1。", classes="editor-note")
+                        yield Label("事实索引", classes="editor-section-title")
+                        yield Input(placeholder="事实 ID（必填）", id="base-knowledge-id")
+                        yield Input(placeholder="实体名称", id="base-knowledge-entity")
+                        yield Input(placeholder="分类", id="base-knowledge-category")
+                        yield Input(placeholder="置信度 0–1", id="base-knowledge-confidence", value="1")
+                        yield TextArea(placeholder="稳定事实内容", id="base-knowledge-content", soft_wrap=True, classes="editor")
                         yield Button("保存基础知识", id="save-base-knowledge", variant="primary")
-                        yield Button("删除基础知识", id="delete-base-knowledge", variant="error")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除不可撤销；请先确认上方事实 ID。", classes="editor-note")
+                            yield Button("删除基础知识", id="delete-base-knowledge", variant="error")
                 with VerticalScroll(id="relationships", classes="page"):
                     yield Static(id="relationship-list", classes="listing")
-                    yield Input(placeholder="关系 ID（角色-用户）", id="relationship-id")
-                    yield Input(placeholder="对方名称 / 群组", id="relationship-peer")
-                    yield Input(placeholder="互动备注", id="relationship-note")
-                    yield Input(placeholder="本次关系分值变化，例如 1 或 -1", id="relationship-delta", value="0")
-                    yield Button("记录互动", id="record-relationship", variant="primary")
-                    yield Label("情绪轨迹（人工标注，可由后续分析器自动生成）", classes="eyebrow")
-                    yield Input(placeholder="情绪标签", id="emotion-tone")
-                    yield Input(placeholder="情绪分值 -1 至 1", id="emotion-score", value="0")
-                    yield Input(placeholder="证据 / 上下文", id="emotion-evidence")
-                    yield Button("记录情绪", id="record-emotion")
-                    yield Input(placeholder="分析来源 conversation_id", id="emotion-conversation-id", value="default")
-                    with Horizontal(classes="actions"):
-                        yield Button("分析所选关系", id="analyze-emotion", variant="primary")
-                        yield Button("刷新关系 / 主题视图", id="refresh-relationships")
+                    with Collapsible(title="＋ 记录人工互动", collapsed=True, id="relationship-editor", classes="editor-drawer debug-editor"):
+                        yield Label("人工记录仅作为可审计证据；关系分数变化仍受运行时规则约束。", classes="editor-note")
+                        yield Input(placeholder="关系 ID（角色-用户）", id="relationship-id")
+                        yield Input(placeholder="对方名称 / 群组", id="relationship-peer")
+                        yield Input(placeholder="互动备注", id="relationship-note")
+                        yield Input(placeholder="本次关系分值变化，例如 1 或 -1", id="relationship-delta", value="0")
+                        yield Button("记录互动", id="record-relationship", variant="primary")
+                    with Collapsible(title="＋ 人工标注情绪", collapsed=True, id="emotion-editor", classes="editor-drawer debug-editor"):
+                        yield Label("情绪是单轮临时状态；人工标注会留下来源与证据。", classes="editor-note")
+                        yield Input(placeholder="情绪标签", id="emotion-tone")
+                        yield Input(placeholder="情绪分值 -1 至 1", id="emotion-score", value="0")
+                        yield Input(placeholder="证据 / 上下文", id="emotion-evidence")
+                        yield Button("记录情绪", id="record-emotion")
                     yield Label("最近一次关系印象 · 维度可视化", classes="eyebrow")
                     yield Static(id="emotion-radar", classes="listing")
                     yield Label("对话主题时间线 · 来自该会话的长期摘要", classes="eyebrow")
                     yield Static(id="topic-timeline", classes="listing")
                     yield Label("可审计情绪 / 关系历史", classes="eyebrow")
                     yield Static(id="emotion-list", classes="listing")
+                    with Collapsible(title="⌕ 分析关系与对话主题", collapsed=True, id="relationship-analysis-tools", classes="editor-drawer"):
+                        yield Label("分析会读取指定会话的历史摘要，不会修改关系分值。", classes="editor-note")
+                        yield Input(placeholder="分析来源 conversation_id", id="emotion-conversation-id", value="default")
+                        with Horizontal(classes="actions"):
+                            yield Button("分析所选关系", id="analyze-emotion", variant="primary")
+                            yield Button("刷新关系 / 主题视图", id="refresh-relationships")
                 with VerticalScroll(id="environment", classes="page"):
                     yield Static(id="environment-list", classes="listing")
-                    yield Input(placeholder="类型：environment 或 domain", id="environment-kind", value="environment")
-                    yield Input(placeholder="ID", id="environment-id")
-                    yield Input(placeholder="名称", id="environment-name")
-                    yield TextArea(id="environment-details", soft_wrap=True, classes="editor")
-                    yield Input(placeholder="关联域 ID / 成员环境 ID", id="environment-domain-id")
-                    yield Input(placeholder="域默认环境 ID（创建/编辑域时）", id="domain-default-environment")
-                    with Horizontal(classes="actions"):
-                        yield Button("保存", id="save-environment", variant="primary")
-                        yield Button("设为当前环境", id="activate-environment")
-                        yield Button("关联域", id="link-environment-domain")
-                        yield Button("从域移除环境", id="unlink-environment-domain")
-                        yield Button("删除", id="delete-environment", variant="error")
-                    yield Label("环境物体", classes="eyebrow")
-                    yield Input(placeholder="物体 ID（新建可留空）", id="environment-object-id")
-                    yield Input(placeholder="所属环境 ID", id="environment-object-environment")
-                    yield Input(placeholder="物体名称", id="environment-object-name")
-                    yield Input(placeholder="位置 / 场景方位", id="environment-object-position")
-                    yield Input(placeholder="优先级 0–100", id="environment-object-priority", value="50")
-                    yield Input(placeholder="属性 JSON object", id="environment-object-properties", value="{}")
-                    yield TextArea(placeholder="描述与交互提示", id="environment-object-description", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
-                        yield Button("保存物体", id="save-environment-object", variant="primary")
-                        yield Button("切换物体可见性", id="toggle-environment-object", variant="warning")
-                        yield Button("删除物体", id="delete-environment-object", variant="error")
+                    yield Label("当前场景与已访问场景池", classes="eyebrow")
+                    yield Static(id="scene-pool", classes="listing")
+                    with Collapsible(title="＋ 创建 / 编辑环境", collapsed=True, id="environment-editor", classes="editor-drawer debug-editor"):
+                        yield Label("维护世界中的地点及其结构化详情；关联操作会写入审计记录。", classes="editor-note")
+                        yield Label("地点资料", classes="editor-section-title")
+                        yield Input(placeholder="类型：environment 或 domain", id="environment-kind", value="environment")
+                        yield Input(placeholder="ID（新建留空）", id="environment-id")
+                        yield Input(placeholder="名称", id="environment-name")
+                        yield TextArea(placeholder="地点说明、氛围与结构化详情", id="environment-details", soft_wrap=True, classes="editor")
+                        yield Label("域关联", classes="editor-section-title")
+                        yield Input(placeholder="关联域 ID / 成员环境 ID", id="environment-domain-id")
+                        yield Input(placeholder="域默认环境 ID（创建/编辑域时）", id="domain-default-environment")
+                        with Horizontal(classes="actions"):
+                            yield Button("保存环境", id="save-environment", variant="primary")
+                            yield Button("设为当前环境", id="activate-environment")
+                            yield Button("关联域", id="link-environment-domain")
+                            yield Button("从域移除环境", id="unlink-environment-domain")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除环境会影响其物体与连接；请先检查关联。", classes="editor-note")
+                            yield Button("删除", id="delete-environment", variant="error")
+                    with Collapsible(title="＋ 管理环境物体", collapsed=True, id="environment-object-editor", classes="editor-drawer debug-editor"):
+                        yield Label("为场景中的对象填写位置、属性和交互提示。", classes="editor-note")
+                        yield Label("物体与场景", classes="editor-section-title")
+                        yield Input(placeholder="物体 ID（新建可留空）", id="environment-object-id")
+                        yield Input(placeholder="所属环境 ID", id="environment-object-environment")
+                        yield Input(placeholder="物体名称", id="environment-object-name")
+                        yield Input(placeholder="位置 / 场景方位", id="environment-object-position")
+                        yield Input(placeholder="优先级 0–100", id="environment-object-priority", value="50")
+                        yield Input(placeholder="属性 JSON object", id="environment-object-properties", value="{}")
+                        yield TextArea(placeholder="描述与交互提示", id="environment-object-description", soft_wrap=True, classes="editor")
+                        with Horizontal(classes="actions"):
+                            yield Button("保存物体", id="save-environment-object", variant="primary")
+                            yield Button("切换物体可见性", id="toggle-environment-object", variant="warning")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除物体不可撤销。", classes="editor-note")
+                            yield Button("删除物体", id="delete-environment-object", variant="error")
                     yield Label("环境连接关系图 / 移动可达性", classes="eyebrow")
                     yield Static(id="environment-graph", classes="listing")
-                    yield Input(placeholder="起始环境 ID", id="connection-from")
-                    yield Input(placeholder="目标环境 ID", id="connection-to")
-                    yield Input(placeholder="连接类型", id="connection-type", value="normal")
-                    yield Select((("双向", "bidirectional"), ("单向", "one_way")), value="bidirectional", id="connection-direction")
-                    yield Input(placeholder="连接描述", id="connection-description")
-                    yield Input(placeholder="待验证目标环境 ID", id="connection-check-to")
-                    yield Input(placeholder="连接 ID（删除时填写）", id="connection-id")
-                    with Horizontal(classes="actions"):
+                    with Collapsible(title="＋ 编辑环境连接", collapsed=True, id="environment-connection-editor", classes="editor-drawer debug-editor"):
+                        yield Label("连接端点与通行规则", classes="editor-section-title")
+                        yield Input(placeholder="起始环境 ID", id="connection-from")
+                        yield Input(placeholder="目标环境 ID", id="connection-to")
+                        yield Input(placeholder="连接类型", id="connection-type", value="normal")
+                        yield Select((("双向", "bidirectional"), ("单向", "one_way")), value="bidirectional", id="connection-direction")
+                        yield Input(placeholder="连接描述", id="connection-description")
                         yield Button("创建连接", id="create-environment-connection", variant="primary")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Input(placeholder="待删除连接 ID", id="connection-id")
+                            yield Button("删除连接", id="delete-environment-connection", variant="error")
+                    with Collapsible(title="⌕ 检查移动可达性", collapsed=True, id="environment-move-check", classes="editor-drawer"):
+                        yield Input(placeholder="待验证目标环境 ID", id="connection-check-to")
                         yield Button("检查当前环境可达", id="check-environment-move")
-                        yield Button("删除连接", id="delete-environment-connection", variant="error")
+                    yield Button("刷新环境视图", id="refresh-environment")
                     yield Label("伪视觉工具审计记录", classes="eyebrow")
-                    yield Input(placeholder="查询 / 用户问题", id="vision-query")
-                    yield Input(placeholder="查看物体 ID，逗号分隔", id="vision-objects")
-                    yield Input(placeholder="触发方式 auto / manual", id="vision-trigger", value="manual")
-                    yield TextArea(placeholder="提供给 Agent 的视觉上下文", id="vision-context", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
-                        yield Button("记录视觉观察", id="log-vision-usage", variant="primary")
-                        yield Button("刷新环境视图", id="refresh-environment")
                     yield Static(id="vision-log-list", classes="listing")
+                    with Collapsible(title="＋ 记录模拟视觉观察", collapsed=True, id="vision-audit-editor", classes="editor-drawer debug-editor"):
+                        yield Label("仅用于离线审计与上下文模拟，不连接真实视觉模型。", classes="editor-note")
+                        yield Input(placeholder="查询 / 用户问题", id="vision-query")
+                        yield Input(placeholder="查看物体 ID，逗号分隔", id="vision-objects")
+                        yield Input(placeholder="触发方式 auto / manual", id="vision-trigger", value="manual")
+                        yield TextArea(placeholder="提供给 Agent 的视觉上下文", id="vision-context", soft_wrap=True, classes="editor")
+                        yield Button("记录视觉观察", id="log-vision-usage", variant="primary")
                     yield Label("域工作区 · 成员 / 默认位置 / 切换", classes="eyebrow")
                     yield Static(id="domain-list", classes="listing")
-                    yield Input(placeholder="域 ID", id="domain-id")
-                    yield Input(placeholder="域名称", id="domain-name")
-                    yield Input(placeholder="域描述", id="domain-description")
-                    yield Input(placeholder="成员环境 ID", id="domain-member-environment")
-                    yield Input(placeholder="默认环境 ID（需先加入域）", id="domain-default-environment-id")
-                    yield Input(placeholder="切换目标域 ID", id="switch-domain-id")
-                    with Horizontal(classes="actions"):
-                        yield Button("保存域", id="save-domain", variant="primary")
-                        yield Button("添加成员环境", id="add-domain-environment")
-                        yield Button("移除成员环境", id="remove-domain-environment")
-                        yield Button("切换到域", id="switch-domain")
+                    with Collapsible(title="＋ 管理环境域", collapsed=True, id="domain-editor", classes="editor-drawer debug-editor"):
+                        yield Label("创建或更新域后，可添加成员环境并切换当前域。", classes="editor-note")
+                        yield Label("域定义", classes="editor-section-title")
+                        yield Input(placeholder="域 ID（新建可留空）", id="domain-id")
+                        yield Input(placeholder="域名称", id="domain-name")
+                        yield Input(placeholder="域描述", id="domain-description")
+                        yield Label("成员与默认位置", classes="editor-section-title")
+                        yield Input(placeholder="成员环境 ID", id="domain-member-environment")
+                        yield Input(placeholder="默认环境 ID（需先加入域）", id="domain-default-environment-id")
+                        with Horizontal(classes="actions"):
+                            yield Button("保存域", id="save-domain", variant="primary")
+                            yield Button("添加成员环境", id="add-domain-environment")
+                            yield Button("移除成员", id="remove-domain-environment", variant="warning")
+                        yield Label("当前域", classes="editor-section-title")
+                        with Horizontal(classes="actions"):
+                            yield Input(placeholder="切换目标域 ID", id="switch-domain-id")
+                            yield Button("切换到域", id="switch-domain")
                 with VerticalScroll(id="expressions", classes="page"):
                     yield Static(id="expression-list", classes="listing")
-                    yield Input(placeholder="表达风格 ID", id="expression-id")
-                    yield Input(placeholder="风格名称", id="expression-name")
-                    yield Input(placeholder="分类，如感叹词 / 网络用语", id="expression-category", value="通用")
-                    yield Input(placeholder="说明 / 特征", id="expression-description")
-                    yield TextArea(id="expression-examples", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
+                    with Collapsible(title="＋ 编辑表达风格", collapsed=True, id="expression-editor", classes="editor-drawer debug-editor"):
+                        yield Label("用自然语言描述语气特征，并提供少量代表性例句。", classes="editor-note")
+                        yield Label("风格定义", classes="editor-section-title")
+                        yield Input(placeholder="表达风格 ID（新建留空）", id="expression-id")
+                        yield Input(placeholder="风格名称", id="expression-name")
+                        yield Input(placeholder="分类，如感叹词 / 网络用语", id="expression-category", value="通用")
+                        yield Input(placeholder="说明 / 特征", id="expression-description")
+                        yield TextArea(placeholder="代表性例句（每行一条）", id="expression-examples", soft_wrap=True, classes="editor")
                         yield Button("保存表达风格", id="save-expression", variant="primary")
-                        yield Button("删除表达风格", id="delete-expression", variant="error")
-                    yield Label("用户表达习惯 · 基于所选对话的用户消息进行显式学习", classes="eyebrow")
-                    yield Input(placeholder="学习来源 conversation_id", id="expression-conversation-id", value="default")
-                    with Horizontal(classes="actions"):
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除表达风格不可撤销。", classes="editor-note")
+                            yield Button("删除表达风格", id="delete-expression", variant="error")
+                    with Collapsible(title="✦ 学习 / 清理用户表达习惯", collapsed=True, id="user-expression-editor", classes="editor-drawer debug-editor"):
+                        yield Label("从指定会话的用户消息中提取表达习惯；结果会进入可审计列表。", classes="editor-note")
+                        yield Label("学习来源", classes="editor-section-title")
+                        yield Input(placeholder="学习来源 conversation_id", id="expression-conversation-id", value="default")
                         yield Button("立即学习", id="learn-user-expressions", variant="primary")
-                        yield Input(placeholder="输入 CLEAR USER HABITS 确认清空", id="clear-user-expressions-confirm")
-                        yield Button("清空用户习惯", id="clear-user-expressions", variant="error")
+                        with Collapsible(title="危险操作 · 清空已学习习惯", collapsed=True, classes="danger-zone"):
+                            yield Input(placeholder="输入 CLEAR USER HABITS 确认清空", id="clear-user-expressions-confirm")
+                            yield Button("清空用户习惯", id="clear-user-expressions", variant="error")
                     yield Static(id="user-expression-list", classes="listing")
                 with VerticalScroll(id="entities", classes="page"):
                     yield Static(id="entity-list", classes="listing")
-                    yield Input(placeholder="实体 ID", id="entity-id")
-                    yield Input(placeholder="实体名称", id="entity-name")
-                    yield Input(placeholder="实体类型", id="entity-type")
-                    yield TextArea(id="entity-definition", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
+                    with Collapsible(title="＋ 创建 / 编辑实体", collapsed=True, id="entity-editor", classes="editor-drawer debug-editor"):
+                        yield Label("维护可复用实体与定义；实体 ID 可留空以自动生成。", classes="editor-note")
+                        yield Label("实体身份", classes="editor-section-title")
+                        yield Input(placeholder="实体 ID（必填）", id="entity-id")
+                        yield Input(placeholder="实体名称", id="entity-name")
+                        yield Input(placeholder="实体类型", id="entity-type")
+                        yield TextArea(placeholder="实体定义 / 背景说明", id="entity-definition", soft_wrap=True, classes="editor")
                         yield Button("保存实体", id="save-entity", variant="primary")
-                        yield Button("删除实体", id="delete-entity", variant="error")
+                        with Collapsible(title="危险操作", collapsed=True, classes="danger-zone"):
+                            yield Label("删除实体不可撤销；请先检查引用它的记录。", classes="editor-note")
+                            yield Button("删除实体", id="delete-entity", variant="error")
                 with VerticalScroll(id="plugins", classes="page"):
                     yield Static(id="plugin-list", classes="listing")
-                    yield Input(placeholder="内置 plugin_id / NPS id", id="plugin-id")
-                    with Horizontal(classes="actions"):
-                        yield Button("启用", id="enable-plugin", variant="primary")
-                        yield Button("停用", id="disable-plugin", variant="error")
-                        yield Button("删除 NPS", id="delete-nps", variant="error")
-                    yield Label("新版 NPS bundle JSON · VScript 主控，可选受限 Python 扩展", classes="eyebrow")
-                    yield Input(placeholder="NPS id（例如 custom.hello）", id="nps-id")
-                    yield Input(placeholder="名称", id="nps-name")
-                    yield Input(placeholder="描述", id="nps-description")
-                    yield Input(placeholder="VScript entrypoint（固定 main）", id="nps-entrypoint", value="main")
-                    yield Input(placeholder="Python entrypoint（默认 main）", id="nps-python-entrypoint", value="main")
-                    yield Input(placeholder='能力 JSON 数组，例如 ["python.call"]', id="nps-capabilities", value="[]")
-                    yield Label("工具参数 JSON Schema（v1：object + string / integer / number / boolean）", classes="eyebrow")
-                    yield TextArea(id="nps-parameters", soft_wrap=True, classes="editor")
-                    yield TextArea(id="nps-vscript", soft_wrap=True, classes="editor")
-                    yield TextArea(id="nps-python", soft_wrap=True, classes="editor")
-                    yield Input(placeholder="测试参数 JSON", id="nps-args", value="{}")
-                    with Horizontal(classes="actions"):
-                        yield Button("校验并保存 NPS", id="save-nps", variant="primary")
-                        yield Button("测试 NPS", id="test-nps")
-                    yield TextArea(id="nps-import-export", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
-                        yield Button("导入新版 JSON", id="import-nps")
-                        yield Button("导出选中 NPS", id="export-nps")
+                    with Collapsible(title="⚙ 插件管理与 NPS 工作台", collapsed=True, id="plugin-editor", classes="editor-drawer debug-editor"):
+                        yield Label("仅编辑新版 NPS manifest / VScript；Python 扩展遵循独立权限与隔离策略。", classes="editor-note")
+                        yield Label("已安装能力", classes="editor-section-title")
+                        yield Input(placeholder="内置 plugin_id / NPS id", id="plugin-id")
+                        with Horizontal(classes="actions"):
+                            yield Button("启用", id="enable-plugin", variant="primary")
+                            yield Button("停用", id="disable-plugin", variant="warning")
+                        with Collapsible(title="危险操作 · 删除 NPS", collapsed=True, classes="danger-zone"):
+                            yield Label("只允许删除自定义 NPS；内置插件不可删除。", classes="editor-note")
+                            yield Button("删除 NPS", id="delete-nps", variant="error")
+                        yield Label("创建新版 NPS", classes="editor-section-title")
+                        yield Input(placeholder="NPS id（例如 custom.hello）", id="nps-id")
+                        yield Input(placeholder="名称", id="nps-name")
+                        yield Input(placeholder="一句话说明此能力", id="nps-description")
+                        yield Input(placeholder="VScript entrypoint（固定 main）", id="nps-entrypoint", value="main")
+                        yield Input(placeholder='能力 JSON 数组，例如 ["python.call"]', id="nps-capabilities", value="[]")
+                        with Collapsible(title="工具参数与测试", collapsed=False):
+                            yield Label("参数 schema v1：object，支持 string / integer / number / boolean。", classes="editor-note")
+                            yield TextArea(placeholder="工具参数 JSON Schema", id="nps-parameters", soft_wrap=True, classes="editor")
+                            yield Input(placeholder="测试参数 JSON", id="nps-args", value="{}")
+                        with Collapsible(title="VScript 主程序", collapsed=False):
+                            yield Label("VScript 为插件主控入口。", classes="editor-note")
+                            yield TextArea(placeholder="VScript source", id="nps-vscript", soft_wrap=True, classes="editor")
+                        with Collapsible(title="可选 Python 扩展", collapsed=True):
+                            yield Label("Python 在隔离进程执行；请仅声明最小能力。", classes="editor-note")
+                            yield Input(placeholder="Python entrypoint（默认 main）", id="nps-python-entrypoint", value="main")
+                            yield TextArea(placeholder="Python extension source（可留空）", id="nps-python", soft_wrap=True, classes="editor")
+                        with Horizontal(classes="actions"):
+                            yield Button("校验并保存 NPS", id="save-nps", variant="primary")
+                            yield Button("测试 NPS", id="test-nps")
+                        with Collapsible(title="导入 / 导出新版 NPS 包", collapsed=True):
+                            yield Label("导入会校验 manifest、脚本入口与能力声明。", classes="editor-note")
+                            yield TextArea(placeholder="NPS bundle JSON", id="nps-import-export", soft_wrap=True, classes="editor")
+                            with Horizontal(classes="actions"):
+                                yield Button("导入新版 JSON", id="import-nps")
+                                yield Button("导出选中 NPS", id="export-nps")
                 with VerticalScroll(id="records", classes="page"):
                     with Horizontal(classes="character-fields"):
                         yield Select([("全部记录", "all"), ("错误 / 失败", "errors"), ("对话", "conversation"), ("插件", "plugin"), ("日程", "schedule"), ("关系", "relationship")], value="all", id="runtime-log-filter")
                         yield Input(placeholder="搜索事件 / payload", id="runtime-log-search")
-                    with Horizontal(classes="actions"):
                         yield Button("筛选 / 刷新", id="refresh-runtime-logs")
+                    yield Static(id="records-view", classes="listing")
+                    with Collapsible(title="清理日志视图（不删除原始审计日志）", collapsed=True, id="runtime-log-maintenance", classes="editor-drawer debug-editor"):
+                        yield Label("操作会记录新的审计事件；只设置可见水位，不修改 PyVDisk LogDisk 原始事件。", classes="editor-note")
                         yield Input(placeholder="输入 CLEAR LOG VIEW 确认隐藏旧记录", id="clear-runtime-logs-confirm")
                         yield Button("清除当前日志视图", id="clear-runtime-logs", variant="error")
-                    yield Label("清除只设置可审计的显示水位，不删除 PyVDisk LogDisk 事件。", classes="eyebrow")
-                    yield Static(id="records-view", classes="listing")
                 with VerticalScroll(id="storage", classes="page"):
                     yield Static(id="storage-view", classes="listing")
-                    yield Input(placeholder="记忆文本", id="memory-text")
-                    yield Input(placeholder="记忆检索", id="memory-query")
-                    yield Input(placeholder="角色 ID（可选）", id="memory-character")
-                    with Horizontal(classes="actions"):
-                        yield Button("保存长期记忆", id="save-memory", variant="primary")
+                    with Collapsible(title="⌕ 搜索长期记忆", collapsed=True, id="memory-search-tools", classes="editor-drawer"):
+                        yield Label("基于语义搜索保存的长期记忆。", classes="editor-note")
+                        yield Input(placeholder="记忆检索", id="memory-query")
+                        yield Input(placeholder="角色 ID（可选）", id="memory-character")
                         yield Button("语义检索", id="search-memory")
+                    with Collapsible(title="＋ 写入长期记忆", collapsed=True, id="memory-editor", classes="editor-drawer debug-editor"):
+                        yield Label("人工写入会标记 operator 来源；Agent 仍可在对话中自动沉淀记忆。", classes="editor-note")
+                        yield Input(placeholder="记忆文本", id="memory-text")
+                        yield Button("保存长期记忆", id="save-memory", variant="primary")
                     yield Static(id="memory-results", classes="listing")
-                    yield Label("短期对话记忆 / 人工长期摘要（Conversation ID 最多 22 个 ASCII 字符）", classes="eyebrow")
-                    yield Input(placeholder="Conversation ID", id="memory-conversation-id")
-                    yield Input(placeholder="摘要 ID（留空新建；填写可覆盖）", id="long-term-summary-id")
-                    yield TextArea(id="long-term-summary", soft_wrap=True, classes="editor")
-                    with Horizontal(classes="actions"):
-                        yield Button("保存长期摘要", id="save-summary", variant="primary")
-                        yield Button("删除长期摘要", id="delete-summary", variant="error")
+                    with Collapsible(title="⌕ 短期记忆与长期摘要查询", collapsed=True, id="memory-layer-query", classes="editor-drawer"):
+                        yield Label("Conversation ID 最多 22 个 ASCII 字符。", classes="editor-note")
+                        yield Input(placeholder="Conversation ID", id="memory-conversation-id")
                         yield Button("查看短期 / 长期记忆", id="refresh-memory-layers")
-                        yield Button("清空该会话短期记忆", id="clear-short-term", variant="error")
-                    yield Static(id="memory-layers", classes="listing")
-                    yield Label("批量清理需要逐字输入确认口令；语义长期记忆不会被清除。", classes="eyebrow")
-                    with Horizontal(classes="character-fields"):
-                        yield Input(placeholder="输入 CLEAR SHORT TERM", id="clear-short-confirm")
-                        yield Button("清空全部短期记忆", id="clear-all-short-term", variant="error")
-                        yield Input(placeholder="输入 CLEAR LONG TERM", id="clear-long-confirm")
-                        yield Button("清空全部长期摘要", id="clear-all-long-term", variant="error")
+                        yield Static(id="memory-layers", classes="listing")
+                    with Collapsible(title="＋ 编辑摘要 / 清理会话记忆", collapsed=True, id="summary-editor", classes="editor-drawer debug-editor"):
+                        yield Label("更新摘要会覆盖所填 ID；删除会话短期记忆前请先查看上方内容。", classes="editor-note")
+                        yield Input(placeholder="摘要 ID（留空新建；填写可覆盖）", id="long-term-summary-id")
+                        yield TextArea(placeholder="长期摘要内容", id="long-term-summary", soft_wrap=True, classes="editor")
+                        yield Button("保存长期摘要", id="save-summary", variant="primary")
+                        with Collapsible(title="危险操作 · 删除摘要或清空会话短期记忆", collapsed=True, classes="danger-zone"):
+                            yield Label("先在上方查询并核对会话内容，再执行清理。", classes="editor-note")
+                            yield Button("删除长期摘要", id="delete-summary", variant="error")
+                            yield Button("清空该会话短期记忆", id="clear-short-term", variant="error")
+                    with Collapsible(title="⚠ 批量清理记忆", collapsed=True, id="memory-cleanup-editor", classes="editor-drawer debug-editor"):
+                        yield Label("逐项清理，并逐字输入对应确认口令；语义长期记忆不会被清除。", classes="editor-note")
+                        with Collapsible(title="清空全部短期记忆", collapsed=True, classes="danger-zone"):
+                            yield Input(placeholder="输入 CLEAR SHORT TERM", id="clear-short-confirm")
+                            yield Button("清空全部短期记忆", id="clear-all-short-term", variant="error")
+                        with Collapsible(title="清空全部长期摘要", collapsed=True, classes="danger-zone"):
+                            yield Input(placeholder="输入 CLEAR LONG TERM", id="clear-long-confirm")
+                            yield Button("清空全部长期摘要", id="clear-all-long-term", variant="error")
+                    yield Label("存储概况", classes="eyebrow")
                     yield Static(id="database-statistics", classes="listing")
                     yield Button("刷新存储统计", id="refresh-storage-statistics")
                     yield Label("会话历史（删除会话会清除 transcript 与短期记忆；长期摘要保留）", classes="eyebrow")
                     yield Static(id="conversation-history", classes="listing")
                     with Horizontal(classes="actions"):
                         yield Button("刷新会话", id="refresh-conversations")
-                        yield Button("删除会话", id="delete-conversation", variant="error")
-                    yield Label("选择配置类别（导出与导入共用此选择）；不导出密钥", classes="eyebrow")
-                    yield SelectionList(
-                        ("角色档案", "characters", True),
-                        *[(label, namespace, True) for label, namespace in self.configuration_service.category_labels()],
-                        id="config-categories",
-                    )
-                    with Horizontal(classes="actions"):
-                        yield Button("全选类别", id="select-all-config-categories")
-                        yield Button("清空选择", id="clear-config-categories")
-                    yield Label("新格式 neo-agent/config/v1；配置包可能包含记忆与关系数据。", classes="eyebrow")
-                    yield TextArea(id="config-json", soft_wrap=True, classes="editor")
-                    yield Static("导入前可先校验并查看将写入的记录数量。", id="config-preview", classes="listing")
-                    with Horizontal(classes="actions"):
-                        yield Button("导出配置", id="export-config")
-                        yield Button("校验 / 预览导入", id="preview-config")
-                        yield Button("导入新格式配置", id="import-config", variant="primary")
+                    with Collapsible(title="删除当前会话", collapsed=True, id="conversation-delete-editor", classes="editor-drawer debug-editor"):
+                        yield Label("目标为上方短期 / 长期记忆查询所选的 Conversation ID。", classes="editor-note")
+                        yield Button("删除会话及其对话记录", id="delete-conversation", variant="error")
+                    with Collapsible(title="配置导出", collapsed=True, id="config-export-editor", classes="editor-drawer"):
+                        yield Label("选择要包含的数据类别；密钥不会导出。", classes="editor-note")
+                        yield SelectionList(
+                            ("角色档案", "characters", True),
+                            *[(label, namespace, True) for label, namespace in self.configuration_service.category_labels()],
+                            id="config-categories",
+                        )
+                        with Horizontal(classes="actions"):
+                            yield Button("全选类别", id="select-all-config-categories")
+                            yield Button("清空选择", id="clear-config-categories")
+                            yield Button("导出配置", id="export-config")
+                    with Collapsible(title="导入 / 校验配置包", collapsed=True, id="config-import-editor", classes="editor-drawer debug-editor"):
+                        yield Label("新格式 neo-agent/config/v2；导入会写入所选类别，需开启 Debug。", classes="editor-note")
+                        yield TextArea(placeholder="粘贴 neo-agent/config/v2 配置包 JSON", id="config-json", soft_wrap=True, classes="editor")
+                        yield Static("导入前先校验并查看将写入的记录数量。", id="config-preview", classes="listing")
+                        with Horizontal(classes="actions"):
+                            yield Button("校验 / 预览导入", id="preview-config")
+                            yield Button("导入新格式配置", id="import-config", variant="primary")
                 with VerticalScroll(id="channels", classes="page"):
                     yield Static(id="channel-list", classes="listing")
-                    yield Input(placeholder="连接器 ID", id="channel-id")
-                    yield Input(placeholder="平台与频道名称", id="channel-name")
-                    yield Input(placeholder="平台类型（adapter）", id="channel-platform")
-                    yield Input(placeholder="公开配置 JSON（不得放密钥）", id="channel-config")
-                    yield Button("保存频道连接配置", id="save-channel", variant="primary")
+                    with Collapsible(title="＋ 编辑频道连接配置", collapsed=True, id="channel-editor", classes="editor-drawer debug-editor"):
+                        yield Label("只填写公开连接参数；密钥由环境变量或受管凭据服务提供。", classes="editor-note")
+                        yield Label("连接身份", classes="editor-section-title")
+                        yield Input(placeholder="连接器 ID（必填）", id="channel-id")
+                        yield Input(placeholder="平台与频道名称", id="channel-name")
+                        yield Input(placeholder="平台类型（adapter）", id="channel-platform")
+                        yield Input(placeholder="公开配置 JSON（不得放密钥）", id="channel-config")
+                        yield Button("保存频道连接配置", id="save-channel", variant="primary")
                 with VerticalScroll(id="settings", classes="page"):
                     yield Static(id="settings-view", classes="listing")
                     yield Label("模型密钥由环境变量提供，不写入 PyVDisk 配置备份。", classes="eyebrow")
+                    yield Button("切换 Debug", id="toggle-debug", variant="warning")
+                with VerticalScroll(id="cognition", classes="page"):
+                    yield Static(id="cognition-status", classes="listing")
+                    yield Button("刷新认知与审计状态", id="refresh-cognition")
+                    with Collapsible(title="离线群聊回放", collapsed=True, id="cognition-replay-editor", classes="editor-drawer"):
+                        yield Label("输入 IncomingMessage JSON 数组；只运行离线样例，不连接真实群平台。", classes="editor-note")
+                        yield TextArea(id="replay-input", soft_wrap=True, classes="editor")
+                        yield Button("运行离线回放", id="run-cognition-replay", variant="primary")
+                        yield Static(id="cognition-replay-result", classes="listing")
                 yield Label("↑↓ 选择 · Enter 打开 · R 刷新 · Q 退出", id="status")
         yield Footer()
 
+    def on_collapsible_expanded(self, event: Collapsible.Expanded) -> None:
+        """Keep each page focused on one top-level operation drawer at a time."""
+        active = event.collapsible
+        if "editor-drawer" not in active.classes:
+            return
+
+        page = active
+        while page is not None and "page" not in page.classes:
+            page = page.parent
+        if page is None:
+            return
+
+        collapsed_other = False
+        for other in page.query(".editor-drawer"):
+            if other is active:
+                continue
+            # Preserve containing drawers when opening a nested editor; collapse
+            # sibling and nested drawers so their fields don't crowd this workflow.
+            ancestor = active.parent
+            while ancestor is not None and ancestor is not other:
+                ancestor = ancestor.parent
+            if ancestor is other:
+                continue
+            if not other.collapsed:
+                other.collapsed = True
+                collapsed_other = True
+
+        if collapsed_other:
+            self.notify("同一页面仅展开一个操作面板，已收起其他面板。", timeout=2)
+
     def on_mount(self) -> None:
-        self.query_one("#nav", ListView).index = 0
-        self.set_interval(5, self._run_schedule_worker)
+        # Model-backed itinerary/world generation is lazy so offline operation
+        # and browsing the console never require credentials.
+        if self.schedule_planner.model is None and (os.getenv("OPENAI_API_KEY") or os.getenv("SILICONFLOW_API_KEY")):
+            try:
+                self.schedule_planner.model = AgentRuntime._build_model()
+                self.scene_service.model = self.schedule_planner.model
+                self.scene_scheduler = SceneScheduler(self.store, model=self.schedule_planner.model, scenes=self.scene_service)
+            except Exception:
+                pass
+        self._apply_debug_visibility()
+        rows = self.store.characters()
+        active = self.single_role.active()
+        if not rows:
+            self._populate_character_form(self._sample_character_profile())
+            self._show_character_editor(True)
+            self.active_view = "虚拟群友"
+        elif active is not None:
+            self._populate_character_form(active)
+            self._show_character_editor(False)
+        elif len(rows) > 1:
+            self.active_view = "虚拟群友"
+            self._show_character_editor(False)
+        self.query_one("#nav", ListView).index = self.NAV_ITEMS.index(self.active_view)
+        # Keep network/model calls and PyVDisk recovery out of Textual's UI
+        # event loop. Otherwise a slow/unreachable model makes the entire TUI
+        # appear frozen before it can process q, navigation, or Ctrl+C.
+        self._run_scene_scheduler(generate=True)
+        self.set_interval(5, self._run_scheduled_scene_tick)
         self.refresh_view()
 
-    def _run_schedule_worker(self) -> None:
+    def _run_scheduled_scene_tick(self) -> None:
+        from datetime import datetime, time
+        generate = datetime.now().astimezone().time() >= time(0, 5)
+        self._run_scene_scheduler(generate=generate)
+
+    def _run_scene_scheduler(self, *, generate: bool = True) -> None:
+        # The scheduler is also polled periodically. Never queue a second run
+        # while a model request or storage operation from the previous run is
+        # still in progress.
+        # Before first-role setup there is nothing to schedule. Avoid touching
+        # the DataDisk concurrently with the role-creation form in this state.
+        if not self.store.characters():
+            return
+        if not self._scene_scheduler_lock.acquire(blocking=False):
+            return
         try:
-            self.worker.run_once(limit=8)
+            self.run_worker(
+                lambda: self._run_scene_scheduler_worker(generate=generate),
+                name="scene-scheduler", group="scene-scheduler", thread=True,
+                exclusive=False, exit_on_error=False,
+            )
+        except Exception:
+            self._scene_scheduler_lock.release()
+            raise
+
+    def _run_scene_scheduler_worker(self, *, generate: bool) -> None:
+        try:
+            character = self.single_role.active()
+            self.scene_scheduler.run_once(character=character, generate=generate and character is not None)
         except Exception as exc:
-            self.store.append_event("schedule.worker.error", {"error": str(exc)})
+            summary = f"{type(exc).__name__}: {exc}"[:300]
+            audit_id = "audit_" + hashlib.sha256(summary.encode("utf-8")).hexdigest()[:16]
+            if self.store.get_document("scene_audits", audit_id) is None:
+                self.store.save_document("scene_audits", audit_id, {
+                    "action": "scene.scheduler.error", "summary": summary,
+                    "occurred_at": datetime.now().astimezone().isoformat(),
+                })
+                self.store.append_event("scene.scheduler.error", {
+                    "error_type": type(exc).__name__, "summary": summary,
+                })
+            current_date = date.today().isoformat()
+            itinerary_id = "day_" + current_date.replace("-", "")
+            itinerary = self.store.get_document("itineraries", itinerary_id)
+            if itinerary is not None:
+                retry_at = datetime.now().astimezone() + timedelta(minutes=15)
+                self.store.save_document("itineraries", itinerary_id, {
+                    **itinerary, "status": "failed", "error": summary,
+                    "retry_at": retry_at.isoformat(),
+                    "failed_at": datetime.now().astimezone().isoformat(),
+                })
+        finally:
+            self._scene_scheduler_lock.release()
+            try:
+                self.call_from_thread(self._refresh_after_scene_scheduler)
+            except RuntimeError:
+                # The app may have been closed while an in-flight network call
+                # was completing; its durable work is already finished.
+                pass
+
+    def _refresh_after_scene_scheduler(self) -> None:
         if self.active_view == "日程":
             self.query_one("#schedule-list", Static).update(self._schedule_listing())
+        elif self.active_view == "环境与域":
+            self.refresh_view()
 
     def _status_text(self) -> str:
         configured = bool(os.getenv("OPENAI_API_KEY") or os.getenv("SILICONFLOW_API_KEY"))
-        return f"● Runtime 在线\n◉ PyVDisk 已连接\n◇ 模型 {'已配置' if configured else '未配置'}\n⌁ 定时 worker 活跃"
+        return f"● Runtime 在线\n◉ PyVDisk 已连接\n◇ 模型 {'已配置' if configured else '未配置'}\n⌁ 生活场景调度活跃"
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         nav = self.query_one("#nav", ListView)
@@ -487,9 +765,16 @@ class NeoConsole(App[None]):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         action = event.button.id
         try:
+            if self._is_manual_authoring(action) and not self._manual_authoring_allowed(action):
+                raise PermissionError("人工创作/编辑入口仅在 Debug 开启时可用；Agent 自动创作不受此限制")
             if action == "send-chat": await self.send_chat()
+            elif action == "select-primary-character": self.select_primary_character()
+            elif action == "toggle-debug": self.toggle_debug()
+            elif action == "run-cognition-replay": self.run_cognition_replay()
+            elif action == "refresh-cognition": self.refresh_cognition_status()
             elif action == "save-character": self.save_character()
-            elif action == "load-character": self.load_character()
+            elif action == "edit-character": self.open_character_editor()
+            elif action == "cancel-character-edit": self.cancel_character_edit()
             elif action == "archive-character": self.archive_character()
             elif action == "append-event": self.append_event()
             elif action == "filter-events": self.refresh_events()
@@ -574,8 +859,88 @@ class NeoConsole(App[None]):
             elif action == "save-channel": self.save_channel()
         except Exception as exc:
             self.notify(f"{type(exc).__name__}: {exc}", title="操作失败", severity="error", timeout=8)
-            self.store.append_event("tui.operation.failed", {"action": action, "error": str(exc)})
+            self.store.append_event("tui.operation.failed", {
+                "action": action, "error_type": type(exc).__name__,
+            })
         self.refresh_view()
+
+    @staticmethod
+    def _is_manual_authoring(action: str | None) -> bool:
+        if not action or action in {"toggle-debug", "edit-character", "cancel-character-edit"}:
+            return False
+        if action.startswith((
+            "create-", "save-", "update-", "append-", "record-", "add-",
+            "link-", "unlink-", "remove-", "import-", "delete-", "clear-",
+            "enable-", "disable-", "activate-", "switch-", "toggle-",
+            "confirm-", "reject-", "trigger-",
+        )):
+            return True
+        return action in {
+            "learn-user-expressions", "archive-character", "start-collaboration",
+            "resume-collaboration", "apply-schedule-suggestion", "log-vision-usage",
+            "clear-runtime-logs",
+        }
+
+    def _manual_authoring_allowed(self, action: str | None) -> bool:
+        if self.controls.debug:
+            return True
+        # The first-run role wizard is the sole manual-write exception: a role
+        # is required before the agent can operate. No other authoring is open.
+        return action == "save-character" and not self.store.characters()
+
+    def _apply_debug_visibility(self) -> None:
+        if not self.is_mounted:
+            return
+        for editor in self.query(".debug-editor"):
+            editor.display = self.controls.debug
+        for button in self.query(Button):
+            action = button.id or ""
+            if self._is_manual_authoring(action):
+                button.display = self._manual_authoring_allowed(action)
+        self.query_one("#toggle-debug", Button).label = f"Debug：{'开启' if self.controls.debug else '关闭'}（点击切换）"
+        active = self.single_role.active()
+        self.query_one("#edit-character", Button).display = bool(active) and self.controls.debug and not self.query_one("#character-editor", Vertical).display
+        if active and not self.controls.debug and self.query_one("#character-editor", Vertical).display:
+            self._populate_character_form(active)
+            self._show_character_editor(False)
+
+    def toggle_debug(self) -> None:
+        self.controls.set_debug(not self.controls.debug)
+        self._apply_debug_visibility()
+
+    def select_primary_character(self) -> None:
+        selected = self.query_one("#primary-character", Select).value
+        if selected in (Select.NULL, None):
+            raise ValueError("请先选择要保留的主角色")
+        character = self.single_role.initialize(str(selected))
+        self._populate_character_form(character)
+        self._show_character_editor(False)
+        self._apply_debug_visibility()
+
+    def run_cognition_replay(self) -> None:
+        raw = self.query_one("#replay-input", TextArea).text.strip()
+        rows = json.loads(raw or "[]")
+        if not isinstance(rows, list):
+            raise ValueError("回放输入必须是 JSON 数组")
+        messages = [IncomingMessage(**item) for item in rows]
+        candidates = self.group_reply_gate.replay(messages)
+        for candidate in candidates:
+            self.store.append_event("cognition.group_replay.decision", {
+                "message_id": candidate.message_id, "group_id": candidate.group_id,
+                "decision": candidate.decision, "reason": candidate.reason,
+                "relevance": candidate.relevance, "confidence": candidate.confidence,
+                "activity": candidate.activity, "cooldown": candidate.cooldown,
+            })
+        self._update("#cognition-replay-result", "\n\n".join(
+            f"{row.group_id}/{row.message_id} · {row.decision} · {row.reason} · 相关 {row.relevance:.2f} / 置信 {row.confidence:.2f} / 活跃 {row.activity:.2f}"
+            for row in candidates) or "无回放项目。")
+        self.refresh_cognition_status()
+
+    def refresh_cognition_status(self) -> None:
+        rows = self.store.events(200)
+        selected = [row for row in rows if row.get("message", "").startswith(("cognition.", "agent.action."))]
+        text = "\n\n".join(f"{row.get('message')} · {json.dumps(row.get('fields', {}), ensure_ascii=False)}" for row in reversed(selected[-80:]))
+        self._update("#cognition-status", text or "暂无认知决策或操作审计记录。")
 
     def _value(self, selector: str) -> str:
         return self.query_one(selector, Input).value.strip()
@@ -633,7 +998,6 @@ class NeoConsole(App[None]):
     def _schedule_listing(self) -> str:
         from datetime import datetime, timedelta
 
-        tasks = {(task.get("payload") or {}).get("schedule_id"): task for task in self.store.schedule_tasks()}
         date_filter = "all"
         status_filter = "all"
         if self.is_mounted:
@@ -656,16 +1020,34 @@ class NeoConsole(App[None]):
         for item in self.store.schedules():
             if status_filter != "all" and item.get("status", "pending") != status_filter:
                 continue
-            due = datetime.fromisoformat(item["due_at"].replace("Z", "+00:00"))
+            try:
+                due = datetime.fromisoformat(item["due_at"].replace("Z", "+00:00"))
+            except (KeyError, TypeError, ValueError):
+                if date_filter == "all":
+                    rows.append(f"⚠ 无效日程时间 · {item.get('title', item.get('id', '未知记录'))} [{item.get('id', '')}] · {item.get('due_at', '缺少 due_at')}")
+                continue
             if start_date is not None and not (start_date <= due.astimezone().date() <= end_date):
                 continue
-            task = tasks.get(item["id"])
-            queue_status = task.get("status", "未到期（待 worker 入列）") if task else ("待到期" if item.get("status") == "pending" else "无活动任务")
-            if item.get("status") == "awaiting_delivery":
-                queue_status = "已持久化待发送（当前未配置平台 adapter）"
-            end = f" — {item['end_at']}" if item.get("end_at") else ""
-            rows.append(f"◷ {item['due_at']}{end} · {item['title']} [{item['id']}]\n  {item.get('description', '')}\n  类型：{item.get('type', 'appointment')} · 优先级：{item.get('priority', 'medium')} · 可查询：{'是' if item.get('is_queryable', True) else '否'}\n  协作：{item.get('collaboration_status', 'not_required')} · 状态：{item.get('status', 'pending')} · 队列：{queue_status}")
-        return "\n\n".join(rows) or "当前筛选条件下暂无日程。"
+            end = f" — {item['end_at']}" if item.get("end_at") else " — 持续至下一条场景日程 / 当地日终"
+            place = self.store.get_document("places", item.get("place_id", "")) if item.get("place_id") else None
+            area = self.store.get_document("areas", item.get("area_id", "")) if item.get("area_id") else None
+            scene = f" · 场景：{place.get('name', '')} / {area.get('name', '')}" if place and area else " · 无场景绑定"
+            category = {"agent": "Agent 个人", "user": "用户个人（只读）", "shared": "双方共同"}.get(item.get("category", "agent"), item.get("category"))
+            rows.append(f"◷ {item['due_at']}{end} · {item['title']} [{item['id']}]\n  {item.get('description', '')}\n  归属：{category} · 参与方：{'、'.join(item.get('participants', []))} · 来源：{item.get('schedule_source', '记录')}\n  类型：{item.get('type', 'appointment')} · 状态：{item.get('status', 'pending')}{scene}")
+        from datetime import datetime
+        today = datetime.now().astimezone().date().isoformat()
+        itinerary = next((row for row in self.store.list_documents("itineraries") if row.get("local_date") == today), None)
+        timeline = [row for row in self.store.schedules() if row.get("due_at", "").startswith(today)]
+        timeline.sort(key=lambda row: row.get("due_at", ""))
+        timeline_text = "\n".join(
+            f"  {row['due_at'][11:16]}–{row.get('end_at', '')[11:16] if row.get('end_at') else '后续切换'} · {row.get('title')} · {'共同' if row.get('category') == 'shared' else 'Agent'}"
+            for row in timeline
+        ) or "  今天尚无时间条目。"
+        decisions = self.store.list_documents("schedule_decisions")[:8]
+        decision_text = "\n".join(f"  {row.get('summary', '')} [{row.get('action', '')}]" for row in decisions) or "  暂无冲突决定。"
+        status_text = f"今日计划：{itinerary.get('status')} · {itinerary.get('timezone')} · {itinerary.get('error') or itinerary.get('summary', '')}" if itinerary else "今日计划尚未生成。"
+        current = self.scene_service.current_context()
+        return ("今日生活时间线\n" + timeline_text + "\n" + status_text + "\n\n共同日程冲突协调\n" + decision_text + "\n\n全部日程记录\n" + ("\n\n".join(rows) or "当前筛选条件下暂无日程。") + "\n\n" + current)
 
     def _event_listing(self) -> str:
         event_type = self._value("#event-filter") if self.is_mounted else ""
@@ -737,6 +1119,10 @@ class NeoConsole(App[None]):
             "title": self._value("#schedule-title"), "due_at": self._value("#schedule-due"),
             "description": self._value("#schedule-description"),
             "type": schedule_type,
+            "category": str(self.query_one("#schedule-category", Select).value),
+            "participants": (["agent", "user"] if self.query_one("#schedule-category", Select).value == "shared"
+                             else [str(self.query_one("#schedule-category", Select).value)]),
+            "schedule_source": "debug_manual",
             "collaboration_status": "pending" if schedule_type == "temporary" else "not_required",
             "is_queryable": schedule_type != "temporary",
         }
@@ -763,7 +1149,7 @@ class NeoConsole(App[None]):
         self._pending_similar_schedule = None
         self.query_one("#confirm-create-similar-schedule", Button).disabled = True
         record = self.store.create_schedule(self._value("#schedule-id"), schedule)
-        self.notify(f"已创建提醒：{record['title']}", title="日程")
+        self.notify(f"已创建日程记录：{record['title']}", title="日程")
 
     def confirm_create_similar_schedule(self) -> None:
         if self._pending_similar_schedule is None:
@@ -860,7 +1246,8 @@ class NeoConsole(App[None]):
         self.query_one("#schedule-description", Input).value = suggestion.get("description", "")
         self.query_one("#schedule-type", Input).value = "temporary"
         self.query_one("#schedule-priority", Input).value = "low"
-        self.notify("建议已填入日程表单；请检查后点击“创建提醒”写入。", title="待确认建议")
+        self.query_one("#schedule-category", Select).value = "shared" if suggestion.get("involves_user") else "agent"
+        self.notify("建议已填入日程表单；请检查并确认后写入日程记录。", title="待确认建议")
 
     def show_schedule_statistics(self) -> None:
         stats = self.store.schedule_statistics()
@@ -890,8 +1277,62 @@ class NeoConsole(App[None]):
         schedule_id = self._value("#schedule-delete-id") or self._value("#schedule-edit-id") or self._value("#schedule-id")
         self.store.confirm_schedule(schedule_id, confirmed)
 
+    @staticmethod
+    def _sample_character_profile() -> dict[str, str]:
+        return {
+            "name": "林依", "gender": "女", "role": "女高中生",
+            "age": "17", "height": "160cm", "weight": "50kg",
+            "hobby": "听歌、散步、收集可爱的文具",
+            "personality": "开朗但不吵闹，待人真诚，偶尔有点害羞。熟悉之后会变得健谈，喜欢用轻松自然的方式关心朋友。",
+            "background": "就读于一所普通高中，平时认真上课，也会和朋友分享校园里的趣事。喜欢在放学后散步、听歌；遇到新鲜事时会忍不住多问几句。以上只是示范设定，可以自由修改或全部重写。",
+        }
+
+    def _populate_character_form(self, character: dict[str, Any]) -> None:
+        for field in ("name", "gender", "role", "age", "height", "weight", "hobby"):
+            self.query_one(f"#character-{field}", Input).value = str(character.get(field, ""))
+        self.query_one("#character-personality", TextArea).text = str(character.get("personality", ""))
+        self.query_one("#character-background", TextArea).text = str(character.get("background", ""))
+        from rich.markup import escape
+        details = [
+            f"[bold #55e6c1]{escape(str(character.get('name', '未命名角色')))}[/bold #55e6c1]",
+            f"{escape(str(character.get('gender', '未设置')))} · {escape(str(character.get('role', '身份未设置')))} · {escape(str(character.get('age', '年龄未设置')))} 岁",
+            f"身高 {escape(str(character.get('height', '未设置')))} · 体重 {escape(str(character.get('weight', '未设置')))} · 爱好：{escape(str(character.get('hobby', '未设置')))}",
+            f"角色 ID：{escape(str(character.get('id', '保存后生成')))}",
+            "",
+            f"[bold]性格[/bold]  {escape(str(character.get('personality', '尚未填写')))}",
+            "",
+            f"[bold]背景[/bold]  {escape(str(character.get('background', '尚未填写')))}",
+        ]
+        self.query_one("#character-profile", Static).update("\n".join(details))
+
+    def _show_character_editor(self, opened: bool) -> None:
+        editor = self.query_one("#character-editor", Vertical)
+        editor.display = opened
+        active = self.single_role.active()
+        self.query_one("#character-profile", Static).display = bool(active) and not opened
+        self.query_one("#edit-character", Button).display = bool(active) and self.controls.debug and not opened
+        self.query_one("#cancel-character-edit", Button).display = opened and bool(active)
+        self.query_one("#save-character", Button).label = "创建角色" if not self.store.characters() else "保存设定"
+
+    def open_character_editor(self) -> None:
+        if not self.controls.debug:
+            raise PermissionError("请先开启 Debug 才能编辑角色设定")
+        character = self.single_role.active()
+        if character is None:
+            raise ValueError("请先选择唯一主角色")
+        self._populate_character_form(character)
+        self._show_character_editor(True)
+
+    def cancel_character_edit(self) -> None:
+        active = self.single_role.active()
+        if active:
+            self._populate_character_form(active)
+        self._show_character_editor(False)
+
     def save_character(self) -> None:
-        cid = self._value("#character-id")
+        active = self.single_role.active()
+        existing = self.store.characters()
+        cid = active["id"] if active else uuid.uuid4().hex[:12]
         old = self.store.character(cid) or {}
         name = self._value("#character-name") or old.get("name", "")
         fields = {
@@ -905,21 +1346,27 @@ class NeoConsole(App[None]):
         profile = {key: (value if value else old.get(key, "")) for key, value in fields.items()}
         profile["system_prompt"] = profile["personality"]
         profile["status"] = old.get("status", "active")
-        self.store.save_character(cid, profile)
-
-    def load_character(self) -> None:
-        cid = self._value("#character-id")
-        character = self.store.character(cid)
-        if character is None:
-            raise KeyError(f"找不到角色：{cid}")
-        for field in ("name", "gender", "role", "age", "height", "weight", "hobby"):
-            self.query_one(f"#character-{field}", Input).value = str(character.get(field, ""))
-        self.query_one("#character-personality", TextArea).text = str(character.get("personality", ""))
-        self.query_one("#character-background", TextArea).text = str(character.get("background", ""))
-        self.notify(f"已载入角色：{character.get('name', cid)}", title="角色")
+        if not existing:
+            self.single_role.save_initial(cid, profile)
+            self.notify(f"角色已创建，自动生成 ID：{cid}", title="角色初始化")
+        elif active is None:
+            raise ValueError("检测到多个活动角色，请先选择唯一主角色并归档其余角色")
+        else:
+            self.store.save_character(cid, profile)
+            self.notify("角色设定已保存", title="保存完成")
+        self._populate_character_form(self.store.character(cid) or {**profile, "id": cid})
+        self._show_character_editor(False)
+        self._apply_debug_visibility()
 
     def archive_character(self) -> None:
-        self.store.archive_character(self._value("#character-id"))
+        if len(self.store.characters()) <= 1:
+            raise ValueError("必须保留唯一活动角色；有多个角色时请先选择主角色并归档其余角色")
+        active = self.single_role.active()
+        if active is None:
+            raise ValueError("请先选择唯一主角色")
+        self.store.archive_character(active["id"])
+        self.store.write_json("/runtime/active-character.json", {})
+        self._apply_debug_visibility()
 
     def _character_listing(self) -> str:
         return "\n\n".join(
@@ -946,12 +1393,9 @@ class NeoConsole(App[None]):
     async def send_chat(self) -> None:
         text = self._textarea("#chat-input")
         if not text: return
-        selected = self.query_one("#chat-character", Select).value
-        character = self.store.character(str(selected)) if selected not in (Select.NULL, None) else None
+        character = self.single_role.active()
         if not character:
-            characters = self.store.characters()
-            character = characters[0] if characters else None
-        if not character: raise ValueError("请先创建虚拟群友")
+            raise ValueError("请先完成角色初始化；若存在多个角色，请在“虚拟群友”中选择唯一主角色")
         self.query_one("#chat-input", TextArea).clear()
         log = self.query_one("#chat-log", Static)
         log.update(f"{character['name']} 正在思考…")
@@ -1000,7 +1444,14 @@ class NeoConsole(App[None]):
         from neo_agent.runtime import RelationshipService
         rid = self._value("#relationship-id")
         delta = float(self._value("#relationship-delta") or 0)
-        RelationshipService(self.store).record_interaction(rid, note=f"{self._value('#relationship-peer')}: {self._value('#relationship-note')}", delta=delta)
+        confidence = float(self._value("#relationship-confidence") or 0)
+        if not 0 <= confidence <= 1:
+            raise ValueError("关系置信度必须介于 0 与 1")
+        round_id = self._value("#relationship-round-id") or None
+        RelationshipService(self.store).record_interaction(
+            rid, note=f"{self._value('#relationship-peer')}: {self._value('#relationship-note')}",
+            delta=delta, confidence=confidence, round_id=round_id,
+        )
 
     def record_emotion(self) -> None:
         tone = self._value("#emotion-tone")
@@ -1437,7 +1888,7 @@ class NeoConsole(App[None]):
         self.refresh_runtime_logs()
 
     def refresh_view(self) -> None:
-        mapping = {"总览": "content", "虚拟群友": "characters", "对话": "chat", "事件流": "events", "日程": "schedules", "知识库": "knowledge", "关系": "relationships", "环境与域": "environment", "能力与 NPS": "plugins", "运行记录": "records", "存储与记忆": "storage", "频道连接": "channels", "系统设置": "settings", "实体管理": "entities", "表达风格": "expressions", "人机协作": "human-questions", "任务编排": "collaboration"}
+        mapping = {"总览": "content", "虚拟群友": "characters", "对话": "chat", "事件流": "events", "日程": "schedules", "知识库": "knowledge", "关系": "relationships", "环境与域": "environment", "能力与 NPS": "plugins", "运行记录": "records", "存储与记忆": "storage", "频道连接": "channels", "系统设置": "settings", "实体管理": "entities", "表达风格": "expressions", "人机协作": "human-questions", "任务编排": "collaboration", "认知与回放": "cognition"}
         for name in mapping.values():
             self.query_one(f"#{name}").display = False
         view = mapping[self.active_view]
@@ -1448,16 +1899,38 @@ class NeoConsole(App[None]):
             text = (f"[b]NEO · 全局运行总览[/b]\n\n群友  {overview['characters']}    工具  {len(self.plugin_registry.tools())}    事件  {overview['events']}    日程  {overview['schedules']}\n"
                     f"审计链  {'正常' if overview['audit'].get('ok') else '待检查'} · {overview['audit'].get('length', 0)} 条\n\n"
                     "TUI → Domain Services → LangChain Agent / Plugin Registry → PyVDisk AgentSandbox\n"
-                    "PyVDisk：VFS 文档 + VectorDisk 记忆 + LogDisk 事件 + CheckpointStore / DurableQueue\n\n"
+                    "PyVDisk：VFS 文档 + VectorDisk 记忆 + LogDisk 事件 + PyVDisk 文档：行程、地点、区域与场景审计\n\n"
                     "快捷键：1-9 导航 · E 事件 · S 日程 · R 刷新 · Q 退出")
             self._update("#content", text)
-        elif self.active_view == "虚拟群友": self._update("#character-list", self._character_listing())
+        elif self.active_view == "虚拟群友":
+            rows = self.store.characters()
+            active = self.single_role.active()
+            if active:
+                if not self.query_one("#character-editor", Vertical).display:
+                    self._populate_character_form(active)
+                self.query_one("#archive-character", Button).display = len(rows) > 1 and self.controls.debug
+            else:
+                self.query_one("#character-profile", Static).update("请选择唯一主角色；其余活动角色会被归档。" if rows else "首次启动：林依示范设定已填入编辑器，可直接修改后创建。")
+                self.query_one("#character-profile", Static).display = bool(rows) and not self.query_one("#character-editor", Vertical).display
+                self.query_one("#archive-character", Button).display = False
+            selector = self.query_one("#primary-character", Select)
+            selector.set_options([(row["name"], row["id"]) for row in rows])
+            selector.display = len(rows) > 1
+            self.query_one("#select-primary-character", Button).display = len(rows) > 1
+            self._apply_debug_visibility()
         elif self.active_view == "对话":
-            chars = self.store.characters()
-            selector = self.query_one("#chat-character", Select)
-            selector.set_options([(c["name"], c["id"]) for c in chars])
-            if chars: selector.value = chars[0]["id"]; self.query_one("#chat-log", Static).update(self._render_transcript(chars[0]))
-            else: self.query_one("#chat-log", Static).update("暂无角色，请先创建虚拟群友。")
+            character = self.single_role.active()
+            if character:
+                self._update("#chat-character", f"当前角色  ·  {character.get('name', '未命名')}  ·  ID {character['id']}")
+                self.query_one("#chat-log", Static).update(self._render_transcript(character))
+            else:
+                message = "请先创建虚拟群友。" if not self.store.characters() else "请先在「虚拟群友」中确定唯一主角色。"
+                self._update("#chat-character", "尚未确定活动角色")
+                self.query_one("#chat-log", Static).update(message)
+        elif self.active_view == "认知与回放": self.refresh_cognition_status()
+        elif self.active_view == "系统设置":
+            active = self.single_role.active()
+            self._update("#settings-view", f"Debug：{'开启' if self.controls.debug else '关闭'}\n活动角色：{active.get('name', active['id']) if active else '未初始化 / 待选择主角色'}\n手动创作入口：{'开放' if self.controls.debug or not self.store.characters() else '隐藏'}\n模型密钥仅从环境变量读取。")
         elif self.active_view == "事件流": self.refresh_events()
         elif self.active_view == "日程": self._update("#schedule-list", self._schedule_listing())
         elif self.active_view == "人机协作": self.refresh_questions()
@@ -1494,6 +1967,48 @@ class NeoConsole(App[None]):
             self._update("#environment-graph", graph_text)
             logs = self.environment_service.vision_history(50)
             self._update("#vision-log-list", "\n\n".join(f"{row.get('created_at', '')} · {row.get('triggered_by', '')} · {row.get('environment_id') or '未指定环境'}\n查询：{row.get('query', '')}\n物体：{', '.join(row.get('objects_viewed', []))}\n上下文：{row.get('context', '')}" for row in logs) or "暂无视觉审计记录。")
+            current_scene = self.scene_service.current() or {}
+            places = self.scene_service.places()
+            areas = self.scene_service.areas()
+            place_by_id = {row.get("id"): row for row in places}
+            area_by_id = {row.get("id"): row for row in areas}
+            current_place = place_by_id.get(current_scene.get("place_id"), {})
+            current_area = area_by_id.get(current_scene.get("area_id"), {})
+            pool_rows = [
+                "当前场景：" + self.scene_service.current_context(),
+                "\n场景池（首次进入后固化地点设定与布局；物体状态仍可变化）",
+            ]
+            for place in sorted(places, key=lambda row: (not bool(row.get("visited")), row.get("name", ""))):
+                place_areas = [row for row in areas if row.get("place_id") == place.get("id")]
+                marker = " ← 当前地点" if place.get("id") == current_place.get("id") else ""
+                pool_rows.append(
+                    f"\n{place.get('name', '未命名地点')} · {place.get('id')}{marker}\n"
+                    f"  {place.get('description', '')}\n"
+                    f"  状态：{'已访问 / 已固化' if place.get('visited') else '待用场景'} · "
+                    f"fixed={bool(place.get('fixed'))} · layout_frozen={bool(place.get('layout_frozen'))}\n"
+                    f"  目的：{', '.join(place.get('purpose_tags', [])) or place.get('generated_for', '未标记')} · "
+                    f"标签：{', '.join(place.get('tags', [])) or '无'}"
+                )
+                for area in place_areas:
+                    area_marker = " ← 当前区域" if area.get("id") == current_area.get("id") else ""
+                    pool_rows.append(
+                        f"    └─ {area.get('name', '未命名区域')} · {area.get('id')}{area_marker}\n"
+                        f"       {area.get('description', '')} · "
+                        f"{'已固化' if area.get('visited') else '待首次访问'}"
+                    )
+                objects_for_place = [row for row in self.store.list_documents("environment_objects") if row.get("place_id") == place.get("id")]
+                for obj in objects_for_place:
+                    area = area_by_id.get(obj.get("area_id"), {})
+                    pool_rows.append(f"       ◦ {obj.get('name', obj.get('id'))} [{area.get('name', '未分区')}] · {obj.get('state', '正常')} · {'可见' if obj.get('visible', True) else '隐藏'}")
+            itineraries = self.store.list_documents("itineraries")
+            failed = [row for row in itineraries if row.get("status") == "failed"]
+            if failed:
+                pool_rows.append("\n行程生成失败 / 重试状态")
+                pool_rows.extend(f"  {row.get('local_date', row.get('id'))} · {row.get('error', '未知错误')} · 重试：{row.get('retry_at', '未安排')} · 次数：{row.get('attempts', 0)}" for row in failed)
+            audits = self.store.list_documents("scene_audits")[-30:]
+            pool_rows.append("\n最近场景生成 / 切换审计")
+            pool_rows.extend(f"  {row.get('occurred_at', '') or row.get('action', '')} · {row.get('action', 'scene.audit')} · {row.get('purpose', row.get('schedule_id', ''))} · 地点 {row.get('place_id', row.get('to_place_id', ''))} · 区域 {row.get('area_id', row.get('to_area_id', ''))}" for row in reversed(audits))
+            self._update("#scene-pool", "\n".join(pool_rows))
             domains = self.store.list_documents("domains")
             current_domain = self.domain_registry.current()
             domain_rows = []
@@ -1509,7 +2024,7 @@ class NeoConsole(App[None]):
         elif self.active_view == "存储与记忆":
             overview = self.store.runtime_overview()
             collections = self.store.sandbox.disk.vectors.list_collections()
-            self._update("#storage-view", f"DataDisk 镜像：{overview['disk_image']}\n\n角色：/characters/<id>/profile.json\n事件：LogDisk / neo-agent-events\n向量记忆集合：{collections}\n日程任务：CheckpointStore + DurableQueue（到期后入列）\n\n配置导入导出采用 neo-agent/config/v1，不包含密钥与会话对话。")
+            self._update("#storage-view", f"DataDisk 镜像：{overview['disk_image']}\n\n角色：/characters/<id>/profile.json\n事件：LogDisk / neo-agent-events\n向量记忆集合：{collections}\n日程与场景：PyVDisk 文档；SceneScheduler 负责启动恢复和到时切换\n\n配置导入导出采用 neo-agent/config/v2，不包含密钥与会话对话。")
             self.refresh_memory_layers()
             self.refresh_conversations()
             self.refresh_storage_statistics()

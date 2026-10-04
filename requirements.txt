@@ -4,3 +4,6 @@ langchain-openai>=0.2.0
 python-dotenv>=1.0.0
 textual>=0.80.0
 pyvdisk @ git+https://github.com/HeDaas-Code/pyvdisk.git@1ca863f4373fbb1ec72748922365a733139cf0ff
+aiohttp>=3.9.0
+python-daemon>=3.0.0
+lockfile>=0.12.2

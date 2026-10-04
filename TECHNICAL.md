@@ -15,11 +15,11 @@ Neo Agent 的目标是可配置、可组合、能在群聊中自然互动的虚�
 | `neo_agent/runtime/agent.py` | 有界 LangChain 工具调用、上下文组合及会话/记忆写入。 |
 | `neo_agent/runtime/domain_services.py` | 知识、记忆、关系、环境/域、频道等领域服务。 |
 | `neo_agent/runtime/emotion.py`、`expression.py` | 关系情绪分析和表达风格/用户习惯学习。 |
-| `neo_agent/runtime/scheduler.py`、`neo_agent/services/scheduling.py` | 到期队列 worker、日程规划建议和人机协作提醒服务。 |
+| `neo_agent/runtime/itinerary.py`、`scheduler.py`、`services/scheduling.py` | 每日自主行程、场景池、冲突决策、到时场景切换及日程意图解析；无提醒投递 worker。 |
 | `neo_agent/plugins/` | 原子插件契约、注册表、PyVDisk 工具和日程事件插件。 |
 | `neo_agent/nps/runtime.py` | `neo.nps/v1` manifest、VScript 主控与受限 Python 扩展桥。 |
 | `main.py`、`neo_agent/__main__.py` | TUI 入口；启动与关闭 DataDisk 资源。 |
-| `tests/v2/` | 新运行时服务、持久化重开、TUI Pilot、队列、权限/审计及插件测试。 |
+| `tests/v2/` | 新运行时服务、持久化重开、TUI Pilot、场景/行程调度、权限/审计及插件测试。 |
 
 ## 运行数据流
 
@@ -28,14 +28,14 @@ Textual 操作员 / 群消息入口（平台 adapter 尚待建设）
     → AgentRuntime
     → LangChain Model + 已授权的工具
     → PluginRegistry / PyVDisk AgentSandbox
-    → PyVDisk DataDisk FS / Vector / Log / Checkpoint / DurableQueue
+    → PyVDisk DataDisk VFS / Vector / Log / Checkpoint
 ```
 
 - 对话、角色及领域实体以 PyVDisk 管理的文档形式保存。
 - 语义记忆使用 PyVDisk 向量 API；事件及可审计运行轨迹写入 LogDisk。
 - 可管理事件记录和工作流任务的附属文件分别限定在 `/workspaces/events/{id}` 与 `/workspaces/tasks/{id}`；只能通过 `VFSWorkspace` 相对路径 API 访问，拒绝绝对路径和目录穿越，不存在主机文件系统回退。
-- 日程通知经持久队列调度；队列状态、尝试、失败和完成应可审计。
-- 外部消息发送尚未闭环；当前“已投递到待发送/outbox”状态不等价于外部平台送达。
+- 每日日程是 Agent 生活状态：`DailyItineraryService` 生成计划，`SceneScheduler` 启动恢复、冲突协调并按时切换场景；没有提醒投递、通知暂存或 outbox。
+- 行程生成失败、冲突决定、场景生成与切换通过 PyVDisk 文档状态及审计事件呈现；措辞阶段只接收当前场景摘要和规范化结果。
 - 密钥通过环境变量注入，不能写入频道公开配置或配置导出。
 - 事件/任务工作区严格位于 PyVDisk 镜像内的 DataDisk VFS；禁止使用宿主机目录、临时文件、SQLite 或绝对路径承载/操作其工作产物。只有镜像本身可由启动配置指定主机路径。
 
@@ -66,3 +66,12 @@ git diff --check
 ## 功能深化方向
 
 迁移闭环后，产品开发建议按离线群聊模拟器 → 关系/记忆审核工作台 → 单平台人工确认的真实群聊闭环推进；再深化主动发言仲裁、多群关系、圈内语言审核学习和多模态表达。详见产品路线图。
+
+
+## Cognition / action / persona boundaries
+
+The conversation runtime has three isolated stages: (1) `CognitionService` receives persona and curated conversational state and emits a bounded `CognitionDecision`; (2) LangChain tool proposals execute only when the corresponding plugin is enabled and the tool's declared capability resolves; (3) the language model is invoked without tools and receives only user-visible context plus normalized `ActionResult` facts. Audit events contain the tool name, capability, status, risk, sanitized summary, and audit level, never arguments, raw outputs, or hidden reasoning. High-risk capabilities remain automatic but are marked `enhanced`.
+
+`AgentAuthoringPlugin` exposes typed domain tools for knowledge, environments, domains, workflow registration and explicit task-workflow execution, neutral relationship initialization, event records, and VScript-only NPS creation. Task execution delegates to the durable coordinator and keeps its workspace inside PyVDisk VFS. IDs are validated, collisions do not overwrite authored records, NPS creation compiles before saving and remains disabled until an operator enables it. The Debug switch controls only manual TUI authoring; agent calls are governed by plugin manifests instead. Once initialized, the console edits only the selected active character, and configuration export refuses an ambiguous multi-active-role state.
+
+`GroupReplyGate` and `IncomingMessage` / `ReplyCandidate` provide deterministic offline replay. Relationship emotion analysis and Debug-only manual interaction entry both store per-round evidence; persistent score changes require at least three distinct rounds at confidence >= 0.8 and each committed change is clamped to [-3, 3].

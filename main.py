@@ -1,10 +1,6 @@
-"""Neo Agent v2 entry point: launch the global operations TUI."""
-from neo_agent.ui.tui import run
-
-
-def main() -> None:
-    run()
-
+"""Neo Agent v2 entry point: use new CLI"""
+from neo_agent.cli import main
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
