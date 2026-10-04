@@ -43,20 +43,22 @@ class StatusBar(Static):
         status_widget.update(content)
 
 
-class NavigationItem(Static):
+class NavigationItem(Button):
     """导航项"""
     
     def __init__(self, label: str, view_id: str, **kwargs):
         super().__init__(label, **kwargs)
         self.label_text = label
         self.view_id = view_id
+        self.variant = "default"
         self.add_class("nav-item")
     
-    async def on_click(self):
-        """点击导航项"""
-        app = self.app
-        if hasattr(app, 'switch_view'):
-            await app.switch_view(self.view_id)
+    def on_button_pressed(self, event: Button.Pressed):
+        """处理自己的点击事件"""
+        event.stop()  # 阻止冒泡
+        # 获取应用并调用 switch_view
+        if hasattr(self.app, 'switch_view'):
+            self.app.run_worker(self.app.switch_view(self.view_id))
 
 
 class Sidebar(Vertical):
@@ -102,6 +104,8 @@ class ChatView(Vertical):
             await self.send_message()
     
     async def on_button_pressed(self, event: Button.Pressed):
+        """处理按钮点击"""
+        # 只处理发送按钮
         """处理按钮点击"""
         if event.button.id == "send-button":
             await self.send_message()
@@ -165,10 +169,24 @@ class MainContent(Container):
     
     async def switch_to(self, view_id: str):
         """切换视图"""
-        if view_id not in self.views:
-            # 其他视图暂时显示占位
-            return
+        # 隐藏所有视图
+        for view in self.views.values():
+            view.display = False
         
+        # 如果视图不存在，创建占位符
+        if view_id not in self.views:
+            placeholder = Static(
+                f"[bold $accent-primary]{view_id.upper()} 视图[/bold $accent-primary]\n\n"
+                f"[dim]该功能正在开发中...[/dim]",
+                classes="placeholder-view"
+            )
+            placeholder.styles.padding = (2, 4)
+            placeholder.styles.text_align = "center"
+            self.views[view_id] = placeholder
+            await self.mount(placeholder)
+        
+        # 显示目标视图
+        self.views[view_id].display = True
         self.current_view = view_id
 
 
@@ -182,6 +200,12 @@ class NeoAgentApp(App):
         super().__init__()
         self.client = AgentClient()
         self.connected = False
+    
+    def on_button_pressed(self, event):
+        """处理按钮点击"""
+        # 检查是否是 NavigationItem
+        if isinstance(event.button, NavigationItem):
+            self.run_worker(self.switch_view(event.button.view_id))
     
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")

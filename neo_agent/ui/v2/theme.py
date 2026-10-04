@@ -48,10 +48,26 @@ Screen {
 }
 
 .nav-item {
-    background: $surface-1;
-    color: $text-primary;
-    padding: 0 2;
-    height: auto;
+  width: 100%;
+  height: auto;
+  padding: 1 2;
+  color: $text-primary;
+  background: transparent;
+  border: none;
+  text-align: left;
+}
+
+NavigationItem {
+  width: 100%;
+  height: auto;
+  min-height: 3;
+  background: transparent;
+  border: none;
+}
+
+NavigationItem > .button--label {
+  width: 100%;
+  text-align: left;
 }
 
 .nav-item:hover {
