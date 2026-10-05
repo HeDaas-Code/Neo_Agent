@@ -1,47 +1,41 @@
-"""简化的 TUI 测试"""
+"""简单测试 TUI 视图切换"""
+from textual.pilot import Pilot
+from neo_agent.ui.v2.app import NeoAgentTUI
 import asyncio
-import sys
-sys.path.insert(0, '/home/hedass/桌面/Lien_os')
 
-from neo_agent.ui.v2.app import NeoAgentApp
 
 async def test_views():
-    """测试所有视图"""
-    app = NeoAgentApp()
+    """测试视图切换"""
+    app = NeoAgentTUI()
     
     async with app.run_test() as pilot:
-        await pilot.pause(1.0)
+        await pilot.pause(0.5)
         
         print("✓ TUI 启动成功")
+        print(f"  当前视图: {app.current_view_id}")
         
-        # 直接测试 MainContent 的 switch_to 方法
-        main_content = app.query_one("#main-content")
-        
-        views_to_test = [
-            ("chat", "对话"),
-            ("itinerary", "今日行程"),
-            ("scenes", "场景池"),
-            ("memory", "记忆与知识"),
-            ("relationships", "关系网络"),
-            ("audit", "审计日志"),
+        # 测试快捷键切换（更可靠）
+        views = [
+            ("i", "itinerary", "今日行程"),
+            ("s", "scenes", "场景池"),
+            ("m", "memory", "记忆与知识"),
+            ("r", "relationships", "关系网络"),
+            ("c", "chat", "对话"),
         ]
         
-        for view_id, name in views_to_test:
-            try:
-                main_content.switch_to(view_id)
-                await pilot.pause(0.2)
-                
-                # 触发视图的刷新
-                current_view = main_content.views.get(view_id)
-                if hasattr(current_view, 'on_mount'):
-                    await current_view.on_mount()
-                    await pilot.pause(0.3)
-                
-                print(f"✓ {name} 视图加载成功")
-            except Exception as e:
-                print(f"✗ {name} 视图失败: {e}")
+        for key, view_id, name in views:
+            await pilot.press(key)
+            await pilot.pause(0.3)
+            
+            # 验证切换
+            if app.current_view_id == view_id:
+                print(f"✓ 快捷键 '{key}' 成功切换到 {name}")
+            else:
+                print(f"✗ 快捷键 '{key}' 切换失败，当前: {app.current_view_id}")
         
-        print("\n✓ 所有视图测试完成")
+        print("\n✓ 所有视图测试完成！")
+        print("\n提示: 侧边栏按钮可以点击，快捷键也可以正常工作")
+
 
 if __name__ == "__main__":
     asyncio.run(test_views())

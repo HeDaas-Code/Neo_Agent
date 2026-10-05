@@ -1,6 +1,6 @@
 """Neo Agent TUI v2 - 服务客户端主应用"""
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Header, Footer, Static, Button
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -16,46 +16,49 @@ from .client import AgentClient
 from .theme import AMBER_THEME
 
 
-class NavigationItem(Button):
-    """导航项 - 使用 Button 确保可点击"""
+class Sidebar(VerticalScroll):
+    """侧边栏容器"""
     
-    class NavClicked(Message):
-        """导航项点击消息"""
+    class ViewChangeRequested(Message):
+        """视图切换请求消息"""
         def __init__(self, view_id: str):
             super().__init__()
             self.view_id = view_id
     
-    def __init__(self, label: str, icon: str, view_id: str, count: int = 0):
-        # Button 的 label 会自动显示
-        self.nav_label = label
-        self.icon = icon
-        self.view_id = view_id
-        self.count = count
-        self._is_active = False
-        
-        # 初始化按钮
-        count_text = f" ({count})" if count > 0 else ""
-        super().__init__(f"{icon} {label}{count_text}", variant="default")
+    def __init__(self):
+        super().__init__(id="sidebar")
+        self.nav_items = {}
     
-    def update_display(self):
-        """更新显示内容"""
-        count_text = f" ({self.count})" if self.count > 0 else ""
-        self.label = f"{self.icon} {self.nav_label}{count_text}"
+    def compose(self) -> ComposeResult:
+        # 主要导航项
+        yield Button("💬 对话", id="nav_chat", classes="nav_button")
+        yield Button("📅 今日行程", id="nav_itinerary", classes="nav_button")
+        yield Button("🌍 场景池", id="nav_scenes", classes="nav_button")
+        yield Button("🧠 记忆与知识", id="nav_memory", classes="nav_button")
+        yield Button("💭 关系网络", id="nav_relationships", classes="nav_button")
+        yield Button("🔍 审计日志", id="nav_audit", classes="nav_button")
         
-        # 更新样式
-        if self._is_active:
-            self.variant = "primary"
-        else:
-            self.variant = "default"
-    
-    def set_active(self, active: bool):
-        self._is_active = active
-        self.update_display()
+        # 分隔线
+        yield Static("─── 设置 ───", classes="nav_section_title")
+        yield Static(":config 全局配置", classes="nav_hint")
+        yield Static(":debug 开发模式", classes="nav_hint")
+        yield Static(":export 导出数据", classes="nav_hint")
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """按钮点击事件"""
-        event.stop()  # 阻止事件冒泡
-        self.post_message(self.NavClicked(self.view_id))
+        """处理按钮点击"""
+        button_id = event.button.id
+        if button_id and button_id.startswith("nav_"):
+            view_id = button_id.replace("nav_", "")
+            self.post_message(self.ViewChangeRequested(view_id))
+            event.stop()
+    
+    def set_active(self, view_id: str) -> None:
+        """设置激活状态"""
+        for btn in self.query(".nav_button"):
+            if btn.id == f"nav_{view_id}":
+                btn.add_class("active")
+            else:
+                btn.remove_class("active")
 
 
 class StatusBar(Static):
@@ -96,14 +99,14 @@ class NeoAgentTUI(App):
     
     CSS = AMBER_THEME + """
     Screen {
-        background: $surface-0;
+        background: #050302;
     }
     
     #top_bar {
         dock: top;
         height: 1;
-        background: $surface-1;
-        color: $text-primary;
+        background: #0A0805;
+        color: #F5E6D3;
         padding: 0 2;
     }
     
@@ -114,46 +117,66 @@ class NeoAgentTUI(App):
     
     #sidebar {
         width: 24;
-        background: $surface-1;
-        border-right: solid $surface-3;
-        padding: 1;
+        background: #0A0805;
+        border-right: solid #1C1812;
+        padding: 1 1;
     }
     
-    #content {
-        width: 1fr;
-        background: $surface-0;
-    }
-    
-    NavigationItem {
+    .nav_button {
         width: 100%;
         height: auto;
         margin: 0 0 1 0;
         text-align: left;
+        background: transparent;
+        border: none;
+        color: #C9B89A;
     }
     
-    NavigationItem Button {
-        width: 100%;
+    .nav_button:hover {
+        background: #12100D;
+        color: #F5E6D3;
     }
     
-    .nav_section {
-        width: 100%;
-        height: auto;
-        margin-top: 1;
+    .nav_button.active {
+        background: #1C1812;
+        color: #E9A568;
+        border-left: thick #E9A568;
     }
     
-    .nav_title {
-        color: $text-dim;
+    .nav_section_title {
+        color: #8A7A66;
         text-style: italic;
-        margin-bottom: 1;
+        margin: 2 0 1 0;
         padding: 0 1;
+    }
+    
+    .nav_hint {
+        color: #8A7A66;
+        margin: 0 0 0 2;
+        padding: 0;
+    }
+    
+    #content {
+        width: 1fr;
+        background: #050302;
     }
     
     #status_bar {
         dock: bottom;
         height: 1;
-        background: $surface-1;
-        color: $text-secondary;
+        background: #0A0805;
+        color: #C9B89A;
         padding: 0 2;
+    }
+    
+    /* 隐藏非激活视图 */
+    .view {
+        width: 100%;
+        height: 100%;
+    }
+    
+    .view.hidden {
+        display: none;
     }
     """
     
@@ -180,136 +203,90 @@ class NeoAgentTUI(App):
         yield TopBar(id="top_bar")
         
         with Horizontal(id="main_container"):
-            with Vertical(id="sidebar"):
-                yield NavigationItem("对话", "💬", "chat")
-                yield NavigationItem("今日行程", "📅", "itinerary", count=0)
-                yield NavigationItem("场景池", "🌍", "scenes", count=0)
-                yield NavigationItem("记忆与知识", "🧠", "memory")
-                yield NavigationItem("关系网络", "💭", "relationships")
-                yield NavigationItem("审计日志", "🔍", "audit")
-                
-                yield Static("─── 设置 ───", classes="nav_title")
-                yield Static("[dim]:config 全局配置[/]")
-                yield Static("[dim]:debug 开发模式[/]")
-                yield Static("[dim]:export 导出数据[/]")
+            yield Sidebar()
             
             with Container(id="content"):
-                yield ChatView(id="view_chat")
-                yield ItineraryView(id="view_itinerary")
-                yield ScenePoolView(id="view_scenes")
-                yield MemoryView(id="view_memory")
-                yield RelationshipView(id="view_relationships")
-                yield AuditView(id="view_audit")
+                yield ChatView(classes="view", id="view_chat")
+                yield ItineraryView(classes="view hidden", id="view_itinerary")
+                yield ScenePoolView(classes="view hidden", id="view_scenes")
+                yield MemoryView(classes="view hidden", id="view_memory")
+                yield RelationshipView(classes="view hidden", id="view_relationships")
+                yield AuditView(classes="view hidden", id="view_audit")
         
         yield StatusBar(id="status_bar")
     
     async def on_mount(self) -> None:
-        """挂载后初始化"""
-        # 隐藏所有视图，只显示对话视图
-        for vid in ["itinerary", "scenes", "memory", "relationships", "audit"]:
-            view = self.query_one(f"#view_{vid}")
-            view.display = False
-        
-        # 激活对话导航项
-        self.update_navigation()
-        
-        # 连接服务
-        await self.connect_service()
-        
-        # 设置定时器更新时间
-        self.set_interval(60, self.update_time)
-    
-    async def connect_service(self) -> None:
-        """连接到服务"""
-        status_bar = self.query_one("#status_bar", StatusBar)
+        """应用挂载时初始化"""
+        # 连接到服务
         try:
             await self.client.connect()
-            status_bar.status = "[green]服务运行中[/]"
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.status = "服务运行中"
             
-            # 加载初始数据
-            await self.load_initial_data()
+            # 加载初始视图
+            await self.load_current_view()
+            
+            # 更新顶栏信息
+            await self.update_top_bar()
+            
         except Exception as e:
-            status_bar.status = f"[red]连接失败: {e}[/]"
-            self.notify(f"无法连接到服务: {e}", severity="error", timeout=10)
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.status = f"连接失败: {e}"
+            self.notify(f"服务连接失败，使用模拟模式", severity="warning", timeout=5)
     
-    async def load_initial_data(self) -> None:
-        """加载初始数据"""
+    async def update_top_bar(self) -> None:
+        """更新顶栏信息"""
         try:
-            # 加载角色信息
-            profile = await self.client.call("character.get_profile")
-            if profile:
-                top_bar = self.query_one("#top_bar", TopBar)
-                top_bar.character_name = profile.get("name", "林依")
+            context = await self.client.call("session.get_context")
+            top_bar = self.query_one("#top_bar", TopBar)
             
-            # 加载当前场景
-            scene = await self.client.call("scene.get_current")
-            if scene:
-                top_bar = self.query_one("#top_bar", TopBar)
+            if context:
+                scene = context.get("current_scene", {})
                 top_bar.current_scene = scene.get("location", "未知")
-            
-            # 加载情绪
-            emotion = await self.client.call("emotion.get_current")
-            if emotion:
-                top_bar = self.query_one("#top_bar", TopBar)
-                top_bar.emotion = emotion.get("state", "平静")
-            
-            # 更新导航计数
-            await self.update_counts()
-            
-        except Exception as e:
-            self.notify(f"加载数据失败: {e}", severity="error")
-    
-    async def update_counts(self) -> None:
-        """更新导航项计数"""
-        try:
-            # 更新行程计数
-            itinerary = await self.client.call("schedule.get_today_itinerary")
-            if itinerary:
-                for nav in self.query(NavigationItem):
-                    if nav.view_id == "itinerary":
-                        nav.count = len(itinerary)
-                        nav.update_display()
-            
-            # 更新场景池计数
-            scenes = await self.client.call("scene.list_pool")
-            if scenes:
-                for nav in self.query(NavigationItem):
-                    if nav.view_id == "scenes":
-                        nav.count = len(scenes)
-                        nav.update_display()
-        except Exception as e:
-            pass  # 静默失败
-    
-    def update_time(self) -> None:
-        """更新顶部时间"""
-        top_bar = self.query_one("#top_bar", TopBar)
-        top_bar.time = datetime.now().strftime("%H:%M")
+                top_bar.emotion = context.get("emotion", "平静")
+                
+        except Exception:
+            pass  # 静默失败，使用默认值
     
     def update_navigation(self) -> None:
-        """更新导航项激活状态"""
-        for nav in self.query(NavigationItem):
-            nav.set_active(nav.view_id == self.current_view_id)
+        """更新导航栏激活状态"""
+        sidebar = self.query_one(Sidebar)
+        sidebar.set_active(self.current_view_id)
+    
+    async def load_current_view(self) -> None:
+        """加载当前视图数据"""
+        view = self.query_one(f"#view_{self.current_view_id}")
+        if hasattr(view, 'load_data'):
+            try:
+                await view.load_data(self.client)
+            except Exception as e:
+                self.notify(f"加载视图失败: {e}", severity="error")
     
     async def switch_view(self, view_id: str) -> None:
         """切换视图"""
+        if view_id == self.current_view_id:
+            return
+        
         # 隐藏所有视图
         for vid in ["chat", "itinerary", "scenes", "memory", "relationships", "audit"]:
             view = self.query_one(f"#view_{vid}")
-            view.display = False
+            view.add_class("hidden")
         
         # 显示目标视图
         view = self.query_one(f"#view_{view_id}")
-        view.display = True
+        view.remove_class("hidden")
+        
+        # 更新当前视图ID
+        self.current_view_id = view_id
+        
+        # 更新导航栏
+        self.update_navigation()
         
         # 加载视图数据
-        if hasattr(view, 'load_data'):
-            await view.load_data(self.client)
-        
-        self.current_view_id = view_id
-        self.update_navigation()
+        await self.load_current_view()
     
-    async def on_navigation_item_nav_clicked(self, message: NavigationItem.NavClicked) -> None:
-        """处理导航项点击"""
+    async def on_sidebar_view_change_requested(self, message: Sidebar.ViewChangeRequested) -> None:
+        """处理侧边栏的视图切换请求"""
         await self.switch_view(message.view_id)
     
     async def action_switch_view(self, view_id: str) -> None:
