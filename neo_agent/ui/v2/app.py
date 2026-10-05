@@ -12,26 +12,23 @@ from .views import (
     MemoryView, RelationshipView, AuditView
 )
 from .modals import ConfigModal, CommandPalette, SceneDetailModal, ItineraryDetailModal
-from .client import AgentClient
+from .client import ServiceClient
 from .theme import AMBER_THEME
+
+
+class ViewChangeRequested(Message):
+    """视图切换请求消息"""
+    def __init__(self, view_id: str):
+        super().__init__()
+        self.view_id = view_id
 
 
 class Sidebar(VerticalScroll):
     """侧边栏容器"""
     
-    class ViewChangeRequested(Message):
-        """视图切换请求消息"""
-        def __init__(self, view_id: str):
-            super().__init__()
-            self.view_id = view_id
-    
-    def __init__(self):
-        super().__init__(id="sidebar")
-        self.nav_items = {}
-    
     def compose(self) -> ComposeResult:
         # 主要导航项
-        yield Button("💬 对话", id="nav_chat", classes="nav_button")
+        yield Button("💬 对话", id="nav_chat", classes="nav_button active")
         yield Button("📅 今日行程", id="nav_itinerary", classes="nav_button")
         yield Button("🌍 场景池", id="nav_scenes", classes="nav_button")
         yield Button("🧠 记忆与知识", id="nav_memory", classes="nav_button")
@@ -49,12 +46,13 @@ class Sidebar(VerticalScroll):
         button_id = event.button.id
         if button_id and button_id.startswith("nav_"):
             view_id = button_id.replace("nav_", "")
-            self.post_message(self.ViewChangeRequested(view_id))
+            # 发送视图切换消息到主应用
+            self.post_message(ViewChangeRequested(view_id))
             event.stop()
     
     def set_active(self, view_id: str) -> None:
         """设置激活状态"""
-        for btn in self.query(".nav_button"):
+        for btn in self.query(Button):
             if btn.id == f"nav_{view_id}":
                 btn.add_class("active")
             else:
@@ -82,15 +80,26 @@ class TopBar(Static):
     current_scene = reactive("未知")
     emotion = reactive("平静")
     time = reactive("")
+    connection_status = reactive("未连接")
     
     def render(self) -> str:
         if not self.time:
             self.time = datetime.now().strftime("%H:%M")
+        
+        # 根据连接状态显示不同颜色
+        if self.connection_status == "已连接":
+            status_color = "green"
+        elif self.connection_status == "连接中":
+            status_color = "yellow"
+        else:
+            status_color = "red"
+        
         return (
             f"[bold]{self.character_name}[/] • "
             f"[dim]在[/] {self.current_scene} • "
             f"[dim]情绪:[/] {self.emotion} • "
-            f"{self.time}"
+            f"{self.time}     "
+            f"[{status_color}]● {self.connection_status}[/]"
         )
 
 
@@ -115,7 +124,7 @@ class NeoAgentTUI(App):
         height: 1fr;
     }
     
-    #sidebar {
+    Sidebar {
         width: 24;
         background: #0A0805;
         border-right: solid #1C1812;
@@ -151,14 +160,24 @@ class NeoAgentTUI(App):
     }
     
     .nav_hint {
-        color: #8A7A66;
-        margin: 0 0 0 2;
+        color: #8A6B4F;
+        margin: 0 0 0 1;
         padding: 0;
     }
     
     #content {
         width: 1fr;
+        height: 100%;
         background: #050302;
+    }
+    
+    .view {
+        width: 100%;
+        height: 100%;
+    }
+    
+    .view.hidden {
+        display: none;
     }
     
     #status_bar {
@@ -168,35 +187,24 @@ class NeoAgentTUI(App):
         color: #C9B89A;
         padding: 0 2;
     }
-    
-    /* 隐藏非激活视图 */
-    .view {
-        width: 100%;
-        height: 100%;
-    }
-    
-    .view.hidden {
-        display: none;
-    }
     """
     
     BINDINGS = [
-        Binding("q", "quit", "退出", priority=True),
+        Binding("c", "switch_view('chat')", "对话", show=True),
+        Binding("i", "switch_view('itinerary')", "行程", show=True),
+        Binding("s", "switch_view('scenes')", "场景", show=True),
+        Binding("m", "switch_view('memory')", "记忆", show=True),
+        Binding("r", "switch_view('relationships')", "关系", show=True),
+        Binding("a", "switch_view('audit')", "审计", show=True),
+        Binding("q", "quit", "退出", show=True),
         Binding("colon", "command_mode", "命令", show=False),
         Binding("question_mark", "help", "帮助", show=False),
-        Binding("c", "switch_view('chat')", "对话", show=False),
-        Binding("i", "switch_view('itinerary')", "行程", show=False),
-        Binding("s", "switch_view('scenes')", "场景", show=False),
-        Binding("m", "switch_view('memory')", "记忆", show=False),
-        Binding("r", "switch_view('relationships')", "关系", show=False),
-        Binding("a", "switch_view('audit')", "审计", show=False),
     ]
     
     def __init__(self):
         super().__init__()
-        self.client = AgentClient()
+        self.client = ServiceClient()
         self.current_view_id = "chat"
-        self.views = {}
         self.debug_mode = False
     
     def compose(self) -> ComposeResult:
@@ -217,11 +225,15 @@ class NeoAgentTUI(App):
     
     async def on_mount(self) -> None:
         """应用挂载时初始化"""
+        top_bar = self.query_one("#top_bar", TopBar)
+        top_bar.connection_status = "连接中"
+        
         # 连接到服务
         try:
             await self.client.connect()
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.status = "服务运行中"
+            top_bar.connection_status = "已连接"
             
             # 加载初始视图
             await self.load_current_view()
@@ -232,18 +244,31 @@ class NeoAgentTUI(App):
         except Exception as e:
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.status = f"连接失败: {e}"
-            self.notify(f"服务连接失败，使用模拟模式", severity="warning", timeout=5)
+            top_bar.connection_status = "未连接"
+            self.notify(f"无法连接到服务: {e}", severity="error", timeout=10)
+    
+    def on_view_change_requested(self, message: ViewChangeRequested) -> None:
+        """处理视图切换请求"""
+        self.call_later(self.switch_view, message.view_id)
     
     async def update_top_bar(self) -> None:
         """更新顶栏信息"""
         try:
+            # 获取角色信息
+            profile = await self.client.call("character.get_profile")
             context = await self.client.call("session.get_context")
+            
             top_bar = self.query_one("#top_bar", TopBar)
+            if profile:
+                top_bar.character_name = profile.get("name", "林依")
             
             if context:
                 scene = context.get("current_scene", {})
                 top_bar.current_scene = scene.get("location", "未知")
                 top_bar.emotion = context.get("emotion", "平静")
+            
+            # 更新时间
+            top_bar.time = datetime.now().strftime("%H:%M")
                 
         except Exception:
             pass  # 静默失败，使用默认值
@@ -284,10 +309,6 @@ class NeoAgentTUI(App):
         
         # 加载视图数据
         await self.load_current_view()
-    
-    async def on_sidebar_view_change_requested(self, message: Sidebar.ViewChangeRequested) -> None:
-        """处理侧边栏的视图切换请求"""
-        await self.switch_view(message.view_id)
     
     async def action_switch_view(self, view_id: str) -> None:
         """快捷键切换视图"""

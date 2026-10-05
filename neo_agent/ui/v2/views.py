@@ -1,8 +1,9 @@
-"""TUI 视图组件"""
+"""TUI 视图组件 - 完整实现版"""
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal, VerticalScroll
 from textual.widgets import Static, Input, Button, DataTable, RichLog, Label
 from textual.reactive import reactive
+from datetime import datetime
 
 
 class ChatView(VerticalScroll):
@@ -52,7 +53,8 @@ class ChatView(VerticalScroll):
     async def on_mount(self) -> None:
         """挂载时初始化"""
         log = self.query_one("#chat_log", RichLog)
-        log.write("[dim]欢迎！输入消息开始对话。[/]")
+        log.write("[#E9A568]欢迎与林依对话！[/]")
+        log.write("[dim]提示：输入消息后按 Enter 或点击发送按钮[/]\n")
     
     async def load_data(self, client) -> None:
         """加载对话历史"""
@@ -61,21 +63,24 @@ class ChatView(VerticalScroll):
             log = self.query_one("#chat_log", RichLog)
             log.clear()
             
-            if history:
+            if history and len(history) > 0:
+                log.write("[#E9A568]─── 对话历史 ───[/]\n")
                 for msg in history:
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
                     timestamp = msg.get("timestamp", "")
                     
                     if role == "user":
-                        log.write(f"[bold cyan]用户[/] [{timestamp}]: {content}")
+                        log.write(f"[bold cyan]你[/] [{dim}{timestamp}[/]]: {content}")
                     else:
-                        log.write(f"[bold #E9A568]林依[/] [{timestamp}]: {content}")
+                        log.write(f"[bold #E9A568]林依[/] [{dim}{timestamp}[/]]: {content}")
+                log.write("")
             else:
-                log.write("[dim]暂无对话历史，开始新的对话吧！[/]")
+                log.write("[#E9A568]欢迎与林依对话！[/]")
+                log.write("[dim]开始新的对话吧！[/]\n")
         except Exception as e:
             log = self.query_one("#chat_log", RichLog)
-            log.write(f"[yellow]提示: 使用模拟数据模式[/]")
+            log.write(f"[yellow]提示: 使用模拟数据模式 ({e})[/]\n")
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send_btn":
@@ -94,7 +99,8 @@ class ChatView(VerticalScroll):
             return
         
         log = self.query_one("#chat_log", RichLog)
-        log.write(f"\n[bold cyan]用户[/]: {message}")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log.write(f"\n[bold cyan]你[/] [dim]{timestamp}[/]: {message}")
         input_widget.value = ""
         
         # 显示思考中
@@ -104,7 +110,7 @@ class ChatView(VerticalScroll):
             # 调用服务发送消息
             response = await self.app.client.call("session.send_message", text=message)
             
-            # 移除"思考中"提示并显示回复
+            # 显示回复
             reply = response.get('reply', '抱歉，我暂时无法回复。')
             emotion = response.get('emotion', '平静')
             
@@ -131,125 +137,133 @@ class ItineraryView(VerticalScroll):
     .itinerary_header {
         width: 100%;
         height: auto;
-        layout: horizontal;
-        margin-bottom: 1;
-    }
-    
-    .itinerary_title {
-        width: 1fr;
-        text-style: bold;
-        color: #E9A568;
-    }
-    
-    .action_buttons {
-        width: auto;
-        height: auto;
-        layout: horizontal;
-    }
-    
-    .action_buttons Button {
-        margin-left: 1;
-    }
-    
-    #itinerary_table {
-        width: 100%;
-        height: 1fr;
-    }
-    
-    .stats_container {
-        width: 100%;
-        height: auto;
-        background: #12100D;
+        background: #0A0805;
         border: solid #1C1812;
         padding: 1;
         margin-bottom: 1;
     }
+    
+    .itinerary_title {
+        text-style: bold;
+        color: #E9A568;
+        margin-bottom: 1;
+    }
+    
+    .stats_line {
+        color: #C9B89A;
+    }
+    
+    #itinerary_content {
+        width: 100%;
+        height: 1fr;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
+    }
+    
+    .timeline_item {
+        margin-bottom: 2;
+    }
+    
+    .timeline_time {
+        color: #E9A568;
+        text-style: bold;
+    }
+    
+    .timeline_activity {
+        color: #F5E6D3;
+        margin-left: 2;
+    }
+    
+    .timeline_location {
+        color: #8A6B4F;
+        margin-left: 2;
+    }
+    
+    .timeline_type {
+        color: #D4863C;
+        margin-left: 2;
+    }
+    
+    .current_activity {
+        background: #12100D;
+        padding: 0 1;
+    }
     """
     
     def compose(self) -> ComposeResult:
-        with Horizontal(classes="itinerary_header"):
-            yield Label("📅 今日行程", classes="itinerary_title")
-            with Horizontal(classes="action_buttons"):
-                yield Button("刷新", variant="default", id="refresh_btn")
-                yield Button("生成新计划", variant="primary", id="generate_btn")
+        with Vertical(classes="itinerary_header"):
+            yield Label("📅 今日行程时间线", classes="itinerary_title")
+            yield Label("统计信息加载中...", id="itinerary_stats", classes="stats_line")
         
-        with Container(classes="stats_container"):
-            yield Label("", id="itinerary_stats")
-        
-        yield DataTable(id="itinerary_table", zebra_stripes=True, cursor_type="row")
-    
-    async def on_mount(self) -> None:
-        table = self.query_one("#itinerary_table", DataTable)
-        table.add_columns("时间", "活动", "地点", "类型", "状态")
+        yield RichLog(id="itinerary_content", highlight=True, markup=True)
     
     async def load_data(self, client) -> None:
         """加载今日行程"""
         try:
             itinerary = await client.call("schedule.get_today_itinerary")
-            table = self.query_one("#itinerary_table", DataTable)
-            table.clear()
+            content = self.query_one("#itinerary_content", RichLog)
+            stats = self.query_one("#itinerary_stats", Label)
+            content.clear()
             
-            if itinerary:
-                # 统计信息
+            if itinerary and len(itinerary) > 0:
+                # 更新统计
                 total = len(itinerary)
-                completed = sum(1 for item in itinerary if item.get("status") == "completed")
-                active = sum(1 for item in itinerary if item.get("status") == "active")
+                agent_count = sum(1 for i in itinerary if i.get("type") == "agent")
+                user_count = sum(1 for i in itinerary if i.get("type") == "user")
+                shared_count = sum(1 for i in itinerary if i.get("type") == "shared")
                 
-                stats = self.query_one("#itinerary_stats", Label)
                 stats.update(
-                    f"[bold]今日计划:[/] 共 {total} 项 | "
-                    f"进行中 {active} | 已完成 {completed}"
+                    f"共 {total} 项行程 • "
+                    f"林依个人: {agent_count} • "
+                    f"你的: {user_count} • "
+                    f"共同: {shared_count}"
                 )
                 
+                # 显示时间线
+                current_time = datetime.now().strftime("%H:%M")
+                content.write("[#E9A568]═══ 今日行程时间线 ═══[/]\n")
+                
                 for item in itinerary:
-                    time = item.get("time", "")
+                    start_time = item.get("start_time", "")
+                    end_time = item.get("end_time", "")
                     activity = item.get("activity", "")
                     location = item.get("location", "")
-                    owner = item.get("owner", "agent")
-                    status = item.get("status", "pending")
+                    item_type = item.get("type", "agent")
+                    is_current = item.get("is_current", False)
                     
-                    owner_text = {
-                        "agent": "个人",
-                        "user": "用户",
-                        "shared": "共同"
-                    }.get(owner, owner)
+                    # 类型标签
+                    type_label = {
+                        "agent": "[#E9A568]林依[/]",
+                        "user": "[cyan]你[/]",
+                        "shared": "[#D4863C]共同[/]"
+                    }.get(item_type, "")
                     
-                    status_text = {
-                        "pending": "待开始",
-                        "active": "进行中",
-                        "completed": "已完成",
-                        "cancelled": "已取消"
-                    }.get(status, status)
+                    # 时间范围
+                    time_str = f"{start_time}"
+                    if end_time:
+                        time_str += f" - {end_time}"
                     
-                    table.add_row(time, activity, location, owner_text, status_text)
+                    # 当前活动高亮
+                    if is_current:
+                        content.write(f"\n[reverse][bold #E9A568]▶ 当前[/][/]")
+                    
+                    content.write(f"[bold]{time_str}[/] {type_label}")
+                    content.write(f"  📍 {activity}")
+                    if location:
+                        content.write(f"  🌍 {location}")
+                    content.write("")
+                
             else:
-                # 显示空状态
-                stats = self.query_one("#itinerary_stats", Label)
-                stats.update("[dim]今日暂无行程[/]")
-                table.add_row("--:--", "暂无行程", "-", "-", "-")
+                stats.update("今日暂无行程安排")
+                content.write("[dim]今日还没有安排行程[/]")
+                content.write("[dim]林依会在每天 00:05 自动生成当日计划[/]")
                 
         except Exception as e:
-            table = self.query_one("#itinerary_table", DataTable)
-            table.clear()
-            table.add_row("错误", f"加载失败: {e}", "-", "-", "-")
-    
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "refresh_btn":
-            await self.load_data(self.app.client)
-            self.app.notify("行程已刷新", timeout=2)
-        
-        elif event.button.id == "generate_btn":
-            self.app.notify("正在生成新的行程计划...", timeout=3)
-            try:
-                await self.app.client.call("schedule.generate_daily_itinerary")
-                await self.load_data(self.app.client)
-                self.app.notify("行程生成成功", timeout=3)
-            except Exception as e:
-                self.app.notify(f"生成失败: {e}", severity="error")
-    
-    async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """行选中事件 - 显示详情"""
-        self.app.notify("行程详情: 点击查看完整信息", timeout=2)
+            content = self.query_one("#itinerary_content", RichLog)
+            stats = self.query_one("#itinerary_stats", Label)
+            stats.update(f"加载失败: {e}")
+            content.write(f"[red]无法加载行程数据: {e}[/]")
 
 
 class ScenePoolView(VerticalScroll):
@@ -262,91 +276,114 @@ class ScenePoolView(VerticalScroll):
         padding: 1;
     }
     
-    .scene_title {
+    .scene_header {
         width: 100%;
+        height: auto;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
+        margin-bottom: 1;
+    }
+    
+    .scene_title {
         text-style: bold;
         color: #E9A568;
         margin-bottom: 1;
     }
     
-    #current_scene_container {
-        width: 100%;
-        background: #12100D;
-        border: solid #E9A568;
-        padding: 1;
-        margin-bottom: 2;
-    }
-    
-    #current_scene_text {
-        width: 100%;
-        margin-top: 1;
-    }
-    
-    #scene_table {
+    #scene_content {
         width: 100%;
         height: 1fr;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
+    }
+    
+    .scene_item {
+        margin-bottom: 2;
+        padding: 1;
+        background: #12100D;
+        border-left: thick #E9A568;
+    }
+    
+    .scene_item.current {
+        background: #1C1812;
+        border-left: thick #D4863C;
+    }
+    
+    .scene_name {
+        color: #E9A568;
+        text-style: bold;
+    }
+    
+    .scene_visited {
+        color: #8A6B4F;
     }
     """
     
     def compose(self) -> ComposeResult:
-        yield Label("🌍 场景池", classes="scene_title")
+        with Vertical(classes="scene_header"):
+            yield Label("🌍 场景池", classes="scene_title")
+            yield Label("统计信息加载中...", id="scene_stats")
         
-        with Container(id="current_scene_container"):
-            yield Label("[bold #E9A568]当前场景[/]")
-            yield Label("加载中...", id="current_scene_text")
-        
-        yield Label("[bold]已访问场景[/]", classes="scene_title")
-        yield DataTable(id="scene_table", zebra_stripes=True, cursor_type="row")
-    
-    async def on_mount(self) -> None:
-        table = self.query_one("#scene_table", DataTable)
-        table.add_columns("地点", "区域", "访问次数", "最后访问")
+        yield RichLog(id="scene_content", highlight=True, markup=True)
     
     async def load_data(self, client) -> None:
-        """加载场景数据"""
+        """加载场景池"""
         try:
-            # 加载当前场景
-            current = await client.call("scene.get_current")
-            current_text = self.query_one("#current_scene_text", Label)
-            
-            if current:
-                location = current.get("location", "未知")
-                area = current.get("area", "")
-                description = current.get("description", "")
-                
-                text = f"[bold]{location}[/]"
-                if area:
-                    text += f" - {area}"
-                if description:
-                    text += f"\n[dim]{description}[/]"
-                
-                current_text.update(text)
-            else:
-                current_text.update("[dim]暂无当前场景[/]")
-            
-            # 加载场景池
             scenes = await client.call("scene.list_pool")
-            table = self.query_one("#scene_table", DataTable)
-            table.clear()
+            current_scene = await client.call("scene.get_current")
             
-            if scenes:
+            content = self.query_one("#scene_content", RichLog)
+            stats = self.query_one("#scene_stats", Label)
+            content.clear()
+            
+            current_location = current_scene.get("location", "") if current_scene else ""
+            
+            if scenes and len(scenes) > 0:
+                visited_count = sum(1 for s in scenes if s.get("visited", False))
+                stats.update(f"共 {len(scenes)} 个场景 • 已访问: {visited_count}")
+                
+                content.write("[#E9A568]═══ 场景池 ═══[/]\n")
+                
                 for scene in scenes:
-                    location = scene.get("name", "")
-                    area = scene.get("area", "-")
-                    visits = scene.get("visits", 0)
-                    last_visit = scene.get("last_visit", "-")
+                    location_id = scene.get("location_id", "")
+                    name = scene.get("name", "")
+                    visited = scene.get("visited", False)
+                    areas = scene.get("areas", [])
+                    description = scene.get("description", "")
                     
-                    table.add_row(location, area, str(visits), last_visit)
+                    is_current = (name == current_location or location_id == current_location)
+                    
+                    if is_current:
+                        content.write(f"\n[reverse][bold #D4863C]▶ 当前场景[/][/]")
+                    
+                    content.write(f"[bold #E9A568]{name}[/]")
+                    
+                    if visited:
+                        content.write(f"  [dim]已访问[/]")
+                    else:
+                        content.write(f"  [#8A6B4F]未访问[/]")
+                    
+                    if description:
+                        content.write(f"  {description}")
+                    
+                    if areas and len(areas) > 0:
+                        area_names = ", ".join(areas)
+                        content.write(f"  区域: {area_names}")
+                    
+                    content.write("")
+                
             else:
-                table.add_row("暂无数据", "-", "-", "-")
+                stats.update("场景池为空")
+                content.write("[dim]还没有创建任何场景[/]")
+                content.write("[dim]场景会在林依外出时自动生成[/]")
                 
         except Exception as e:
-            current_text = self.query_one("#current_scene_text", Label)
-            current_text.update(f"[red]加载失败: {e}[/]")
-    
-    async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """场景选中事件"""
-        self.app.notify("场景详情: 查看地点描述和物体", timeout=2)
+            content = self.query_one("#scene_content", RichLog)
+            stats = self.query_one("#scene_stats", Label)
+            stats.update(f"加载失败: {e}")
+            content.write(f"[red]无法加载场景数据: {e}[/]")
 
 
 class MemoryView(VerticalScroll):
@@ -359,30 +396,28 @@ class MemoryView(VerticalScroll):
         padding: 1;
     }
     
-    .memory_title {
+    .memory_header {
         width: 100%;
-        text-style: bold;
-        color: #E9A568;
+        height: auto;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
         margin-bottom: 1;
     }
     
-    #search_container {
+    .search_container {
         width: 100%;
         height: auto;
         layout: horizontal;
-        margin-bottom: 1;
+        margin-top: 1;
     }
     
-    #search_input {
+    #memory_search {
         width: 1fr;
         margin-right: 1;
     }
     
-    #search_btn {
-        width: auto;
-    }
-    
-    #memory_log {
+    #memory_content {
         width: 100%;
         height: 1fr;
         background: #0A0805;
@@ -392,81 +427,86 @@ class MemoryView(VerticalScroll):
     """
     
     def compose(self) -> ComposeResult:
-        yield Label("🧠 记忆与知识", classes="memory_title")
+        with Vertical(classes="memory_header"):
+            yield Label("🧠 记忆与知识", classes="scene_title")
+            with Horizontal(classes="search_container"):
+                yield Input(placeholder="搜索记忆...", id="memory_search")
+                yield Button("搜索", variant="primary", id="search_btn")
         
-        with Horizontal(id="search_container"):
-            yield Input(
-                placeholder="搜索记忆或知识...",
-                id="search_input"
-            )
-            yield Button("搜索", variant="primary", id="search_btn")
-        
-        yield RichLog(id="memory_log", highlight=True, markup=True)
+        yield RichLog(id="memory_content", highlight=True, markup=True)
     
     async def on_mount(self) -> None:
-        log = self.query_one("#memory_log", RichLog)
-        log.write("[dim]输入关键词搜索记忆和知识库...[/]")
+        content = self.query_one("#memory_content", RichLog)
+        content.write("[#E9A568]记忆系统[/]")
+        content.write("[dim]输入关键词搜索相关记忆[/]\n")
     
     async def load_data(self, client) -> None:
         """加载记忆统计"""
         try:
+            # 获取记忆统计信息
             stats = await client.call("memory.get_stats")
-            log = self.query_one("#memory_log", RichLog)
-            log.clear()
+            content = self.query_one("#memory_content", RichLog)
+            content.clear()
             
             if stats:
-                total_memories = stats.get("total_memories", 0)
-                total_knowledge = stats.get("total_knowledge", 0)
+                total = stats.get("total", 0)
+                recent = stats.get("recent_count", 0)
                 
-                log.write(f"[bold]记忆库统计[/]")
-                log.write(f"  短期记忆: {total_memories} 条")
-                log.write(f"  知识条目: {total_knowledge} 条")
-                log.write("\n[dim]输入关键词开始搜索...[/]")
+                content.write(f"[#E9A568]记忆统计[/]")
+                content.write(f"总记忆数: {total}")
+                content.write(f"近期记忆: {recent}\n")
+                content.write("[dim]输入关键词搜索相关记忆[/]")
             else:
-                log.write("[dim]暂无记忆数据[/]")
+                content.write("[#E9A568]记忆系统[/]")
+                content.write("[dim]输入关键词搜索相关记忆[/]\n")
                 
-        except Exception:
-            log = self.query_one("#memory_log", RichLog)
-            log.write("[dim]输入关键词搜索记忆...[/]")
+        except Exception as e:
+            content = self.query_one("#memory_content", RichLog)
+            content.clear()
+            content.write("[#E9A568]记忆系统[/]")
+            content.write("[dim]输入关键词搜索相关记忆[/]\n")
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "search_btn":
-            await self.search_memory()
+            await self.perform_search()
     
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "search_input":
-            await self.search_memory()
+        if event.input.id == "memory_search":
+            await self.perform_search()
     
-    async def search_memory(self) -> None:
-        """搜索记忆"""
-        input_widget = self.query_one("#search_input", Input)
-        query = input_widget.value.strip()
+    async def perform_search(self) -> None:
+        """执行搜索"""
+        search_input = self.query_one("#memory_search", Input)
+        query = search_input.value.strip()
         
         if not query:
-            self.app.notify("请输入搜索关键词", severity="warning")
             return
         
-        log = self.query_one("#memory_log", RichLog)
-        log.clear()
-        log.write(f"[bold]搜索: {query}[/]\n")
+        content = self.query_one("#memory_content", RichLog)
+        content.clear()
+        content.write(f"[#E9A568]搜索: {query}[/]\n")
+        content.write("[dim]搜索中...[/]")
         
         try:
-            results = await self.app.client.call("memory.search", query=query)
+            results = await self.app.client.call("memory.search", query=query, limit=20)
+            content.clear()
+            content.write(f"[#E9A568]搜索: {query}[/]\n")
             
-            if results:
-                for idx, result in enumerate(results, 1):
-                    content = result.get("content", "")
-                    relevance = result.get("relevance", 0)
+            if results and len(results) > 0:
+                content.write(f"找到 {len(results)} 条相关记忆：\n")
+                
+                for i, result in enumerate(results, 1):
+                    text = result.get("text", "")
+                    relevance = result.get("relevance", 0.0)
                     timestamp = result.get("timestamp", "")
                     
-                    log.write(f"\n[bold cyan]{idx}.[/] [dim]相关度: {relevance:.2f}[/]")
-                    log.write(f"  {content}")
-                    log.write(f"  [dim]{timestamp}[/]")
+                    content.write(f"[bold]{i}.[/] [dim]{timestamp}[/] [#8A6B4F](相关度: {relevance:.2f})[/]")
+                    content.write(f"  {text}\n")
             else:
-                log.write("\n[dim]未找到相关记忆[/]")
+                content.write("[dim]未找到相关记忆[/]")
+                
         except Exception as e:
-            log.clear()
-            log.write(f"[red]搜索失败: {e}[/]")
+            content.write(f"[red]搜索失败: {e}[/]")
 
 
 class RelationshipView(VerticalScroll):
@@ -479,84 +519,95 @@ class RelationshipView(VerticalScroll):
         padding: 1;
     }
     
-    .relationship_title {
+    .relationship_header {
         width: 100%;
-        text-style: bold;
-        color: #E9A568;
-        margin-bottom: 1;
-    }
-    
-    #relationship_table {
-        width: 100%;
-        height: 1fr;
-    }
-    
-    .summary {
-        width: 100%;
-        background: #12100D;
+        height: auto;
+        background: #0A0805;
         border: solid #1C1812;
         padding: 1;
         margin-bottom: 1;
     }
+    
+    #relationship_content {
+        width: 100%;
+        height: 1fr;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
+    }
     """
     
     def compose(self) -> ComposeResult:
-        yield Label("💭 关系网络", classes="relationship_title")
+        with Vertical(classes="relationship_header"):
+            yield Label("💭 关系网络", classes="scene_title")
+            yield Label("统计信息加载中...", id="relationship_stats")
         
-        with Container(classes="summary"):
-            yield Label("[bold]关系总览[/]")
-            yield Label("加载中...", id="relationship_summary")
-        
-        yield DataTable(id="relationship_table", zebra_stripes=True, cursor_type="row")
-    
-    async def on_mount(self) -> None:
-        table = self.query_one("#relationship_table", DataTable)
-        table.add_columns("实体", "关系分数", "亲密度", "最近更新")
+        yield RichLog(id="relationship_content", highlight=True, markup=True)
     
     async def load_data(self, client) -> None:
-        """加载关系数据"""
+        """加载关系网络"""
         try:
             relationships = await client.call("relationship.list_all")
+            content = self.query_one("#relationship_content", RichLog)
+            stats = self.query_one("#relationship_stats", Label)
+            content.clear()
             
-            table = self.query_one("#relationship_table", DataTable)
-            table.clear()
-            
-            if relationships:
-                # 计算统计
+            if relationships and len(relationships) > 0:
                 total = len(relationships)
-                avg_score = sum(r.get("score", 0) for r in relationships) / total if total > 0 else 0
+                total_score = sum(r.get("score", 0) for r in relationships)
+                avg_score = total_score / total if total > 0 else 0
                 
-                summary = self.query_one("#relationship_summary", Label)
-                summary.update(
-                    f"共 {total} 个关系实体 | 平均分数: {avg_score:.1f}"
-                )
+                stats.update(f"共 {total} 个关系实体 • 平均分数: {avg_score:.1f}")
                 
-                for rel in relationships:
+                content.write("[#E9A568]═══ 关系网络 ═══[/]\n")
+                
+                # 按分数排序
+                sorted_rels = sorted(relationships, key=lambda x: x.get("score", 0), reverse=True)
+                
+                for rel in sorted_rels:
                     entity = rel.get("entity", "")
                     score = rel.get("score", 0)
                     updated = rel.get("updated", "")
+                    history = rel.get("history", [])
                     
-                    # 计算亲密度等级
+                    # 计算亲密度等级和颜色
                     if score >= 80:
                         intimacy = "亲密"
+                        color = "#A8C079"  # 绿色
                     elif score >= 60:
                         intimacy = "友好"
+                        color = "#E9A568"  # 琥珀
                     elif score >= 40:
                         intimacy = "普通"
+                        color = "#C9B89A"  # 米黄
                     elif score >= 20:
                         intimacy = "陌生"
+                        color = "#8A7A66"  # 灰褐
                     else:
                         intimacy = "疏远"
+                        color = "#D97757"  # 暖红
                     
-                    table.add_row(entity, str(score), intimacy, updated)
+                    content.write(f"[bold]{entity}[/]")
+                    content.write(f"  [{color}]{intimacy}[/] [dim]({score} 分)[/]")
+                    content.write(f"  [dim]更新: {updated}[/]")
+                    
+                    if history and len(history) > 0:
+                        recent = history[-1] if isinstance(history, list) else {}
+                        if isinstance(recent, dict) and "event" in recent:
+                            content.write(f"  最近: {recent.get('event', '')}")
+                    
+                    content.write("")
+                
             else:
-                summary = self.query_one("#relationship_summary", Label)
-                summary.update("暂无关系数据")
-                table.add_row("暂无数据", "-", "-", "-")
+                stats.update("暂无关系数据")
+                content.write("[dim]还没有建立任何关系[/]")
+                content.write("[dim]关系会在对话和互动中自动建立[/]")
                 
         except Exception as e:
-            summary = self.query_one("#relationship_summary", Label)
-            summary.update(f"加载失败: {e}")
+            content = self.query_one("#relationship_content", RichLog)
+            stats = self.query_one("#relationship_stats", Label)
+            stats.update(f"加载失败: {e}")
+            content.write(f"[red]无法加载关系数据: {e}[/]")
 
 
 class AuditView(VerticalScroll):
@@ -572,27 +623,24 @@ class AuditView(VerticalScroll):
     .audit_header {
         width: 100%;
         height: auto;
-        layout: horizontal;
+        background: #0A0805;
+        border: solid #1C1812;
+        padding: 1;
         margin-bottom: 1;
     }
     
-    .audit_title {
-        width: 1fr;
-        text-style: bold;
-        color: #E9A568;
-    }
-    
     .filter_buttons {
-        width: auto;
+        width: 100%;
         height: auto;
         layout: horizontal;
+        margin-top: 1;
     }
     
     .filter_buttons Button {
-        margin-left: 1;
+        margin-right: 1;
     }
     
-    #audit_log {
+    #audit_content {
         width: 100%;
         height: 1fr;
         background: #0A0805;
@@ -604,15 +652,15 @@ class AuditView(VerticalScroll):
     current_filter = reactive("all")
     
     def compose(self) -> ComposeResult:
-        with Horizontal(classes="audit_header"):
-            yield Label("🔍 审计日志", classes="audit_title")
+        with Vertical(classes="audit_header"):
+            yield Label("🔍 审计日志", classes="scene_title")
             with Horizontal(classes="filter_buttons"):
                 yield Button("全部", variant="primary", id="filter_all")
                 yield Button("高风险", variant="default", id="filter_high_risk")
                 yield Button("操作", variant="default", id="filter_actions")
                 yield Button("决策", variant="default", id="filter_decisions")
         
-        yield RichLog(id="audit_log", highlight=True, markup=True)
+        yield RichLog(id="audit_content", highlight=True, markup=True)
     
     async def load_data(self, client, filter_type: str = "all") -> None:
         """加载审计日志"""
@@ -620,11 +668,11 @@ class AuditView(VerticalScroll):
         
         try:
             logs = await client.call("audit.get_logs", filter=filter_type, limit=100)
-            log_widget = self.query_one("#audit_log", RichLog)
-            log_widget.clear()
+            content = self.query_one("#audit_content", RichLog)
+            content.clear()
             
-            if logs:
-                log_widget.write(f"[bold]审计日志[/] [dim](过滤: {filter_type})[/]\n")
+            if logs and len(logs) > 0:
+                content.write(f"[#E9A568]审计日志[/] [dim](过滤: {filter_type})[/]\n")
                 
                 for entry in logs:
                     timestamp = entry.get("timestamp", "")
@@ -639,21 +687,22 @@ class AuditView(VerticalScroll):
                         "low": "green"
                     }.get(risk_level, "white")
                     
-                    log_widget.write(
+                    content.write(
                         f"\n[dim]{timestamp}[/] "
                         f"[{risk_color}]●[/] "
                         f"[bold]{action}[/] "
                         f"[dim]({category})[/]"
                     )
                     if result:
-                        log_widget.write(f"  {result}")
+                        content.write(f"  {result}")
             else:
-                log_widget.write("[dim]暂无审计日志[/]")
+                content.write("[dim]暂无审计日志[/]")
+                content.write("[dim]审计日志会记录 Agent 的所有操作和决策[/]")
                 
         except Exception as e:
-            log_widget = self.query_one("#audit_log", RichLog)
-            log_widget.clear()
-            log_widget.write(f"[red]加载失败: {e}[/]")
+            content = self.query_one("#audit_content", RichLog)
+            content.clear()
+            content.write(f"[red]无法加载审计日志: {e}[/]")
     
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         filter_map = {

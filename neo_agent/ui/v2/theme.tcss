@@ -1,0 +1,241 @@
+/* ===== Neo Agent TUI 主题：琥珀温暖 ===== */
+
+/* === 全局样式 === */
+Screen {
+    background: #050302;
+    color: #F5E6D3;
+}
+
+/* === 状态栏 === */
+#status-bar {
+    height: 1;
+    background: #12100D;
+    padding: 0 2;
+    color: #F5E6D3;
+}
+
+/* === 主容器 === */
+#main-container {
+    height: 1fr;
+}
+
+/* === 侧边栏 === */
+#sidebar {
+    width: 25%;
+    background: #0A0805;
+    padding: 1 2;
+}
+
+.sidebar-title {
+    padding: 0 0 1 0;
+    color: #E9A568;
+}
+
+.sidebar-section {
+    padding: 2 0 1 0;
+    color: #8A6B4F;
+}
+
+/* === 导航项 === */
+.nav-item {
+    height: 3;
+    padding: 1 2;
+    background: transparent;
+    color: #C9B89A;
+    content-align: left middle;
+}
+
+.nav-item:hover {
+    background: #12100D;
+    color: #E9A568;
+    text-style: bold;
+}
+
+.nav-item.selected {
+    background: #1C1812;
+    color: #E9A568;
+    text-style: bold;
+    border-left: thick #E9A568;
+}
+
+.nav-hint {
+    padding: 0 2;
+    color: #8A7A66;
+}
+
+.nav-hint:hover {
+    color: #D4863C;
+}
+
+/* === 内容区域 === */
+#content-area {
+    background: #050302;
+    width: 75%;
+    padding: 2;
+}
+
+.view-title {
+    padding: 0 0 1 0;
+    text-style: bold;
+}
+
+.section-title {
+    padding: 1 0 0 0;
+    color: #C9B89A;
+    text-style: bold;
+}
+
+/* === 对话视图 === */
+#chat-history {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#chat-input-area {
+    height: 3;
+}
+
+.chat-input {
+    width: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+}
+
+.chat-input:focus {
+    border: solid #E9A568;
+}
+
+/* === 行程视图 === */
+#itinerary-content {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+}
+
+.itinerary-item {
+    padding: 1 0;
+    border-bottom: solid #12100D;
+}
+
+/* === 场景视图 === */
+.scene-display {
+    padding: 1;
+    background: #0A0805;
+    border: solid #1C1812;
+    min-height: 5;
+}
+
+#scene-pool-list {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+    margin-top: 1;
+}
+
+.scene-item {
+    padding: 1 0;
+    border-bottom: solid #12100D;
+}
+
+.scene-item:hover {
+    background: #12100D;
+    color: #E9A568;
+}
+
+/* === 记忆视图 === */
+.search-input {
+    width: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    margin-bottom: 1;
+}
+
+.search-input:focus {
+    border: solid #E9A568;
+}
+
+#memory-results {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+}
+
+.memory-item {
+    padding: 1 0;
+    border-bottom: solid #12100D;
+}
+
+/* === 关系视图 === */
+#relationship-list {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+}
+
+.relationship-card {
+    padding: 2;
+    background: #12100D;
+    border: solid #1C1812;
+    margin-bottom: 1;
+}
+
+/* === 审计日志 === */
+#audit-log {
+    height: 1fr;
+    background: #0A0805;
+    border: solid #1C1812;
+    padding: 1;
+}
+
+/* === 输入框通用 === */
+Input {
+    background: #0A0805;
+    color: #F5E6D3;
+}
+
+Input:focus {
+    border: solid #E9A568;
+}
+
+/* === 按钮通用 === */
+Button {
+    background: #1C1812;
+    color: #E9A568;
+    border: solid #2B231C;
+    text-style: bold;
+}
+
+Button:hover {
+    background: #2B231C;
+    color: #D4863C;
+}
+
+Button:focus {
+    border: solid #E9A568;
+}
+
+/* === 滚动容器 === */
+ScrollableContainer {
+    background: #0A0805;
+}
+
+/* === Footer === */
+Footer {
+    background: #12100D;
+}
+
+Footer > .footer--key {
+    color: #E9A568;
+    background: #1C1812;
+}
+
+Footer > .footer--description {
+    color: #C9B89A;
+}

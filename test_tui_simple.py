@@ -1,41 +1,76 @@
-"""简单测试 TUI 视图切换"""
-from textual.pilot import Pilot
-from neo_agent.ui.v2.app import NeoAgentTUI
-import asyncio
+"""简单的 TUI 测试"""
+from textual.app import App, ComposeResult
+from textual.widgets import Static, Footer
+from textual.containers import Horizontal, Vertical
+from textual.message import Message
 
 
-async def test_views():
-    """测试视图切换"""
-    app = NeoAgentTUI()
+class NavItem(Static):
+    """导航项"""
     
-    async with app.run_test() as pilot:
-        await pilot.pause(0.5)
-        
-        print("✓ TUI 启动成功")
-        print(f"  当前视图: {app.current_view_id}")
-        
-        # 测试快捷键切换（更可靠）
-        views = [
-            ("i", "itinerary", "今日行程"),
-            ("s", "scenes", "场景池"),
-            ("m", "memory", "记忆与知识"),
-            ("r", "relationships", "关系网络"),
-            ("c", "chat", "对话"),
-        ]
-        
-        for key, view_id, name in views:
-            await pilot.press(key)
-            await pilot.pause(0.3)
+    def __init__(self, text: str, view_id: str, **kwargs):
+        super().__init__(text, **kwargs)
+        self.view_id = view_id
+        self.can_focus = True
+    
+    def on_click(self):
+        """点击事件"""
+        self.post_message(ViewSelected(self.view_id))
+
+
+class ViewSelected(Message):
+    """视图选择消息"""
+    def __init__(self, view_id: str):
+        super().__init__()
+        self.view_id = view_id
+
+
+class TestApp(App):
+    """测试应用"""
+    
+    CSS = """
+    NavItem {
+        height: 3;
+        padding: 1 2;
+        background: #12100D;
+        color: #C9B89A;
+    }
+    
+    NavItem:hover {
+        background: #1C1812;
+        color: #E9A568;
+    }
+    
+    #sidebar {
+        width: 30%;
+        background: #0A0805;
+    }
+    
+    #content {
+        width: 70%;
+        background: #050302;
+        padding: 2;
+    }
+    """
+    
+    def compose(self) -> ComposeResult:
+        with Horizontal():
+            with Vertical(id="sidebar"):
+                yield Static("[bold]导航[/]\n")
+                yield NavItem("💬 对话", "chat", id="nav-chat")
+                yield NavItem("📅 行程", "itinerary", id="nav-itinerary")
+                yield NavItem("🌍 场景", "scene", id="nav-scene")
             
-            # 验证切换
-            if app.current_view_id == view_id:
-                print(f"✓ 快捷键 '{key}' 成功切换到 {name}")
-            else:
-                print(f"✗ 快捷键 '{key}' 切换失败，当前: {app.current_view_id}")
+            yield Static("点击左侧导航项测试", id="content")
         
-        print("\n✓ 所有视图测试完成！")
-        print("\n提示: 侧边栏按钮可以点击，快捷键也可以正常工作")
+        yield Footer()
+    
+    def on_view_selected(self, message: ViewSelected):
+        """处理选择"""
+        content = self.query_one("#content", Static)
+        content.update(f"当前视图: {message.view_id}")
 
 
 if __name__ == "__main__":
-    asyncio.run(test_views())
+    app = TestApp()
+    app.run()
