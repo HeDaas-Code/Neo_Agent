@@ -103,6 +103,12 @@ class ServiceClient:
         """获取当前情绪"""
         return await self.call("emotion.get_current")
     
+    # === 审计日志 ===
+    
+    async def get_audit_log(self, limit: int = 50) -> list:
+        """获取审计日志"""
+        return await self.call("audit.get_log", {"limit": limit})
+    
     # === 系统控制 ===
     
     async def get_system_status(self) -> Dict[str, Any]:

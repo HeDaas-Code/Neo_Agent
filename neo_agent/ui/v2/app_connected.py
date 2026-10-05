@@ -37,16 +37,17 @@ class StatusBar(Static):
         )
 
 
-class NavItem(Static):
-    """导航项组件"""
+class NavItem(Button):
+    """导航项组件（使用 Button 确保可点击）"""
     
     def __init__(self, icon: str, name: str, key: str, view_id: str, **kwargs):
-        super().__init__(f"{icon} {name} [{key}]", **kwargs)
+        label = f"{icon} {name} [{key}]"
+        super().__init__(label, **kwargs)
         self.view_id = view_id
-        self.can_focus = True
     
-    def on_click(self):
-        """点击事件"""
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """按钮按下事件"""
+        event.stop()
         self.post_message(Sidebar.ViewSelected(self.view_id))
 
 
@@ -92,7 +93,7 @@ class Sidebar(Vertical):
         if 0 <= index < len(self.VIEWS):
             # 更新样式
             for i in range(len(self.VIEWS)):
-                item = self.query_one(f"#nav-{i}")
+                item = self.query_one(f"#nav-{i}", NavItem)
                 if i == index:
                     item.add_class("selected")
                 else:
@@ -115,6 +116,7 @@ class NeoAgentApp(App):
         Binding("r", "switch_view('relationship')", "关系", key_display="r"),
         Binding("a", "switch_view('audit')", "审计", key_display="a"),
         Binding("q", "quit", "退出", key_display="q"),
+        Binding("?", "show_help", "帮助", key_display="?"),
     ]
     
     current_view = reactive("chat")
@@ -204,6 +206,11 @@ class NeoAgentApp(App):
             await asyncio.sleep(10)  # 每 10 秒更新
             try:
                 await self._refresh_status()
+                
+                # 刷新当前视图
+                current = self.views.get(self.current_view)
+                if current and hasattr(current, 'refresh'):
+                    await current.refresh_data()
             except:
                 pass
     
@@ -222,6 +229,16 @@ class NeoAgentApp(App):
                 if vid == view_id:
                     sidebar.select(idx)
                     break
+            
+            # 立即刷新新视图
+            view = self.views[view_id]
+            if hasattr(view, "refresh_data"):
+                asyncio.create_task(view.refresh_data())
+    
+    def action_show_help(self):
+        """显示帮助信息"""
+        # TODO: 实现帮助模态框
+        pass
     
     def on_sidebar_view_selected(self, message: Sidebar.ViewSelected):
         """响应侧边栏选择"""

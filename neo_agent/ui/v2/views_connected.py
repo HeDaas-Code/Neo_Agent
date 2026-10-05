@@ -1,5 +1,5 @@
 """TUI 视图 - 连接服务版本"""
-from textual.widgets import Static, Input, RichLog
+from textual.widgets import Static, Input, RichLog, DataTable
 from textual.containers import Vertical, Horizontal, ScrollableContainer
 from textual.binding import Binding
 from textual import events
@@ -18,14 +18,9 @@ class BaseView(Vertical):
         self.client = client
         self.loading = False
     
-    def show_loading(self, message: str = "加载中..."):
-        """显示加载状态"""
-        self.loading = True
-        # 子类实现具体逻辑
-    
-    def hide_loading(self):
-        """隐藏加载状态"""
-        self.loading = False
+    async def refresh_data(self):
+        """刷新视图数据（子类重写）"""
+        pass
 
 
 class ChatView(BaseView):
@@ -77,16 +72,12 @@ class ChatView(BaseView):
             # 发送到服务
             result = await self.client.send_message(text)
             
-            # 移除"思考中"
-            history.clear()
-            history.write(f"[bold #C9B89A]你:[/] {text}")
-            
             # 显示回复
             reply = result.get("reply", "（无回复）")
             emotion = result.get("emotion", {}).get("state", "平静")
             
             history.write(
-                f"[bold #E9A568]林依:[/] {reply}\n"
+                f"\n[bold #E9A568]林依:[/] {reply}\n"
                 f"[dim italic #8A6B4F]情绪: {emotion}[/]"
             )
             
@@ -103,9 +94,9 @@ class ItineraryView(BaseView):
     
     async def on_mount(self):
         """挂载时加载行程"""
-        await self.refresh_itinerary()
+        await self.refresh_data()
     
-    async def refresh_itinerary(self):
+    async def refresh_data(self):
         """刷新行程"""
         container = self.query_one("#itinerary-content", ScrollableContainer)
         
@@ -118,11 +109,15 @@ class ItineraryView(BaseView):
                 container.mount(Static("[dim #8A6B4F]今日暂无安排[/]"))
                 return
             
-            for item in itinerary:
+            # 按时间排序
+            itinerary_sorted = sorted(itinerary, key=lambda x: x.get("time", ""))
+            
+            for item in itinerary_sorted:
                 time = item.get("time", "未知")
                 activity = item.get("activity", "未知活动")
                 location = item.get("location", "")
                 item_type = item.get("type", "personal")
+                is_current = item.get("is_current", False)
                 
                 type_label = {
                     "personal": "个人",
@@ -131,15 +126,17 @@ class ItineraryView(BaseView):
                 }.get(item_type, "未知")
                 
                 location_text = f" @ {location}" if location else ""
+                current_mark = "► " if is_current else "  "
                 
                 container.mount(Static(
-                    f"[bold #D4863C]{time}[/] "
+                    f"{current_mark}[bold #D4863C]{time}[/] "
                     f"[#C9B89A]{activity}[/]{location_text} "
                     f"[dim italic #8A6B4F]({type_label})[/]",
                     classes="itinerary-item"
                 ))
         
         except Exception as e:
+            container.remove_children()
             container.mount(Static(f"[bold #D97757]✗ 加载失败:[/] {e}"))
 
 
@@ -153,23 +150,23 @@ class ScenePoolView(BaseView):
             yield Static("[bold #C9B89A]当前场景[/]", classes="section-title")
             yield Static(id="current-scene-display", classes="scene-display")
             
-            yield Static("\n[bold #C9B89A]已访问场景[/]", classes="section-title")
+            yield Static("\n[bold #C9B89A]场景池[/]", classes="section-title")
             yield ScrollableContainer(id="scene-pool-list")
     
     async def on_mount(self):
         """挂载时加载场景"""
-        await self.refresh_scenes()
+        await self.refresh_data()
     
-    async def refresh_scenes(self):
+    async def refresh_data(self):
         """刷新场景"""
+        current_display = self.query_one("#current-scene-display", Static)
+        
         try:
             # 当前场景
-            current = await self.client.get_current_scene()
-            current_display = self.query_one("#current-scene-display", Static)
-            
-            location = current.get("location", {}).get("name", "未知")
-            area = current.get("area", {}).get("name", "")
-            description = current.get("description", "")
+            scene = await self.client.get_current_scene()
+            location = scene.get("location", {}).get("name", "未知")
+            area = scene.get("area", {}).get("name", "")
+            description = scene.get("description", "")
             
             current_display.update(
                 f"[bold #E9A568]{location}[/]"
@@ -189,14 +186,15 @@ class ScenePoolView(BaseView):
             for scene in pool:
                 name = scene.get("name", "未知")
                 visited = "✓" if scene.get("visited") else "○"
+                scene_type = scene.get("type", "location")
                 
                 pool_list.mount(Static(
-                    f"[#A8C079]{visited}[/] [#C9B89A]{name}[/]",
+                    f"[#A8C079]{visited}[/] [#C9B89A]{name}[/] [dim #8A6B4F]({scene_type})[/]",
                     classes="scene-item"
                 ))
         
         except Exception as e:
-            self.query_one("#current-scene-display", Static).update(
+            current_display.update(
                 f"[bold #D97757]✗ 加载失败:[/] {e}"
             )
 
@@ -213,12 +211,17 @@ class MemoryView(BaseView):
         
         with Horizontal():
             yield Input(
-                placeholder="搜索记忆或知识...",
+                placeholder="搜索记忆或知识... (Enter 搜索)",
                 id="memory-search-input",
                 classes="search-input"
             )
         
         yield ScrollableContainer(id="memory-results")
+    
+    def on_mount(self):
+        """挂载时显示提示"""
+        results = self.query_one("#memory-results", ScrollableContainer)
+        results.mount(Static("[dim #8A6B4F]输入关键词搜索记忆与知识[/]"))
     
     async def action_search(self):
         """搜索"""
@@ -245,10 +248,11 @@ class MemoryView(BaseView):
             for mem in memories:
                 content = mem.get("content", "")
                 relevance = mem.get("relevance", 0)
+                timestamp = mem.get("timestamp", "")
                 
                 results_container.mount(Static(
-                    f"[#C9B89A]{content}[/] "
-                    f"[dim #8A6B4F](相关度: {relevance:.2f})[/]",
+                    f"[#C9B89A]{content}[/]\n"
+                    f"[dim #8A6B4F]相关度: {relevance:.2f} | {timestamp}[/]",
                     classes="memory-item"
                 ))
         
@@ -266,20 +270,20 @@ class RelationshipView(BaseView):
     
     async def on_mount(self):
         """挂载时加载关系"""
-        await self.refresh_relationships()
+        await self.refresh_data()
     
-    async def refresh_relationships(self):
+    async def refresh_data(self):
         """刷新关系"""
         container = self.query_one("#relationship-list", ScrollableContainer)
+        container.remove_children()
         
         try:
             # 获取与用户的关系
             status = await self.client.get_relationship_status("user")
             
-            container.remove_children()
-            
             score = status.get("score", 0)
             last_update = status.get("last_update", "未知")
+            history = status.get("history", [])
             
             # 关系等级
             if score >= 80:
@@ -295,12 +299,33 @@ class RelationshipView(BaseView):
                 level = "陌生"
                 color = "#8A7A66"
             
+            # 进度条
+            bar_length = 20
+            filled = int((score + 100) / 200 * bar_length)
+            bar = "█" * filled + "░" * (bar_length - filled)
+            
             container.mount(Static(
-                f"[bold #C9B89A]与用户的关系[/]\n"
-                f"[{color}]{level}[/] ([bold]{score}[/])\n"
+                f"[bold #C9B89A]与用户的关系[/]\n\n"
+                f"[{color}]{level}[/] [bold]{score}[/]/100\n"
+                f"[{color}]{bar}[/]\n\n"
                 f"[dim #8A6B4F]最后更新: {last_update}[/]",
                 classes="relationship-card"
             ))
+            
+            # 历史变化
+            if history:
+                container.mount(Static("\n[bold #C9B89A]最近变化[/]", classes="section-title"))
+                for change in history[-5:]:  # 最近 5 条
+                    delta = change.get("delta", 0)
+                    reason = change.get("reason", "未知")
+                    time = change.get("timestamp", "")
+                    
+                    delta_text = f"+{delta}" if delta > 0 else str(delta)
+                    delta_color = "#A8C079" if delta > 0 else "#D97757"
+                    
+                    container.mount(Static(
+                        f"[{delta_color}]{delta_text}[/] {reason} [dim #8A6B4F]{time}[/]"
+                    ))
         
         except Exception as e:
             container.mount(Static(f"[bold #D97757]✗ 加载失败:[/] {e}"))
@@ -311,9 +336,60 @@ class AuditView(BaseView):
     
     def compose(self):
         yield Static("[bold #E9A568]🔍 审计日志[/]\n", classes="view-title")
-        yield RichLog(id="audit-log", wrap=True, markup=True)
+        yield RichLog(id="audit-log", wrap=True, markup=True, auto_scroll=True)
     
-    def on_mount(self):
-        """挂载时显示提示"""
+    async def on_mount(self):
+        """挂载时加载日志"""
+        await self.refresh_data()
+    
+    async def refresh_data(self):
+        """刷新审计日志"""
         log = self.query_one("#audit-log", RichLog)
-        log.write("[dim #8A6B4F]审计日志功能即将推出...[/]")
+        log.clear()
+        
+        try:
+            # 获取审计日志
+            entries = await self.client.get_audit_log(limit=50)
+            
+            if not entries:
+                log.write("[dim #8A6B4F]暂无审计记录[/]")
+                return
+            
+            for entry in entries:
+                timestamp = entry.get("timestamp", "")
+                action = entry.get("action", "未知操作")
+                risk = entry.get("risk", "low")
+                details = entry.get("details", "")
+                result = entry.get("result", "")
+                
+                # 风险颜色
+                risk_color = {
+                    "high": "#D97757",
+                    "medium": "#E9A568",
+                    "low": "#A8C079"
+                }.get(risk, "#C9B89A")
+                
+                risk_label = {
+                    "high": "高风险",
+                    "medium": "中风险",
+                    "low": "低风险"
+                }.get(risk, "未知")
+                
+                # 结果图标
+                result_icon = "✓" if result == "success" else "✗" if result == "failed" else "•"
+                result_color = "#A8C079" if result == "success" else "#D97757" if result == "failed" else "#8A6B4F"
+                
+                log.write(
+                    f"[dim #8A6B4F]{timestamp}[/] "
+                    f"[{result_color}]{result_icon}[/] "
+                    f"[bold #E9A568]{action}[/] "
+                    f"[{risk_color}][{risk_label}][/]"
+                )
+                
+                if details:
+                    log.write(f"  [#C9B89A]{details}[/]")
+                
+                log.write("")  # 空行分隔
+        
+        except Exception as e:
+            log.write(f"[bold #D97757]✗ 加载失败:[/] {e}")

@@ -36,13 +36,17 @@ Screen {
     color: #8A6B4F;
 }
 
-/* === 导航项 === */
+/* === 导航项（Button 样式） === */
 .nav-item {
     height: 3;
-    padding: 1 2;
+    width: 1fr;
+    min-width: 100%;
+    padding: 0 2;
     background: transparent;
     color: #C9B89A;
     content-align: left middle;
+    border: none;
+    text-align: left;
 }
 
 .nav-item:hover {
@@ -56,6 +60,10 @@ Screen {
     color: #E9A568;
     text-style: bold;
     border-left: thick #E9A568;
+}
+
+.nav-item:focus {
+    background: #12100D;
 }
 
 .nav-hint {
@@ -77,6 +85,7 @@ Screen {
 .view-title {
     padding: 0 0 1 0;
     text-style: bold;
+    color: #E9A568;
 }
 
 .section-title {
@@ -98,64 +107,94 @@ Screen {
     height: 3;
 }
 
-.chat-input {
-    width: 1fr;
+#chat-input {
     background: #0A0805;
     border: solid #1C1812;
+    color: #F5E6D3;
 }
 
-.chat-input:focus {
+#chat-input:focus {
     border: solid #E9A568;
 }
 
+#send-button {
+    background: #1C1812;
+    color: #E9A568;
+    margin-left: 1;
+}
+
+#send-button:hover {
+    background: #E9A568;
+    color: #050302;
+    text-style: bold;
+}
+
 /* === 行程视图 === */
-#itinerary-content {
+#itinerary-table {
     height: 1fr;
     background: #0A0805;
     border: solid #1C1812;
-    padding: 1;
 }
 
-.itinerary-item {
-    padding: 1 0;
-    border-bottom: solid #12100D;
-}
-
-/* === 场景视图 === */
-.scene-display {
-    padding: 1;
+DataTable {
     background: #0A0805;
-    border: solid #1C1812;
-    min-height: 5;
+    color: #F5E6D3;
 }
 
-#scene-pool-list {
+DataTable > .datatable--header {
+    background: #12100D;
+    color: #E9A568;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #1C1812;
+    color: #E9A568;
+}
+
+/* === 场景池视图 === */
+#scene-list {
     height: 1fr;
     background: #0A0805;
     border: solid #1C1812;
-    padding: 1;
-    margin-top: 1;
 }
 
 .scene-item {
-    padding: 1 0;
-    border-bottom: solid #12100D;
+    padding: 1;
+    background: #0A0805;
+    margin-bottom: 1;
+    border: solid #1C1812;
 }
 
 .scene-item:hover {
     background: #12100D;
+    border: solid #E9A568;
+}
+
+.scene-name {
     color: #E9A568;
+    text-style: bold;
+}
+
+.scene-description {
+    color: #C9B89A;
+    padding: 0 0 0 2;
+}
+
+.scene-meta {
+    color: #8A6B4F;
+    padding: 0 0 0 2;
 }
 
 /* === 记忆视图 === */
-.search-input {
-    width: 1fr;
+#memory-search {
+    height: 3;
     background: #0A0805;
     border: solid #1C1812;
     margin-bottom: 1;
 }
 
-.search-input:focus {
+#memory-search:focus {
     border: solid #E9A568;
 }
 
@@ -163,12 +202,22 @@ Screen {
     height: 1fr;
     background: #0A0805;
     border: solid #1C1812;
-    padding: 1;
 }
 
 .memory-item {
-    padding: 1 0;
-    border-bottom: solid #12100D;
+    padding: 1;
+    margin-bottom: 1;
+    background: #0A0805;
+    border-left: thick #D4863C;
+}
+
+.memory-content {
+    color: #F5E6D3;
+}
+
+.memory-meta {
+    color: #8A6B4F;
+    padding-top: 1;
 }
 
 /* === 关系视图 === */
@@ -176,27 +225,132 @@ Screen {
     height: 1fr;
     background: #0A0805;
     border: solid #1C1812;
+}
+
+.relationship-item {
     padding: 1;
-}
-
-.relationship-card {
-    padding: 2;
-    background: #12100D;
-    border: solid #1C1812;
     margin-bottom: 1;
+    background: #0A0805;
+    border: solid #1C1812;
 }
 
-/* === 审计日志 === */
+.relationship-item:hover {
+    background: #12100D;
+    border: solid #D4863C;
+}
+
+.relationship-entity {
+    color: #E9A568;
+    text-style: bold;
+}
+
+.relationship-score {
+    color: #A8C079;
+}
+
+.relationship-score.negative {
+    color: #D97757;
+}
+
+.relationship-history {
+    color: #8A6B4F;
+    padding: 0 0 0 2;
+}
+
+/* === 审计日志视图 === */
 #audit-log {
     height: 1fr;
     background: #0A0805;
     border: solid #1C1812;
-    padding: 1;
 }
 
-/* === 输入框通用 === */
+.audit-entry {
+    padding: 1;
+    margin-bottom: 1;
+    background: #0A0805;
+}
+
+.audit-timestamp {
+    color: #8A6B4F;
+}
+
+.audit-action {
+    color: #E9A568;
+    text-style: bold;
+}
+
+.audit-details {
+    color: #C9B89A;
+    padding: 0 0 0 2;
+}
+
+.audit-risk-high {
+    border-left: thick #D97757;
+}
+
+.audit-risk-medium {
+    border-left: thick #E9A568;
+}
+
+.audit-risk-low {
+    border-left: thick #A8C079;
+}
+
+/* === 底部状态栏 === */
+Footer {
+    background: #12100D;
+}
+
+Footer > .footer--highlight {
+    background: #E9A568;
+    color: #050302;
+}
+
+Footer > .footer--highlight-key {
+    background: #1C1812;
+    color: #E9A568;
+}
+
+Footer > .footer--key {
+    background: #0A0805;
+    color: #8A6B4F;
+}
+
+/* === 加载状态 === */
+.loading {
+    color: #D4863C;
+    text-style: italic;
+}
+
+.error {
+    color: #D97757;
+    text-style: bold;
+}
+
+.success {
+    color: #A8C079;
+}
+
+/* === 通用组件 === */
+Button {
+    background: #1C1812;
+    color: #E9A568;
+    border: solid #2B231C;
+}
+
+Button:hover {
+    background: #E9A568;
+    color: #050302;
+    text-style: bold;
+}
+
+Button:focus {
+    border: solid #E9A568;
+}
+
 Input {
     background: #0A0805;
+    border: solid #1C1812;
     color: #F5E6D3;
 }
 
@@ -204,48 +358,11 @@ Input:focus {
     border: solid #E9A568;
 }
 
-/* === 按钮通用 === */
-Button {
-    background: #1C1812;
-    color: #E9A568;
-    border: solid #2B231C;
-    text-style: bold;
-}
-
-Button:hover {
-    background: #2B231C;
-    color: #D4863C;
-}
-
-Button:focus {
-    border: solid #E9A568;
-}
-
-/* === 滚动容器 === */
-ScrollableContainer {
+RichLog {
     background: #0A0805;
+    color: #F5E6D3;
 }
 
-/* === Footer === */
-Footer {
-    background: #12100D;
-}
-
-Footer > .footer--key {
-    color: #E9A568;
-    background: #1C1812;
-}
-
-Footer > .footer--description {
-    color: #C9B89A;
-}
-
-/* === 工具类 === */
-.hidden {
-    display: none;
-}
-
-.view {
-    width: 1fr;
-    height: 1fr;
+Static {
+    background: transparent;
 }
