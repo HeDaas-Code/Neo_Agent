@@ -13,6 +13,7 @@ from ..runtime.role import SingleRoleService
 from ..runtime.scene import SceneService
 from ..runtime.schedule import ScheduleService
 from ..runtime.relationship import RelationshipService, EmotionService
+from ..runtime.agent import AgentRuntime
 from .rpc_handlers import RPCHandlers
 
 
@@ -63,6 +64,11 @@ class NeoAgentDaemon:
         self.services["schedule"] = ScheduleService(self.store)
         self.services["relationship"] = RelationshipService(self.store)
         self.services["emotion"] = EmotionService(self.store)
+        
+        # ✨ 新增：初始化 Agent 运行时
+        self.logger.info("Initializing Agent runtime...")
+        self.services["agent"] = AgentRuntime(self.store)
+        self.logger.info("Agent runtime initialized")
         
         # 初始化角色和场景
         self.logger.info("Initializing character...")

@@ -162,8 +162,24 @@ class AgentDaemon:
         self.broadcaster = EventBroadcaster()
         await self.broadcaster.start()
         
+        # ✨ 初始化各运行时服务
+        from neo_agent.runtime.agent import AgentRuntime
+        from neo_agent.runtime.role import SingleRoleService
+        from neo_agent.runtime.scene import SceneService
+        from neo_agent.runtime.schedule import ScheduleService
+        from neo_agent.runtime.relationship import RelationshipService, EmotionService
+        
+        services = {
+            "role": SingleRoleService(self.store),
+            "scene": SceneService(self.store),
+            "schedule": ScheduleService(self.store),
+            "relationship": RelationshipService(self.store),
+            "emotion": EmotionService(self.store),
+            "agent": AgentRuntime(self.store)  # ✨ 关键：Agent 运行时
+        }
+        
         # 初始化 RPC 处理器
-        self.handlers = RPCHandlers(self.store, self.broadcaster)
+        self.handlers = RPCHandlers(services)
     
     async def _run_server(self):
         """运行 HTTP 服务器"""
