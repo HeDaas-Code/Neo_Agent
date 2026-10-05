@@ -95,29 +95,36 @@ class RPCHandlers:
     async def session_get_history(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """获取会话历史"""
         limit = params.get("limit", 20)
+        conversation_id = params.get("conversation_id", "default")
         
         try:
-            # 从存储中获取历史消息
-            messages = self.store.list_documents("messages")
+            # 从运行时对话历史读取
+            import hashlib
+            storage_id = conversation_id if len(conversation_id) <= 22 else hashlib.sha256(conversation_id.encode()).hexdigest()[:20]
+            history_path = f"/runtime/conversations/{storage_id}.json"
+            transcript = self.store.read_json(history_path, default=[])
             
-            # 按时间戳排序，取最近的 N 条
-            sorted_messages = sorted(messages, key=lambda m: m.get("timestamp", ""), reverse=True)
-            return sorted_messages[:limit]
+            # 转换为消息格式
+            messages = []
+            for turn in transcript[-limit:]:
+                if isinstance(turn, dict):
+                    if turn.get("user"):
+                        messages.append({
+                            "role": "user",
+                            "content": turn["user"],
+                            "timestamp": turn.get("timestamp", "")
+                        })
+                    if turn.get("assistant"):
+                        messages.append({
+                            "role": "assistant", 
+                            "content": turn["assistant"],
+                            "timestamp": turn.get("timestamp", "")
+                        })
+            
+            return messages
         except Exception as e:
             self._add_audit_log("history_error", "low", f"获取历史失败: {str(e)}")
-            # 返回模拟数据
-            return [
-                {
-                    "role": "assistant",
-                    "content": "你好！我是林依，很高兴见到你。",
-                    "timestamp": "2026-10-05T09:00:00"
-                },
-                {
-                    "role": "user",
-                    "content": "你好",
-                    "timestamp": "2026-10-05T08:59:00"
-                }
-            ]
+            return []
     
     async def character_get_profile(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取角色配置"""
@@ -150,14 +157,44 @@ class RPCHandlers:
     
     # ========== 日程与场景 ==========
     
-    async def schedule_get_today_itinerary(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def schedule_get_today_itinerary(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取今日行程"""
         try:
             itinerary = self.itinerary_service.get_today_itinerary()
-            return itinerary if itinerary else []
+            
+            # 转换为视图期望的格式
+            items = []
+            for schedule in (itinerary or []):
+                start_time = schedule.get("start_at", "")
+                end_time = schedule.get("end_at", "")
+                
+                # 格式化时间显示
+                time_str = ""
+                if start_time:
+                    try:
+                        from datetime import datetime
+                        start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                        time_str = start.strftime("%H:%M")
+                        if end_time:
+                            end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                            time_str += f" - {end.strftime('%H:%M')}"
+                    except Exception:
+                        time_str = start_time[:5] if len(start_time) >= 5 else start_time
+                
+                items.append({
+                    "time": time_str,
+                    "activity": schedule.get("title", ""),
+                    "location": schedule.get("location", "未指定"),
+                    "area": schedule.get("area", ""),
+                    "description": schedule.get("description", ""),
+                    "schedule_type": schedule.get("type", "agent"),
+                    "status": schedule.get("status", "待开始"),
+                })
+            
+            return {"items": items}
         except Exception as e:
             self._add_audit_log("schedule_error", "medium", f"获取日程失败: {str(e)}")
-            return []
+            return {"items": []}
     
     async def scene_get_current(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取当前场景"""
@@ -168,19 +205,39 @@ class RPCHandlers:
             self._add_audit_log("scene_error", "low", f"获取场景失败: {str(e)}")
             return {}
     
-    async def scene_list_pool(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def scene_list_pool(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取场景池"""
         try:
             places = self.scene_service.places(visited_only=False)
-            result = []
+            current = self.scene_service.current() or {}
+            
+            scenes = []
             for place in (places or []):
-                result.append({
-                    "location_id": place.get("place_id"),
+                place_id = place.get("place_id")
+                areas = self.scene_service.areas(place_id) or []
+                objects_list = []
+                
+                # 收集该地点的物体
+                for area in areas:
+                    area_objects = self.scene_service.objects(area.get("area_id")) or []
+                    objects_list.extend(area_objects)
+                
+                scenes.append({
+                    "location_id": place_id,
                     "name": place.get("name", "未命名"),
-                    "visited": place.get("layout_frozen", False),
-                    "area_count": len(self.scene_service.areas(place.get("place_id")) or [])
+                    "location": place,
+                    "areas": areas,
+                    "objects": objects_list,
+                    "layout_frozen": place.get("layout_frozen", False),
                 })
-            return result
+            
+            return {
+                "scenes": scenes,
+                "current_scene": {
+                    "location": current.get("place", {}).get("name", ""),
+                    "area": current.get("area", {}).get("name", ""),
+                }
+            }
         except Exception as e:
             self._add_audit_log("scene_error", "low", f"获取场景池失败: {str(e)}")
             return []
@@ -275,9 +332,22 @@ class RPCHandlers:
         
         return list(reversed(logs))  # 最新的在前
     
-    async def audit_list_recent(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def audit_list_recent(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """列出最近的审计日志（别名方法）"""
-        return await self.system_get_audit_logs(params)
+        logs = await self.system_get_audit_logs(params)
+        
+        # 转换为视图期望的格式
+        audits = []
+        for log in logs:
+            audits.append({
+                "timestamp": log.get("timestamp", ""),
+                "operation": log.get("action", ""),
+                "risk_level": log.get("risk_level", "low"),
+                "details": log.get("details", ""),
+                "result": "success",  # 可以根据 details 扩展
+            })
+        
+        return {"audits": audits}
     
     async def relationship_get_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取指定实体的关系状态"""
@@ -298,21 +368,21 @@ class RPCHandlers:
                 "history": []
             }
     
-    async def relationship_get_history(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def relationship_get_history(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取关系变化历史"""
         entity = params.get("entity", "user")
         limit = params.get("limit", 20)
         
         try:
             history = self.agent.relationship_service.get_relationship_history(entity, limit)
-            return history
+            return {"history": history or []}
         except Exception as exc:
             self._add_audit_log(
                 "relationship_get_history_failed",
                 "medium",
                 f"获取关系历史失败: {type(exc).__name__}"
             )
-            return []
+            return {"history": []}
     
     async def system_shutdown(self, params: Dict[str, Any]) -> Dict[str, str]:
         """关闭服务"""

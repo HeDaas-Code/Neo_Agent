@@ -548,6 +548,39 @@ class DailyItineraryService:
                               "start_at": start.isoformat(), "end_at": end.isoformat()})
         return remaining
 
+    def get_today_itinerary(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
+        """获取今日已生成的行程列表"""
+        moment = now or datetime.now().astimezone()
+        if moment.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        day = moment.date()
+        itinerary_id = "day_" + day.strftime("%Y%m%d")
+        
+        # 获取今日行程记录
+        itinerary_doc = self.store.get_document("itineraries", itinerary_id)
+        if not itinerary_doc or itinerary_doc.get("status") != "generated":
+            return []
+        
+        # 获取关联的日程条目
+        schedule_ids = itinerary_doc.get("schedule_ids", [])
+        result = []
+        for schedule_id in schedule_ids:
+            schedule = self.store.get_schedule(schedule_id)
+            if schedule:
+                result.append({
+                    "id": schedule_id,
+                    "title": schedule.get("title", ""),
+                    "description": schedule.get("description", ""),
+                    "start_at": schedule.get("due_at", ""),
+                    "end_at": schedule.get("end_at", ""),
+                    "location": schedule.get("place_id", ""),
+                    "area": schedule.get("area_id", ""),
+                    "status": schedule.get("status", "pending"),
+                    "type": schedule.get("category", "agent"),
+                })
+        
+        return sorted(result, key=lambda x: x["start_at"])
+
 
 class ScheduleDecisionService:
     """Resolve shared-activity conflicts without ever mutating user schedules."""

@@ -1,343 +1,300 @@
-# Neo Agent 当前开发状态
+# Neo Agent 项目当前状态
 
 **更新时间**: 2026-10-05  
 **分支**: Dev  
-**架构**: 服务-客户端分离 + LangChain + PyVDisk
+**工作目录**: /home/hedass/桌面/Lien_os
 
 ---
 
-## 已完成功能
+## 已完成功能 ✅
 
-### 1. 核心架构重构 ✅
-- **服务-客户端分离**: 后台守护进程 + 可随时连接/断开的 TUI 客户端
-- **服务管理**: `python3 main.py start|stop|restart|status|tui`
-- **IPC 协议**: Unix domain socket + JSON-RPC 2.0
-- **持久化**: 完全基于 PyVDisk，抛弃旧 SQLite
-- **并发模型**: asyncio 事件循环，TUI 操作不阻塞
+### 1. TUI 重构（琥珀色主题 + 服务-客户端架构）
 
-### 2. 单角色系统 ✅
-- **初始化**: 首次启动创建预设角色"林依"
-- **ID 自动生成**: UUID v4
-- **载入简化**: 角色创建后自动作为当前角色
-- **Debug 模式**: 全局开关，控制人工编辑入口
+#### 核心架构
+- **服务层**: `neo_agent/service/daemon.py` - 独立守护进程
+- **客户端**: `neo_agent/ui/v2/` - 现代 Textual TUI
+- **通信协议**: Unix Socket + JSON-RPC 2.0
+- **配色系统**: 琥珀温暖主题（5 级表面 + 主色 #E9A568）
 
-### 3. Agent 自动创作 ✅
-- **事件流**: Agent 自动根据对话创建事件
-- **日程**: 每日 00:05 自动生成当日行程
-- **关系**: 3 轮证据缓冲 + 置信度 ≥ 0.8 触发关系更新
-- **知识库**: 自动提取并存储对话中的知识
-- **环境域**: 初始化时创建"在家-客厅"初始环境
-- **NPS/任务编排**: 可由 Agent 自动生成（VScript 格式）
+#### UI 组件（已实现）
+✅ **主应用** (`app.py`, 419 行)
+  - TopBar: 显示角色、场景、情绪
+  - 左侧导航: 6 个功能视图 + 设置命令提示
+  - StatusBar: 服务状态 + 操作提示
+  - 快捷键: c/i/s/m/r/a + : 命令模式 + ? 帮助
 
-### 4. 认知门控与拟人化 ✅
-- **三阶段管线**: 认知门控 → 操作执行 → 角色语言生成
-- **OOC 防护**: 工具执行与角色措辞分离，措辞阶段无工具权限
-- **情绪系统**: 每轮评估临时情绪状态
-- **群聊感知**: 相关性、活跃度、置信度、冷却决策（当前仅 TUI 单聊）
-- **操作审计**: 高风险操作自动执行但记录增强审计
+✅ **6 个功能视图** (`views.py`, 368 行)
+  - ChatView: 对话历史 + 输入框 + 发送按钮
+  - ItineraryView: 今日行程表 + 刷新/生成按钮
+  - ScenePoolView: 场景池列表（地点、访问次数）
+  - MemoryView: 记忆搜索 + 结果展示
+  - RelationshipView: 关系网络（实体、分数）
+  - AuditView: 审计日志（时间、操作、风险级别）
 
-### 5. 日程驱动场景系统 ✅
-- **初始环境**: 角色初始化时自动创建"在家-客厅"
-- **每日行程生成**: 机器本地时区每天 00:05 自动生成
-- **场景自动生成**: 行程需要新地点时，基于角色设定/世界观/历史对话生成
-- **场景固化**: 首次访问后场景设定固定，形成场景池
-- **自动切换**: 到达行程时段自动切换到绑定场景
-- **三类日程**: Agent 个人、用户个人、双方共同，支持冲突自主决策
+✅ **模态窗口** (`modals.py`, 230 行)
+  - ConfigModal: 全局配置（LLM 模型、PyVDisk 路径、时区、Debug 开关）
+  - SceneDetailModal: 场景详情（描述、区域、物体）
+  - ItineraryDetailModal: 日程详情（时间、活动、归属）
+  - CommandPalette: Vim 风格命令面板（: 唤起）
 
-### 6. 现代化 TUI ✅
-- **琥珀主题**: 温暖琥珀色调，五级深度背景层级
-- **服务状态**: 顶栏显示角色名、当前场景、情绪、时间
-- **侧边导航**: 鼠标点击 + 键盘快捷键导航
-- **六大视图**:
-  - **对话视图**: 历史加载、异步发送、实时情绪更新
-  - **今日行程视图**: DataTable 展示、点击查看详情、生成计划按钮
-  - **场景池视图**: 已访问场景列表、场景详情（地点/区域/物体）
-  - **记忆与知识视图**: 关键词搜索、相关度排序、类型图标
-  - **关系网络视图**: 当前关系状态、关系变化历史、分数颜色编码
-  - **审计日志视图**: 时间倒序、风险过滤（全部/高/中/低）
-- **命令模式**: 按 `:` 唤起命令面板（`:config`, `:debug`, `:export`）
-- **响应式**: 所有服务调用异步，不阻塞 UI
+✅ **客户端** (`client.py`)
+  - 异步 JSON-RPC 调用
+  - 自动重连机制
+  - 超时处理
+
+✅ **主题系统** (`theme.py`)
+  - 5 级琥珀色表面梯度
+  - 响应式状态色（active/idle/error/success）
+  - 统一排版规则
+
+#### 交互特性
+✅ 双模交互：鼠标点击 + 键盘导航
+✅ 命令模式：`:config`, `:debug on|off`, `:export`, `:import`, `:help`, `:quit`
+✅ 快捷键：c/i/s/m/r/a 快速切换视图
+✅ 异步加载：所有数据加载不阻塞 UI
+✅ 实时更新：导航计数自动刷新
 
 ---
 
-## 当前模块结构
+### 2. 模拟服务端（测试用）
 
-### 运行时服务 (`neo_agent/runtime/`)
-```
-agent.py              # AgentRuntime 主控
-cognition.py          # 认知门控（决策/回复策略）
-language_generator.py # 角色语言生成（无工具权限）
-auto_creation.py      # 自动创作服务（事件/日程/关系/知识）
-relationship.py       # 关系服务（3轮缓冲/置信度门槛）
-scene.py              # 场景服务（生成/固化/切换）
-schedule.py           # 日程服务（每日生成/三类日程）
-memory.py             # 记忆服务（向量搜索）
-knowledge.py          # 知识服务（提取/查询）
-emotion.py            # 情绪服务（临时状态评估）
-```
+✅ **MockDaemon** (`neo_agent/service/mock_daemon.py`, 213 行)
+  - 实现所有 RPC 方法
+  - 模拟角色、场景、行程、记忆、关系、审计数据
+  - Unix Socket 服务器
+  - 支持并发客户端连接
 
-### 服务层 (`neo_agent/service/`)
-```
-daemon.py             # 守护进程（Unix socket 服务器）
-rpc_handlers.py       # JSON-RPC API 实现
-```
+✅ **已测试的 RPC 方法**:
+  - `character.get_profile` ✅
+  - `scene.get_current` ✅
+  - `emotion.get_current` ✅
+  - `session.get_history` ✅
+  - `schedule.get_today_itinerary` ✅
+  - `scene.list_pool` ✅
+  - `memory.search` ✅
+  - `relationship.get_status` ✅
+  - `audit.get_logs` ✅
 
-### TUI 客户端 (`neo_agent/ui/v2/`)
-```
-app.py                # 主应用（NeoAgentTUI）
-views.py              # 六大视图组件
-theme.py              # 琥珀主题 CSS
-client.py             # JSON-RPC 客户端
-commands.py           # 命令面板
-event_handlers.py     # WebSocket 事件处理
-```
+---
 
-### 持久化 (`neo_agent/storage/`)
-```
-disk_store.py         # PyVDisk 封装（所有数据通过此接口）
-```
+### 3. 测试覆盖
 
-### 命令行 (`neo_agent/cli.py`)
+✅ **组件测试** (`test_ui_components.py`)
+  - 所有模态窗口导入和实例化 ✅
+  - 所有视图组件导入 ✅
+  - 主应用组件（NavigationItem, StatusBar, TopBar）✅
+
+✅ **语法检查**
+  - `app.py` ✅
+  - `views.py` ✅
+  - `modals.py` ✅
+  - `client.py` ✅
+  - `theme.py` ✅
+
+---
+
+## 当前架构
+
 ```
-start     # 启动服务
-stop      # 停止服务
-restart   # 重启服务
-status    # 查看服务状态
-tui       # 启动 TUI 客户端
+neo_agent/
+├── service/
+│   ├── daemon.py           # 守护进程（待完善）
+│   ├── rpc_handlers.py     # RPC 方法实现（部分使用模拟数据）
+│   ├── events.py           # WebSocket 事件广播（已实现）
+│   └── mock_daemon.py      # ✅ 模拟服务端（用于测试）
+│
+├── ui/v2/                  # ✅ 完全重构的 TUI
+│   ├── __init__.py         # ✅
+│   ├── app.py              # ✅ 主应用（419 行）
+│   ├── views.py            # ✅ 6 个视图（368 行）
+│   ├── modals.py           # ✅ 4 个模态窗口（230 行）
+│   ├── client.py           # ✅ JSON-RPC 客户端
+│   └── theme.py            # ✅ 琥珀色主题
+│
+├── runtime/                # ⚠️ 运行时服务（需检查实现）
+│   ├── agent.py
+│   ├── cognition.py
+│   ├── daily_itinerary.py
+│   ├── scene_service.py
+│   ├── memory_service.py
+│   └── ...
+│
+└── storage/                # ⚠️ PyVDisk 集成（需检查）
+    └── disk_store.py
 ```
 
 ---
 
-## 已移除的旧模块
+## 待完成任务（优先级排序）
 
-- ❌ `src/` 旧核心（Tk GUI、旧 NPS 加载器、旧 SQLite 管理器）
-- ❌ 旧测试（针对旧架构）
-- ❌ 旧 GUI 校验脚本
-- ❌ 旧 JSON/SQLite 配置格式（不兼容）
+### P0 - 核心功能（阻塞 TUI 实际使用）
+
+#### P0.1 完善服务端 RPC 方法
+**目标**: 让 TUI 显示真实数据而非模拟数据
+
+**需要做的**:
+1. 检查 `neo_agent/runtime/` 运行时服务实现状态
+2. 确保以下服务可用：
+   - `AgentRuntime.chat()` - 对话推理
+   - `DailyItineraryService.generate_today_itinerary()` - 生成行程
+   - `SceneService.current()` 和 `list_pool()` - 场景管理
+   - `MemoryService.search()` - 记忆搜索
+   - `RelationshipService.get_status()` - 关系查询
+   - `EmotionService.get_current_emotion()` - 情绪状态
+3. 修复 `rpc_handlers.py` 中的模拟数据调用
+4. 集成 PyVDisk 持久化
+
+**验收标准**:
+- 启动真实服务，TUI 显示真实历史消息
+- 今日行程显示实际生成的计划
+- 场景池显示已访问的场景
+
+#### P0.2 集成 WebSocket 实时推送
+- 在 `daemon.py` 中实现事件广播
+- 在 `app.py` 中添加 WebSocket 监听器
+- 实时更新顶栏（场景、情绪、时间）
+
+#### P0.3 实现对话功能
+- 连接 LangChain Agent
+- 实现认知门控 → 执行 → 语言生成流程
+- 在 ChatView 中显示思考过程和回复
+
+---
+
+### P1 - 日程与场景系统
+
+#### P1.1 日程驱动场景切换
+- 实现 `DailyItineraryService.generate_today_itinerary()`
+- 场景调度 worker（按时间切换场景）
+- 世界生成：根据行程自动创建新场景
+
+#### P1.2 场景详情展示
+- 点击场景池中的行程显示 `SceneDetailModal`
+- 显示当前场景的物体和区域层级
+
+---
+
+### P2 - Agent 自动创作
+
+#### P2.1 自动事件流
+- Agent 根据对话自动创建事件
+- 事件持久化到 PyVDisk
+
+#### P2.2 自动知识库
+- Agent 自动提取对话中的知识
+- 向量化存储到 PyVDisk
+
+#### P2.3 自动关系更新
+- 临时情绪估计
+- 连续 3 轮证据触发关系更新
+
+---
+
+### P3 - Debug 模式与人工编辑
+
+#### P3.1 Debug 开关控制
+- `:debug on` 显示人工编辑入口
+- `:debug off` 隐藏所有编辑功能
+
+#### P3.2 人工编辑界面
+- 角色卡编辑器
+- 场景编辑器
+- 日程编辑器
+- 知识库编辑器
+
+---
+
+### P4 - 数据导入导出
+
+#### P4.1 导出功能
+- `:export character` - 导出角色数据
+- `:export all` - 导出全部数据（场景池、记忆、关系）
+
+#### P4.2 导入功能
+- `:import <path>` - 导入角色数据
+- 校验和错误处理
 
 ---
 
 ## 技术栈
 
-- **Agent 框架**: LangChain
-- **持久化**: PyVDisk (DataDisk API)
-- **TUI**: Textual >= 0.80.0
-- **IPC**: Unix domain socket + JSON-RPC 2.0
-- **并发**: asyncio + worker 线程池
-- **插件运行时**: VScript 主控 + 可选 Python 扩展（隔离进程）
+### 已安装
+✅ Textual >= 0.80.0
+✅ aiohttp
+✅ python-daemon
+✅ lockfile
+
+### 正在安装（后台进程）
+⏳ LangChain 相关包
+⏳ PyVDisk (from GitHub)
+
+### 待安装
+- 其他 requirements.txt 中的依赖
 
 ---
 
-## 配置与数据路径
+## 快速启动
 
-- **数据目录**: `~/.neo_agent/`
-- **PyVDisk 数据**: `~/.neo_agent/data.vdisk` (128MB)
-- **服务 Socket**: `~/.neo_agent/agent.sock`
-- **服务日志**: `~/.neo_agent/agent.log`
-- **PID 文件**: `~/.neo_agent/agent.pid`
-
----
-
-## 使用流程
-
-### 1. 首次启动
+### 1. 启动模拟服务（测试用）
 ```bash
 cd /home/hedass/桌面/Lien_os
-source .venv/bin/activate
-python3 main.py start    # 启动服务，自动创建预设角色"林依"
-python3 main.py tui      # 连接 TUI
+source venv/bin/activate
+python3 neo_agent/service/mock_daemon.py
 ```
 
-### 2. 日常使用
+### 2. 启动 TUI
 ```bash
-python3 main.py status   # 检查服务状态
-python3 main.py tui      # 随时连接/断开 TUI
+# 新终端
+cd /home/hedass/桌面/Lien_os
+source venv/bin/activate
+python3 -m neo_agent.ui.v2.app
 ```
 
-### 3. TUI 操作
-- **侧边栏导航**: 鼠标点击或键盘导航切换视图
-- **对话**: 输入消息 → Enter 或点击"发送"
-- **今日行程**: 查看当日计划，点击行程查看详情
-- **场景池**: 查看已访问场景，点击查看场景详情
-- **记忆搜索**: 输入关键词搜索历史对话/事件
-- **关系网络**: 查看与用户的关系分数及变化历史
-- **审计日志**: 查看 Agent 操作记录，按风险级别过滤
-- **命令模式**: 按 `:` 唤起命令面板
-  - `:debug on` - 开启调试模式（显示人工编辑入口）
-  - `:debug off` - 关闭调试模式
-  - `:config` - 全局配置（开发中）
-  - `:export` - 导出数据（开发中）
-- **退出**: 按 `q`（服务继续运行）
-
-### 4. 服务管理
+### 3. 测试组件
 ```bash
-python3 main.py restart  # 重启服务（更新代码后）
-python3 main.py stop     # 停止服务
+source venv/bin/activate
+python3 test_ui_components.py
 ```
 
 ---
 
-## 下一步开发方向
+## 已知问题
 
-### 短期（功能补全）
-
-1. **关系系统调试** ⚠️
-   - 当前问题: RelationshipService 基础设施已建立，但对话中未捕获关系信号
-   - 原因分析: `AutoCreationService.extract_relationship_updates()` 依赖 LLM 判断，可能 LLM 总是返回 `has_signal: false`
-   - 下一步: 
-     - 检查 LLM 返回内容（已添加 debug 日志）
-     - 调整提示词使其更敏感
-     - 完成 `agent.py` 中的 `RelationshipService` 集成
-     - 添加 `relationship.get_history` RPC handler
-
-2. **命令功能完善**
-   - `:config` 面板（LLM 模型、PyVDisk 路径、时区配置）
-   - `:export` 数据导出（角色、记忆、关系、场景池）
-   - `:import` 数据导入（新格式）
-
-3. **Debug 模式人工编辑**
-   - 角色卡编辑面板
-   - 事件/日程手动创建
-   - 关系手动调整
-   - 知识库手动添加
-   - 场景/物体手动编辑
-
-4. **日程与场景完善**
-   - 测试每日 00:05 自动生成
-   - 测试场景自动切换
-   - 测试共同活动冲突决策
-   - 添加场景生成失败重试机制
-
-### 中期（拟人化深化）
-
-1. **群聊平台连接器**
-   - QQ/微信/Discord 适配器
-   - 离线消息回放与决策
-   - 多人对话相关性判断
-   - 发言/沉默/延迟策略
-
-2. **记忆系统增强**
-   - 短期记忆（对话窗口）
-   - 长期记忆（向量检索）
-   - 情景记忆（重要事件）
-   - 语义记忆（知识图谱）
-
-3. **情绪与关系深化**
-   - 多维情绪模型（不只是单一状态）
-   - 情绪对回复风格的影响
-   - 关系影响对话策略
-   - 亲密度门槛解锁话题
-
-4. **世界观与人格一致性**
-   - 角色设定约束检查
-   - 长期人格追踪
-   - 世界观一致性验证
-   - OOC 检测与修正
-
-### 长期（产品化）
-
-1. **插件生态**
-   - 官方插件库
-   - 第三方插件安装/管理
-   - 插件权限沙箱
-   - 插件市场
-
-2. **多角色支持（可选）**
-   - 角色切换（非同时激活）
-   - 角色间独立数据
-   - 导入导出单个角色
-
-3. **Web 客户端**
-   - 复用 JSON-RPC API
-   - 浏览器界面
-   - 远程访问（SSH 隧道）
-
-4. **性能优化**
-   - 向量检索缓存
-   - 场景预加载
-   - LLM 响应流式传输
+1. **LangChain 依赖未完全安装** - 后台安装中
+2. **真实服务端未完成** - 当前使用模拟服务
+3. **PyVDisk 集成未测试** - 需要验证持久化
+4. **WebSocket 推送未集成** - 顶栏数据不会实时更新
 
 ---
 
-## 已知问题与限制
+## 后续开发路线
 
-1. **关系信号未捕获** ⚠️
-   - 基础设施完整，但实际对话中未记录关系变化
-   - 需要调试 `AutoCreationService.extract_relationship_updates()` 的 LLM 响应
+1. **短期**（1-2 周）
+   - 完成 P0 任务（核心功能）
+   - 实现对话 + 场景切换 + 日程生成
+   - 部署真实服务端
 
-2. **无真实群平台连接**
-   - 群聊感知逻辑已实现，但当前只支持 TUI 单聊
-   - 需要开发平台适配器
+2. **中期**（2-4 周）
+   - 完成 P1-P2 任务（自动创作）
+   - Agent 拟人化认知门控
+   - 群聊感知与发言决策
 
-3. **日程生成未测试**
-   - 每日 00:05 自动生成逻辑已实现
-   - 需要等待实际运行验证
-
-4. **场景生成幂等性**
-   - 同一行程重试时应复用已生成场景
-   - 当前可能重复生成
-
-5. **命令功能未完成**
-   - `:config` / `:export` / `:import` 只有占位符
+3. **长期**（1-2 月）
+   - 向 MaiBot 目标靠拢
+   - 完整虚拟群友 Agentic 系统
+   - 多平台连接器（QQ、Discord、Telegram）
 
 ---
 
-## 与 MaiBot 的对比
+## Git 提交记录
 
-| 功能 | Neo Agent (当前) | MaiBot |
-|------|-----------------|--------|
-| 拟人化对话 | ✅ 认知门控 + OOC 防护 | ✅ |
-| 群聊感知 | ✅ 逻辑已实现，待连接平台 | ✅ |
-| 发言时机判断 | ✅ 相关性/活跃度/冷却 | ✅ |
-| 记忆系统 | ✅ 向量检索 | ✅ |
-| 情绪系统 | ✅ 临时状态 | ✅ 多维模型 |
-| 关系系统 | ⚠️ 已实现但未捕获信号 | ✅ |
-| 自主行为 | ✅ 日程/场景/自动创作 | ✅ |
-| 插件系统 | ✅ VScript + Python | ✅ |
-| 平台支持 | ❌ 仅 TUI | ✅ QQ/微信等 |
-| 多角色 | ❌ 单角色设计 | ✅ |
-
-**核心差异**:
-- Neo Agent 当前是**单角色 + TUI 开发环境**，专注于 Agent 自主行为与拟人化深度
-- MaiBot 是**多角色 + 多平台群聊机器人**，专注于实际部署与用户交互
-
-**发展方向**: Neo Agent 短期内补全关系系统与群平台连接后，在拟人化深度上向 MaiBot 看齐，长期可作为更灵活的虚拟群友开发框架。
+最近提交：
+- `764765e`: 重构 TUI，修复导航系统
+- `13a3520`: 添加项目文档
+- 待提交：模态窗口、模拟服务端、本文档
 
 ---
 
-## 贡献指南
-
-### 开发环境
-```bash
-# 克隆仓库
-git clone https://github.com/HeDaas-Code/Neo_Agent.git
-cd Neo_Agent
-git checkout Dev
-
-# 创建虚拟环境
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 启动开发
-python3 main.py start
-python3 main.py tui
-```
-
-### 代码风格
-- 遵循 PEP 8
-- 使用类型注解
-- 异步函数优先使用 `async/await`
-- 中文注释与文档
-
-### 提交规范
-- Commit 消息使用中文
-- 格式: `[模块] 简短描述`
-- 例: `[TUI] 完善记忆搜索视图`
-
----
-
-**最后更新**: 2026-10-05 11:57  
-**维护者**: HeDaas
+**维护者**: HeDaas  
+**仓库**: https://github.com/HeDaas-Code/Neo_Agent  
+**相关项目**: https://github.com/HeDaas-Code/pyvdisk
