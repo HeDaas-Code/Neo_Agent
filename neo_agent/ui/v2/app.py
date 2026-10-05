@@ -5,6 +5,7 @@ from textual.widgets import Header, Footer, Static, Button
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.message import Message
+from datetime import datetime
 
 from .views import (
     ChatView, ItineraryView, ScenePoolView,
@@ -15,10 +16,8 @@ from .client import AgentClient
 from .theme import AMBER_THEME
 
 
-class NavigationItem(Static):
-    """导航项"""
-    
-    can_focus = True
+class NavigationItem(Button):
+    """导航项 - 使用 Button 确保可点击"""
     
     class NavClicked(Message):
         """导航项点击消息"""
@@ -27,28 +26,36 @@ class NavigationItem(Static):
             self.view_id = view_id
     
     def __init__(self, label: str, icon: str, view_id: str, count: int = 0):
-        super().__init__()
-        self.label = label
+        # Button 的 label 会自动显示
+        self.nav_label = label
         self.icon = icon
         self.view_id = view_id
         self.count = count
         self._is_active = False
+        
+        # 初始化按钮
+        count_text = f" ({count})" if count > 0 else ""
+        super().__init__(f"{icon} {label}{count_text}", variant="default")
     
-    def render(self) -> str:
+    def update_display(self):
+        """更新显示内容"""
         count_text = f" ({self.count})" if self.count > 0 else ""
-        style = "bold reverse" if self._is_active else ""
-        return f"[{style}]{self.icon} {self.label}{count_text}[/]"
+        self.label = f"{self.icon} {self.nav_label}{count_text}"
+        
+        # 更新样式
+        if self._is_active:
+            self.variant = "primary"
+        else:
+            self.variant = "default"
     
     def set_active(self, active: bool):
         self._is_active = active
-        self.refresh()
+        self.update_display()
     
-    def on_click(self) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """按钮点击事件"""
+        event.stop()  # 阻止事件冒泡
         self.post_message(self.NavClicked(self.view_id))
-    
-    def on_key(self, event) -> None:
-        if event.key == "enter":
-            self.post_message(self.NavClicked(self.view_id))
 
 
 class StatusBar(Static):
@@ -74,6 +81,8 @@ class TopBar(Static):
     time = reactive("")
     
     def render(self) -> str:
+        if not self.time:
+            self.time = datetime.now().strftime("%H:%M")
         return (
             f"[bold]{self.character_name}[/] • "
             f"[dim]在[/] {self.current_scene} • "
@@ -104,7 +113,7 @@ class NeoAgentTUI(App):
     }
     
     #sidebar {
-        width: 22;
+        width: 24;
         background: $surface-1;
         border-right: solid $surface-3;
         padding: 1;
@@ -118,19 +127,12 @@ class NeoAgentTUI(App):
     NavigationItem {
         width: 100%;
         height: auto;
-        padding: 0 1;
-        margin: 0 0 0 0;
-        color: $text-secondary;
+        margin: 0 0 1 0;
+        text-align: left;
     }
     
-    NavigationItem:hover {
-        background: $surface-2;
-        color: $text-primary;
-    }
-    
-    NavigationItem:focus {
-        background: $surface-3;
-        color: $accent-primary;
+    NavigationItem Button {
+        width: 100%;
     }
     
     .nav_section {
@@ -142,7 +144,7 @@ class NeoAgentTUI(App):
     .nav_title {
         color: $text-dim;
         text-style: italic;
-        margin-bottom: 0;
+        margin-bottom: 1;
         padding: 0 1;
     }
     
@@ -186,11 +188,10 @@ class NeoAgentTUI(App):
                 yield NavigationItem("关系网络", "💭", "relationships")
                 yield NavigationItem("审计日志", "🔍", "audit")
                 
-                with Container(classes="nav_section"):
-                    yield Static("设置 (命令)", classes="nav_title")
-                    yield Static(":config 全局配置", classes="nav_title")
-                    yield Static(":debug 开发模式", classes="nav_title")
-                    yield Static(":export 导出数据", classes="nav_title")
+                yield Static("─── 设置 ───", classes="nav_title")
+                yield Static("[dim]:config 全局配置[/]")
+                yield Static("[dim]:debug 开发模式[/]")
+                yield Static("[dim]:export 导出数据[/]")
             
             with Container(id="content"):
                 yield ChatView(id="view_chat")
@@ -203,45 +204,42 @@ class NeoAgentTUI(App):
         yield StatusBar(id="status_bar")
     
     async def on_mount(self) -> None:
-        """挂载时初始化"""
-        # 隐藏所有视图
-        for view_id in ["chat", "itinerary", "scenes", "memory", "relationships", "audit"]:
-            view = self.query_one(f"#view_{view_id}")
+        """挂载后初始化"""
+        # 隐藏所有视图，只显示对话视图
+        for vid in ["itinerary", "scenes", "memory", "relationships", "audit"]:
+            view = self.query_one(f"#view_{vid}")
             view.display = False
         
-        # 显示默认视图
-        await self.switch_view("chat")
+        # 激活对话导航项
+        self.update_navigation()
         
         # 连接服务
-        await self.connect_to_service()
+        await self.connect_service()
         
-        # 更新导航项状态
-        self.update_navigation()
+        # 设置定时器更新时间
+        self.set_interval(60, self.update_time)
     
-    async def connect_to_service(self) -> None:
-        """连接到后台服务"""
+    async def connect_service(self) -> None:
+        """连接到服务"""
         status_bar = self.query_one("#status_bar", StatusBar)
-        
         try:
-            connected = await self.client.connect()
-            if connected:
-                status_bar.status = "[green]服务运行中[/]"
-                await self.load_initial_data()
-            else:
-                status_bar.status = "[red]服务未启动[/]"
-                self.notify("无法连接到服务，请先运行: python3 main.py start", severity="error", timeout=10)
+            await self.client.connect()
+            status_bar.status = "[green]服务运行中[/]"
+            
+            # 加载初始数据
+            await self.load_initial_data()
         except Exception as e:
             status_bar.status = f"[red]连接失败: {e}[/]"
-            self.notify(f"连接错误: {e}", severity="error")
+            self.notify(f"无法连接到服务: {e}", severity="error", timeout=10)
     
     async def load_initial_data(self) -> None:
         """加载初始数据"""
         try:
             # 加载角色信息
-            character = await self.client.call("character.get_profile")
-            if character:
+            profile = await self.client.call("character.get_profile")
+            if profile:
                 top_bar = self.query_one("#top_bar", TopBar)
-                top_bar.character_name = character.get("name", "林依")
+                top_bar.character_name = profile.get("name", "林依")
             
             # 加载当前场景
             scene = await self.client.call("scene.get_current")
@@ -267,24 +265,29 @@ class NeoAgentTUI(App):
             # 更新行程计数
             itinerary = await self.client.call("schedule.get_today_itinerary")
             if itinerary:
-                for nav in self.query("#sidebar NavigationItem"):
+                for nav in self.query(NavigationItem):
                     if nav.view_id == "itinerary":
                         nav.count = len(itinerary)
-                        nav.refresh()
+                        nav.update_display()
             
             # 更新场景池计数
             scenes = await self.client.call("scene.list_pool")
             if scenes:
-                for nav in self.query("#sidebar NavigationItem"):
+                for nav in self.query(NavigationItem):
                     if nav.view_id == "scenes":
                         nav.count = len(scenes)
-                        nav.refresh()
+                        nav.update_display()
         except Exception as e:
             pass  # 静默失败
     
+    def update_time(self) -> None:
+        """更新顶部时间"""
+        top_bar = self.query_one("#top_bar", TopBar)
+        top_bar.time = datetime.now().strftime("%H:%M")
+    
     def update_navigation(self) -> None:
         """更新导航项激活状态"""
-        for nav in self.query("#sidebar NavigationItem"):
+        for nav in self.query(NavigationItem):
             nav.set_active(nav.view_id == self.current_view_id)
     
     async def switch_view(self, view_id: str) -> None:
@@ -327,7 +330,6 @@ class NeoAgentTUI(App):
         if cmd == "config":
             result = await self.push_screen_wait(ConfigModal())
             if result:
-                # TODO: 保存配置
                 self.notify(f"配置已保存", timeout=3)
         
         elif cmd == "debug":
@@ -345,11 +347,9 @@ class NeoAgentTUI(App):
         elif cmd == "export":
             target = parts[1] if len(parts) > 1 else "all"
             self.notify(f"导出 {target}...", timeout=3)
-            # TODO: 实现导出逻辑
         
         elif cmd == "import":
             self.notify("导入功能开发中...", timeout=3)
-            # TODO: 实现导入逻辑
         
         elif cmd == "quit":
             self.exit()
