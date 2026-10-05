@@ -1,319 +1,491 @@
 # Neo Agent 下一步开发计划
 
-## 当前状态 ✓
+## 🎯 当前状态总结
 
-### 已完成的重构
-1. **服务-客户端分离** ✓
-   - 守护进程服务正常运行
-   - TUI 可独立连接/断开
-   - Unix socket + JSON-RPC 2.0 通信
+### ✅ 已完成的核心架构
+1. **服务-客户端分离** - 守护进程独立运行，TUI可随时连接/断开
+2. **PyVDisk持久化** - 统一的数据存储接口，支持重启恢复
+3. **现代化TUI** - 琥珀主题，流畅的导航和交互
+4. **运行时服务** - 角色、场景、日程、关系、情绪管理
+5. **RPC API** - 18个完整的JSON-RPC方法
 
-2. **琥珀色主题** ✓
-   - 5 级深度表面颜色
-   - 温暖专业的视觉体验
-   - 所有组件样式统一
+### 🏗️ 当前架构优势
+- **服务独立运行** - TUI关闭后服务继续工作
+- **异步非阻塞** - 所有操作都是异步的，不会卡死
+- **可扩展性强** - 易于添加新功能和新视图
+- **测试覆盖** - 导航、RPC、视图数据加载都有测试
 
-3. **导航系统** ✓
-   - 键盘导航（回车键切换）
-   - 鼠标点击支持
-   - 所有 6 个视图可访问
+---
 
-4. **视图模块化** ✓
-   - app.py 从 664 行减少到 336 行
-   - views.py 独立管理所有视图
-   - 代码组织清晰
+## 📋 P0: LangChain Agent 集成（最高优先级）
 
-5. **基础视图实现** ✓
-   - ChatView：对话与消息发送
-   - ItineraryView：今日行程展示
-   - ScenePoolView：场景池管理
-   - MemoryView：记忆搜索
-   - RelationshipView：关系网络
-   - AuditView：审计日志
+### 目标
+让 Agent 可以进行真实的对话，并具备工具调用能力。
 
-## 立即任务（P0）
+### 实施步骤
 
-### 1. 完善服务端 RPC 方法
-**目标**：让所有视图可以显示真实数据
+#### 第一阶段：基础 Agent 框架（1天）
 
-**需要实现的 API**：
+**1. 创建 Agent 运行时**
 ```python
-# 会话管理
-session.get_history(limit: int) -> List[dict]
-session.send_message(text: str) -> {reply, emotion, scene}
-session.get_context() -> {current_scene, emotion, relationship}
+# neo_agent/runtime/agent.py
 
-# 角色与状态
-character.get_profile() -> {name, bio, traits, ...}
-
-# 日程与场景
-schedule.get_today_itinerary() -> List[dict]
-schedule.generate_today_itinerary() -> {status, items}
-scene.get_current() -> {location, area, objects, description}
-scene.list_pool() -> List[dict]
-scene.generate_new(activity, purpose) -> {location_id, ...}
-
-# 知识与记忆
-memory.search(query: str) -> List[dict]
-knowledge.query(topic: str) -> List[dict]
-
-# 关系与情绪
-relationship.get_status(entity: str) -> {score, history}
-relationship.list_all() -> List[dict]
-emotion.get_current() -> {state, intensity, timestamp}
-
-# 审计日志
-audit.get_logs(risk_level: Optional[str], limit: int) -> List[dict]
+class AgentRuntime:
+    """Agent 运行时管理器"""
+    
+    def __init__(self, llm, tools, memory):
+        self.llm = llm
+        self.tools = tools
+        self.memory = memory
+        self.agent_executor = None
+    
+    async def initialize(self):
+        """初始化 Agent"""
+        # 创建 LangChain Agent
+        # 配置工具和记忆
+        pass
+    
+    async def process_message(self, message: str, context: dict) -> dict:
+        """处理消息"""
+        # 调用 Agent
+        # 返回回复和元数据
+        pass
 ```
 
-**实施步骤**：
-1. 在 `neo_agent/service/rpc_handlers.py` 中实现这些方法
-2. 连接到现有的运行时服务（认知门控、场景管理、日程服务等）
-3. 确保返回格式与视图期望的结构一致
-4. 添加错误处理和日志记录
-
-**验收标准**：
-- 启动 TUI，对话视图显示真实历史消息
-- 今日行程显示实际生成的计划
-- 场景池显示已访问的场景
-- 记忆搜索返回相关结果
-- 关系网络显示当前关系状态
-- 审计日志显示操作记录
-
-### 2. 集成 WebSocket 实时推送
-**目标**：TUI 自动响应服务端状态变化
-
-**事件类型**：
+**2. 配置 LLM 连接**
 ```python
-# 场景切换
-{"type": "scene_changed", "scene": {...}}
+# neo_agent/config.py
 
-# 情绪更新
-{"type": "emotion_updated", "emotion": {...}}
+import os
+from langchain_openai import ChatOpenAI
 
-# 新消息
-{"type": "message_received", "message": {...}}
-
-# 日程触发
-{"type": "schedule_triggered", "schedule_item": {...}}
-
-# 关系变化
-{"type": "relationship_updated", "entity": "...", "score": ...}
+def get_llm():
+    """获取配置的LLM"""
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("SILICONFLOW_API_KEY")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        model="gpt-4o-mini",
+        temperature=0.7
+    )
 ```
 
-**实施步骤**：
-1. 在 `daemon.py` 中实现事件广播机制
-2. 在 `app.py` 中添加 WebSocket 监听器
-3. 更新顶栏显示（场景、情绪实时刷新）
-4. 更新相应视图（新消息自动滚动、行程高亮等）
+**3. 更新 RPC 处理器**
+```python
+# neo_agent/service/rpc_handlers.py
 
-**验收标准**：
-- 场景切换时顶栏立即更新
-- 情绪变化时实时反映
-- 新消息到达时聊天视图自动滚动
-- 多个 TUI 实例同步状态
-
-### 3. 实现命令模式
-**目标**：提供高级配置和管理功能
-
-**命令列表**：
+async def session_send_message(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    """发送消息（真实实现）"""
+    text = params.get("text", "")
+    
+    # 获取上下文
+    context = {
+        "character": self.services["role"].get_character(),
+        "scene": self.services["scene"].get_current_scene(),
+        "emotion": self.services["emotion"].get_current_emotion(),
+        "relationships": self.services["relationship"].list_all()
+    }
+    
+    # 调用 Agent
+    result = await self.agent_runtime.process_message(text, context)
+    
+    # 保存对话历史
+    # 更新情绪状态
+    
+    return result
 ```
-:config          # 打开全局配置面板
-:debug on|off    # 切换调试模式
-:export <type>   # 导出数据（character, all）
-:import <path>   # 导入角色数据
-:help            # 显示帮助
-:quit            # 退出 TUI
+
+#### 第二阶段：基础工具集（1-2天）
+
+**创建工具目录结构**
+```
+neo_agent/runtime/tools/
+├── __init__.py
+├── base.py           # 工具基类
+├── memory.py         # 记忆工具
+├── schedule.py       # 日程工具
+├── relationship.py   # 关系工具
+├── scene.py          # 场景工具
+└── knowledge.py      # 知识工具
 ```
 
-**实施步骤**：
-1. 创建 `CommandPanel` 组件（模态面板）
-2. 实现命令解析器和自动补全
-3. 创建配置编辑界面（LLM 模型、PyVDisk 路径、时区等）
-4. 实现导出/导入功能（连接到现有的导入导出服务）
+**示例工具实现**
+```python
+# neo_agent/runtime/tools/memory.py
 
-**验收标准**：
-- 按 `:` 唤起命令面板
-- 输入命令有自动补全
-- `:config` 可以编辑配置并保存
-- `:debug on` 显示人工编辑入口
-- `:export character` 导出成功
+from langchain.tools import Tool
+from typing import Dict, Any
 
-## 中期任务（P1）
+def create_memory_tools(memory_service):
+    """创建记忆相关工具"""
+    
+    def search_memory(query: str) -> str:
+        """搜索记忆"""
+        results = memory_service.search(query, limit=5)
+        return "\n".join([r["content"] for r in results])
+    
+    def add_memory(content: str, importance: str = "normal") -> str:
+        """添加新记忆"""
+        memory_service.add(content, importance=importance)
+        return "记忆已保存"
+    
+    return [
+        Tool(
+            name="search_memory",
+            func=search_memory,
+            description="搜索过去的记忆和对话历史"
+        ),
+        Tool(
+            name="add_memory",
+            func=add_memory,
+            description="保存重要的信息到记忆中"
+        )
+    ]
+```
 
-### 4. 增强用户体验
-- **快捷键系统**：
-  - `h/j/k/l` Vim 风格导航
-  - `?` 显示帮助面板
-  - `Ctrl+R` 刷新当前视图
-  - `Esc` 取消/返回上级
+#### 第三阶段：认知门控原型（1天）
 
-- **错误处理**：
-  - 网络断线友好提示
-  - RPC 超时自动重试
-  - 操作失败可恢复
+**分离决策和语言生成**
+```python
+# neo_agent/runtime/cognition.py
 
-- **性能优化**：
-  - 长列表虚拟滚动
-  - 历史消息懒加载
-  - 场景池分页
+class CognitionGate:
+    """认知门控 - 负责决策和工具调用"""
+    
+    def __init__(self, llm, tools):
+        self.llm = llm
+        self.tools = tools
+    
+    async def decide(self, message: str, context: dict) -> dict:
+        """决策阶段 - 可以使用工具"""
+        # 分析消息
+        # 决定是否需要工具
+        # 执行工具调用
+        # 返回决策结果
+        pass
 
-### 5. 完善视图交互
-- **对话视图**：
-  - Markdown 渲染
-  - 代码块语法高亮
-  - 多行输入编辑器
+# neo_agent/runtime/expression.py
 
-- **行程视图**：
-  - 手动创建/编辑行程（Debug 模式）
-  - 冲突检测可视化
-  - 日程绑定场景选择器
+class ExpressionGenerator:
+    """语言生成器 - 负责生成回复"""
+    
+    def __init__(self, llm):
+        self.llm = llm  # 无工具权限
+    
+    async def generate(self, context: dict, facts: dict) -> str:
+        """生成回复 - 只能访问规范化的事实"""
+        # 根据角色设定
+        # 结合当前场景
+        # 生成自然的回复
+        pass
+```
 
-- **场景视图**：
-  - 场景详情展开/收起
-  - 区域层级树状展示
-  - 物体状态编辑（Debug 模式）
+#### 测试验收
 
-- **记忆视图**：
-  - 高级搜索过滤器
-  - 记忆时间线
-  - 相关性评分展示
+**功能测试**
+```python
+# tests/test_agent_integration.py
 
-- **关系视图**：
-  - 关系图可视化
-  - 历史变化曲线
-  - 事件关联展示
+async def test_basic_conversation():
+    """测试基础对话"""
+    agent = AgentRuntime(...)
+    response = await agent.process_message("你好")
+    assert "reply" in response
+    assert response["reply"]  # 非空回复
 
-- **审计视图**：
-  - 详细日志展开
-  - 风险级别过滤器
-  - 导出审计报告
+async def test_tool_usage():
+    """测试工具调用"""
+    agent = AgentRuntime(...)
+    response = await agent.process_message("帮我记住今天很开心")
+    # 验证记忆工具被调用
+    
+async def test_context_awareness():
+    """测试上下文感知"""
+    agent = AgentRuntime(...)
+    context = {"scene": {"location": "图书馆"}}
+    response = await agent.process_message("这里怎么样？", context)
+    # 验证回复提到图书馆
+```
 
-## 长期目标（P2）
+**集成测试**
+```bash
+# 启动服务
+./start_service.sh
 
-### 6. 多客户端协同
-- 多个 TUI 实例状态同步
-- 用户在线/离线状态
-- 并发操作冲突解决
+# 启动TUI，发送消息
+python -m neo_agent.ui.v2
 
-### 7. 远程服务支持
-- TCP socket 选项
-- TLS 加密通信
-- SSH 隧道指南
-- 远程连接认证
+# 验证：
+# 1. 消息发送成功
+# 2. Agent 有回复
+# 3. 情绪状态更新
+# 4. 对话历史保存
+```
 
-### 8. Web 客户端
-- 复用 JSON-RPC API
-- React/Vue 前端
-- 浏览器端实时推送
-- 响应式设计
+---
 
-### 9. 插件系统扩展
-- TUI 视图插件化
-- 第三方视图注册
-- 自定义命令扩展
-- 主题系统
+## 📋 P1: 日程驱动场景系统
 
-## 技术债务
+### 目标
+Agent 每天自动生成行程，根据行程自动切换场景。
 
-### 需要清理的项目
-- [ ] 删除测试脚本（`test_*.py`）
-- [ ] 删除备份文件（`app_backup.py`）
-- [ ] 删除临时脚本（`create_unified_views.py`）
-- [ ] 更新 README.md
-- [ ] 更新 TECHNICAL.md
-- [ ] 添加 API 文档
+### 实施步骤
 
-### 需要改进的代码
-- [ ] RPC 方法返回值标准化
-- [ ] 错误码体系建立
-- [ ] 日志级别规范化
-- [ ] 类型注解完善
-- [ ] 单元测试覆盖
+#### 第一阶段：每日行程生成（1天）
 
-## 测试计划
+**创建日程生成服务**
+```python
+# neo_agent/runtime/itinerary.py
+
+class DailyItineraryService:
+    """每日行程生成服务"""
+    
+    def __init__(self, llm, character_service, scene_service):
+        self.llm = llm
+        self.character = character_service
+        self.scene = scene_service
+    
+    async def generate_today_itinerary(self) -> list:
+        """生成今日行程"""
+        # 基于角色设定
+        # 考虑世界观
+        # 生成合理的行程
+        pass
+    
+    def should_generate_today(self) -> bool:
+        """判断是否需要生成今日行程"""
+        # 检查是否已生成
+        # 检查日期是否变化
+        pass
+```
+
+**添加定时任务**
+```python
+# neo_agent/service/scheduler.py
+
+import asyncio
+from datetime import datetime, time
+
+class BackgroundScheduler:
+    """后台调度器"""
+    
+    def __init__(self, itinerary_service):
+        self.itinerary = itinerary_service
+        self.running = False
+    
+    async def start(self):
+        """启动调度器"""
+        self.running = True
+        asyncio.create_task(self._daily_task())
+    
+    async def _daily_task(self):
+        """每日任务"""
+        while self.running:
+            now = datetime.now()
+            target = datetime.combine(now.date(), time(0, 5))
+            
+            if now > target:
+                target = target.replace(day=target.day + 1)
+            
+            await asyncio.sleep((target - now).total_seconds())
+            
+            # 生成今日行程
+            await self.itinerary.generate_today_itinerary()
+```
+
+#### 第二阶段：场景生成与切换（1-2天）
+
+**场景自动生成**
+```python
+# neo_agent/runtime/scene.py (扩展)
+
+async def generate_scene(self, purpose: str, context: dict) -> dict:
+    """根据目的生成新场景"""
+    # 使用 LLM 生成场景
+    # 包括地点、区域、物体
+    # 保存到场景池
+    pass
+
+async def activate_scene(self, scene_id: str, area: str = None):
+    """激活场景"""
+    # 切换当前场景
+    # 广播场景切换事件
+    pass
+```
+
+**场景调度器**
+```python
+# neo_agent/service/scene_scheduler.py
+
+class SceneScheduler:
+    """场景调度器"""
+    
+    async def check_and_switch(self):
+        """检查并切换场景"""
+        now = datetime.now()
+        current_itinerary = self.get_current_itinerary(now)
+        
+        if current_itinerary and current_itinerary.scene:
+            await self.scene_service.activate_scene(
+                current_itinerary.scene
+            )
+```
+
+#### 第三阶段：共同活动决策（1天）
+
+**冲突判断与处理**
+```python
+# neo_agent/runtime/schedule.py (扩展)
+
+async def handle_schedule_conflict(
+    self, 
+    agent_schedule: dict, 
+    shared_schedule: dict
+) -> dict:
+    """处理日程冲突"""
+    # 使用 LLM 判断
+    # Agent 自主决定调整或取消
+    # 保存决策记录
+    pass
+```
+
+---
+
+## 📋 P2: 认知门控与拟人化
+
+### 目标
+完整实现三阶段流程：认知 → 执行 → 表达，防止 OOC。
+
+### 关键点
+1. **认知门控** - 可以调用工具，但不生成最终回复
+2. **执行引擎** - 执行工具调用，记录审计
+3. **语言生成** - 无工具权限，只能生成自然语言
+
+### 数据流
+```
+用户消息
+  ↓
+认知门控 (with tools)
+  ↓
+决策结果 (CognitionDecision)
+  ↓
+执行引擎
+  ↓
+操作结果 (ActionResult)
+  ↓
+语言生成 (no tools)
+  ↓
+最终回复 (ReplyCandidate)
+```
+
+---
+
+## 🧪 测试策略
 
 ### 单元测试
-- [ ] RPC 方法单元测试
-- [ ] 视图组件测试
-- [ ] 命令解析器测试
-- [ ] WebSocket 事件处理测试
+- 每个服务独立测试
+- Mock LLM 响应
+- 验证数据持久化
 
 ### 集成测试
-- [ ] 端到端用户流程测试
-- [ ] 多客户端并发测试
-- [ ] 服务重启恢复测试
-- [ ] 数据持久化测试
+- RPC API 端到端测试
+- TUI 交互测试 (Textual Pilot)
+- 场景切换流程测试
 
-### 性能测试
-- [ ] 大量历史消息加载测试
-- [ ] 长时间运行稳定性测试
-- [ ] 内存泄漏检测
-- [ ] WebSocket 推送延迟测试
+### 压力测试
+- 并发 RPC 请求
+- 长时间运行稳定性
+- 内存泄漏检查
 
-## 文档任务
+---
 
-### 用户文档
-- [ ] 安装指南
-- [ ] 快速开始教程
-- [ ] 功能使用说明
-- [ ] 快捷键参考
-- [ ] 命令参考
-- [ ] 常见问题
+## 🔑 环境配置
 
-### 开发文档
-- [ ] 架构设计文档
-- [ ] API 参考
-- [ ] 插件开发指南
-- [ ] 主题定制指南
-- [ ] 贡献指南
+### 必需的环境变量
+```bash
+# LLM 配置
+export OPENAI_API_KEY="sk-..."
+# 或
+export SILICONFLOW_API_KEY="sk-..."
 
-## 里程碑
+# 可选：自定义 API 端点
+export OPENAI_BASE_URL="https://api.siliconflow.cn/v1"
 
-### Milestone 1: 基础功能完善（1-2 周）
-- 完成 P0 任务 1-3
-- 所有视图显示真实数据
-- 命令模式可用
-- WebSocket 推送集成
+# 可选：数据目录
+export NEO_AGENT_DATA_DIR="~/.neo_agent"
+```
 
-### Milestone 2: 用户体验优化（2-3 周）
-- 完成 P1 任务 4-5
-- 快捷键系统
-- 错误处理增强
-- 视图交互完善
+### 推荐的开发环境
+```bash
+# 创建 .env 文件
+cat > .env << 'EOL'
+OPENAI_API_KEY=your-key-here
+OPENAI_BASE_URL=https://api.siliconflow.cn/v1
+NEO_AGENT_DATA_DIR=~/.neo_agent
+DEBUG=true
+EOL
 
-### Milestone 3: 高级功能（1 个月+）
-- 完成 P2 任务 6-9
-- 多客户端协同
-- 远程服务支持
-- Web 客户端
-- 插件系统
+# 加载环境变量
+source .env
+```
 
-## 团队协作
+---
 
-### 当前优先级
-1. **后端开发者**：实现服务端 RPC 方法（P0.1）
-2. **前端开发者**：完善视图交互（P1.5）
-3. **DevOps**：WebSocket 推送集成（P0.2）
-4. **文档团队**：用户文档编写
+## 📊 开发里程碑
 
-### 沟通渠道
-- 每日站会：同步进度，解决阻塞
-- 代码审查：PR 提交后 24 小时内审查
-- 技术讨论：复杂问题提前讨论设计方案
+### Week 1: Agent 基础能力
+- [ ] LangChain Agent 集成
+- [ ] 基础工具集（记忆、日程、关系）
+- [ ] 对话功能测试通过
 
-### 分支策略
-- `Dev`：开发分支（当前活跃）
-- `feature/*`：功能分支
-- `bugfix/*`：修复分支
-- `main`：稳定版本（待合并）
+### Week 2: 场景系统
+- [ ] 每日行程生成
+- [ ] 场景自动生成
+- [ ] 场景切换调度
 
-## 总结
+### Week 3: 认知优化
+- [ ] 完整的三阶段流程
+- [ ] 群聊感知原型
+- [ ] 审计日志完善
 
-TUI 重构的基础工作已完成，架构清晰，导航流畅，主题统一。下一步的重点是**让 TUI 真正可用**：
+### Week 4: 测试与优化
+- [ ] 完整的测试覆盖
+- [ ] 性能优化
+- [ ] 文档完善
 
-1. **连接真实数据**（P0.1）
-2. **实时状态推送**（P0.2）
-3. **高级配置能力**（P0.3）
+---
 
-完成这三项后，Neo Agent 将具备完整的终端管理能力，可以进入用户测试阶段。
+## 🎯 成功标准
+
+### Agent 对话
+- ✅ 可以进行自然的多轮对话
+- ✅ 回复符合角色设定
+- ✅ 能够记住对话历史
+- ✅ 可以调用工具完成任务
+
+### 场景系统
+- ✅ 每天自动生成合理的行程
+- ✅ 根据行程自动切换场景
+- ✅ 场景描述自然丰富
+- ✅ 支持场景复用和固化
+
+### 拟人化
+- ✅ 回复不包含工具调用痕迹
+- ✅ 语言风格一致且自然
+- ✅ 情绪变化合理
+- ✅ 关系更新有据可依
+
+---
+
+**下一步行动**: 开始 P0 - LangChain Agent 集成
+
+准备就绪后运行:
+```bash
+cd /home/hedass/桌面/Lien_os
+source venv/bin/activate
+# 设置环境变量
+export OPENAI_API_KEY="your-key-here"
+# 开始开发
+```

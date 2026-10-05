@@ -28,6 +28,10 @@ class ServiceClient:
             await self.session.close()
             self.session = None
     
+    async def close(self):
+        """关闭客户端（disconnect 的别名）"""
+        await self.disconnect()
+    
     async def call(self, method: str, params: Dict[str, Any] = None) -> Any:
         """调用 RPC 方法"""
         if not self.session:
