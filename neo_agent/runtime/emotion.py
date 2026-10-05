@@ -152,3 +152,26 @@ class EmotionService:
             "confidence": confidence_value,
         })
         return saved
+
+    def get_current_emotion(self, relationship_id: str = "default") -> dict[str, Any] | None:
+        """获取当前情绪状态
+        
+        返回最近一次记录的情绪状态，如果没有则返回 None
+        """
+        try:
+            # 从历史记录中获取最新的情绪
+            history = self.history(relationship_id)
+            if not history:
+                return None
+            
+            latest = history[0]
+            
+            # 返回简化的当前情绪状态
+            return {
+                "state": latest.get("emotional_tone", "neutral"),
+                "intensity": abs(latest.get("score_change", 0)) / 3.0,  # 归一化到 0-1
+                "sentiment": latest.get("sentiment", "neutral"),
+                "timestamp": latest.get("created_at"),
+            }
+        except Exception:
+            return None

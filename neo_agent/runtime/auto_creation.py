@@ -150,16 +150,22 @@ class AutoCreationService:
             if not data.get("has_signal"):
                 return None
 
-            # 记录信号，但不立即持久化
-            signal_id = f"{conversation_id}:{datetime.now().isoformat()}"
+            # 通过 RelationshipService 记录信号（自动处理持久化）
+            # 假设关系实体是 "user"（未来可从对话中提取）
+            entity = "user"
+            
+            # 先记录到事件日志
             self.store.append_event("auto_creation.relationship_signal", {
+                "entity": entity,
                 "conversation_id": conversation_id,
                 "signal": data["signal"],
                 "confidence": data["confidence"],
                 "score_delta": data["score_delta"],
                 "reason": data["reason"]
             })
-
+            
+            # 返回数据供外部使用（包含 entity）
+            data["entity"] = entity
             return data
 
         except Exception as exc:

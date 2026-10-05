@@ -18,6 +18,7 @@ from neo_agent.runtime.cognition import (
 
 
 from neo_agent.runtime.auto_creation import AutoCreationService
+from neo_agent.runtime.relationship import RelationshipService
 from neo_agent.runtime.daily_itinerary import DailyItineraryService
 from neo_agent.runtime.scene_generation import SceneGenerationService
 
@@ -42,6 +43,7 @@ class AgentRuntime:
         self._tool_by_name = {tool.name: tool for tool in self.tools}
         self.max_tool_rounds = max_tool_rounds
         self.cognition = CognitionService(self.model)
+        self.relationship_service = RelationshipService(store)
 
     @staticmethod
     def _build_model() -> Any:
@@ -200,6 +202,29 @@ class AgentRuntime:
             
             # 提取关系信号
             rel_signal = auto_creation.extract_relationship_updates(message, answer, storage_id)
+
+            # 记录关系信号到 RelationshipService
+            if rel_signal and rel_signal.get("entity"):
+                try:
+                    result = self.relationship_service.record_signal(
+                        entity=rel_signal["entity"],
+                        signal_type=rel_signal["signal"],
+                        confidence=rel_signal["confidence"],
+                        score_delta=rel_signal["score_delta"],
+                        reason=rel_signal["reason"],
+                        conversation_id=f"{storage_id}:{len(transcript) + 1}"
+                    )
+                    if result.get("persisted"):
+                        self.store.append_event("relationship.persisted", {
+                            "entity": rel_signal["entity"],
+                            "new_score": result["new_score"],
+                            "evidence_count": result["evidence_count"]
+                        })
+                except Exception as exc:
+                    self.store.append_event("relationship.record_failed", {
+                        "error": type(exc).__name__,
+                        "message": str(exc)
+                    })
             
             # 提取知识条目
             knowledge = auto_creation.maybe_create_knowledge_entry(message, answer)

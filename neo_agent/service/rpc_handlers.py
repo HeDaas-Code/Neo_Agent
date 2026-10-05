@@ -223,28 +223,6 @@ class RPCHandlers:
     
     # ========== 关系与情绪 ==========
     
-    async def relationship_get_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取关系状态"""
-        entity = params.get("entity", "")
-        if not entity:
-            raise ValueError("entity name is required")
-        
-        try:
-            status = self.store.get_document("relationships", entity)
-            return status if status else {}
-        except Exception as e:
-            self._add_audit_log("relationship_error", "low", f"获取关系失败: {str(e)}")
-            return {}
-    
-    async def relationship_list_all(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """列出所有关系"""
-        try:
-            relationships = self.store.list_documents("relationships")
-            return relationships if relationships else []
-        except Exception as e:
-            self._add_audit_log("relationship_error", "low", f"列出关系失败: {str(e)}")
-            return []
-    
     async def emotion_get_current(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取当前情绪"""
         try:
@@ -296,6 +274,45 @@ class RPCHandlers:
                 logs = [log for log in logs if "操作" in log["action"] or "更新" in log["action"]]
         
         return list(reversed(logs))  # 最新的在前
+    
+    async def audit_list_recent(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """列出最近的审计日志（别名方法）"""
+        return await self.system_get_audit_logs(params)
+    
+    async def relationship_get_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """获取指定实体的关系状态"""
+        entity = params.get("entity", "user")
+        try:
+            rel_data = self.agent.store.get_document("relationships", entity)
+            return {
+                "entity": entity,
+                "score": rel_data.get("score", 0),
+                "stage": rel_data.get("stage", "stranger"),
+                "history": rel_data.get("history", [])
+            }
+        except Exception:
+            return {
+                "entity": entity,
+                "score": 0,
+                "stage": "stranger",
+                "history": []
+            }
+    
+    async def relationship_get_history(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """获取关系变化历史"""
+        entity = params.get("entity", "user")
+        limit = params.get("limit", 20)
+        
+        try:
+            history = self.agent.relationship_service.get_relationship_history(entity, limit)
+            return history
+        except Exception as exc:
+            self._add_audit_log(
+                "relationship_get_history_failed",
+                "medium",
+                f"获取关系历史失败: {type(exc).__name__}"
+            )
+            return []
     
     async def system_shutdown(self, params: Dict[str, Any]) -> Dict[str, str]:
         """关闭服务"""
