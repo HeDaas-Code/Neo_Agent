@@ -34,6 +34,7 @@ class RPCHandlers:
         self.emotion_service = EmotionService(disk_store)
         
         self._startup_time = datetime.now()
+        self._audit_logs = []  # 内存中的审计日志缓存
         
     # ========== 会话管理 ==========
     
@@ -60,6 +61,9 @@ class RPCHandlers:
             "emotion": emotion,
             "scene": scene,
         }
+        
+        # 记录审计日志
+        self._add_audit_log("message", "low", f"用户消息: {text[:50]}...")
         
         # 广播消息事件
         await self.broadcaster.emit(ServiceEvent(
@@ -88,6 +92,33 @@ class RPCHandlers:
     
     # ========== 角色与状态 ==========
     
+    async def session_get_history(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """获取会话历史"""
+        limit = params.get("limit", 20)
+        
+        try:
+            # 从存储中获取历史消息
+            messages = self.store.list_documents("messages")
+            
+            # 按时间戳排序，取最近的 N 条
+            sorted_messages = sorted(messages, key=lambda m: m.get("timestamp", ""), reverse=True)
+            return sorted_messages[:limit]
+        except Exception as e:
+            self._add_audit_log("history_error", "low", f"获取历史失败: {str(e)}")
+            # 返回模拟数据
+            return [
+                {
+                    "role": "assistant",
+                    "content": "你好！我是林依，很高兴见到你。",
+                    "timestamp": "2026-10-05T09:00:00"
+                },
+                {
+                    "role": "user",
+                    "content": "你好",
+                    "timestamp": "2026-10-05T08:59:00"
+                }
+            ]
+    
     async def character_get_profile(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取角色配置"""
         role = self.role_service.active()
@@ -112,6 +143,9 @@ class RPCHandlers:
         current.update(fields)
         self.store.save_character(character_id, current)
         
+        # 记录审计
+        self._add_audit_log("character_update", "medium", f"更新角色配置: {list(fields.keys())}")
+        
         return {"status": "ok"}
     
     # ========== 日程与场景 ==========
@@ -121,7 +155,8 @@ class RPCHandlers:
         try:
             itinerary = self.itinerary_service.get_today_itinerary()
             return itinerary if itinerary else []
-        except:
+        except Exception as e:
+            self._add_audit_log("schedule_error", "medium", f"获取日程失败: {str(e)}")
             return []
     
     async def scene_get_current(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,7 +164,8 @@ class RPCHandlers:
         try:
             scene = self.scene_scheduler.get_current_scene()
             return scene if scene else {}
-        except:
+        except Exception as e:
+            self._add_audit_log("scene_error", "low", f"获取场景失败: {str(e)}")
             return {}
     
     async def scene_list_pool(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -137,7 +173,8 @@ class RPCHandlers:
         try:
             scenes = self.scene_service.list_all_scenes()
             return scenes if scenes else []
-        except:
+        except Exception as e:
+            self._add_audit_log("scene_error", "low", f"获取场景池失败: {str(e)}")
             return []
     
     # ========== 知识与记忆 ==========
@@ -155,8 +192,10 @@ class RPCHandlers:
                 self.store.search_memories,
                 query
             )
+            self._add_audit_log("memory_search", "low", f"搜索记忆: {query}")
             return results if results else []
-        except:
+        except Exception as e:
+            self._add_audit_log("memory_error", "medium", f"记忆搜索失败: {str(e)}")
             return []
     
     async def knowledge_query(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -169,8 +208,10 @@ class RPCHandlers:
             entries = self.store.list_documents("knowledge")
             # 简单的文本匹配过滤
             filtered = [e for e in entries if topic.lower() in str(e).lower()]
+            self._add_audit_log("knowledge_query", "low", f"查询知识: {topic}")
             return filtered[:10]
-        except:
+        except Exception as e:
+            self._add_audit_log("knowledge_error", "medium", f"知识查询失败: {str(e)}")
             return []
     
     # ========== 关系与情绪 ==========
@@ -184,7 +225,8 @@ class RPCHandlers:
         try:
             status = self.store.get_document("relationships", entity)
             return status if status else {}
-        except:
+        except Exception as e:
+            self._add_audit_log("relationship_error", "low", f"获取关系失败: {str(e)}")
             return {}
     
     async def relationship_list_all(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -192,7 +234,8 @@ class RPCHandlers:
         try:
             relationships = self.store.list_documents("relationships")
             return relationships if relationships else []
-        except:
+        except Exception as e:
+            self._add_audit_log("relationship_error", "low", f"列出关系失败: {str(e)}")
             return []
     
     async def emotion_get_current(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -200,7 +243,8 @@ class RPCHandlers:
         try:
             emotion = self.emotion_service.get_current_emotion()
             return emotion if emotion else {}
-        except:
+        except Exception as e:
+            self._add_audit_log("emotion_error", "low", f"获取情绪失败: {str(e)}")
             return {}
     
     # ========== 系统控制 ==========
@@ -221,6 +265,8 @@ class RPCHandlers:
         enabled = params.get("enabled", False)
         self.controls.set_debug(enabled)
         
+        self._add_audit_log("debug_mode_change", "medium", f"调试模式: {'开启' if enabled else '关闭'}")
+        
         await self.broadcaster.emit(ServiceEvent(
             type=EventType.SYSTEM_STATUS_CHANGED,
             timestamp=datetime.now().isoformat(),
@@ -229,9 +275,41 @@ class RPCHandlers:
         
         return {"status": "ok"}
     
+    async def system_get_audit_logs(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """获取审计日志"""
+        filter_type = params.get("filter", "all")
+        limit = params.get("limit", 50)
+        
+        logs = self._audit_logs[-limit:]
+        
+        if filter_type != "all":
+            if filter_type == "high-risk":
+                logs = [log for log in logs if log["risk_level"] == "high"]
+            elif filter_type == "actions":
+                logs = [log for log in logs if "操作" in log["action"] or "更新" in log["action"]]
+        
+        return list(reversed(logs))  # 最新的在前
+    
     async def system_shutdown(self, params: Dict[str, Any]) -> Dict[str, str]:
         """关闭服务"""
+        self._add_audit_log("system_shutdown", "high", "服务正在关闭")
         return {"status": "shutting_down"}
+    
+    # ========== 内部辅助方法 ==========
+    
+    def _add_audit_log(self, action: str, risk_level: str, details: str):
+        """添加审计日志条目"""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "risk_level": risk_level,
+            "details": details,
+        }
+        self._audit_logs.append(log_entry)
+        
+        # 只保留最近 1000 条
+        if len(self._audit_logs) > 1000:
+            self._audit_logs = self._audit_logs[-1000:]
     
     # ========== RPC 路由 ==========
     

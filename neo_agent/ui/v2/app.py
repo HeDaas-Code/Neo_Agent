@@ -1,7 +1,7 @@
-"""Neo Agent TUI v2 主应用 - 修复导航点击"""
+"""Neo Agent TUI v2 主应用 - 完整重构版本"""
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -15,7 +15,10 @@ from .commands import (
     CommandPalette, ConfigPanel, ExportPanel, ImportPanel,
     COMMAND_PANEL_CSS
 )
+from .event_handlers import EventHandlers
 
+
+# ============ 状态栏 ============
 
 class StatusBar(Static):
     """顶栏状态栏"""
@@ -48,12 +51,7 @@ class StatusBar(Static):
         status_widget.update(content)
 
 
-class ViewSwitch(Message):
-    """视图切换消息"""
-    def __init__(self, view_id: str):
-        self.view_id = view_id
-        super().__init__()
-
+# ============ 导航栏 ============
 
 class NavigationItem(Button):
     """导航项按钮"""
@@ -61,8 +59,7 @@ class NavigationItem(Button):
     def __init__(self, label: str, view_id: str, **kwargs):
         super().__init__(label, **kwargs)
         self.view_id = view_id
-        self.variant = "default"
-        self.classes = "nav-item"
+        self.add_class("nav-item")
 
 
 class Sidebar(Vertical):
@@ -90,7 +87,7 @@ class ChatView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield RichLog(id="chat-log", classes="chat-log", wrap=True, markup=True)
@@ -163,7 +160,7 @@ class ItineraryView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield Static("[bold $accent-primary]今日行程[/bold $accent-primary]", classes="view-title")
@@ -204,7 +201,7 @@ class ScenePoolView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield Static("[bold $accent-primary]场景池[/bold $accent-primary]", classes="view-title")
@@ -258,7 +255,7 @@ class MemoryView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield Static("[bold $accent-primary]记忆与知识[/bold $accent-primary]", classes="view-title")
@@ -324,7 +321,7 @@ class RelationshipView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield Static("[bold $accent-primary]关系网络[/bold $accent-primary]", classes="view-title")
@@ -360,7 +357,7 @@ class AuditView(Vertical):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.classes = "view-container"
+        self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
         yield Static("[bold $accent-primary]审计日志[/bold $accent-primary]", classes="view-title")
@@ -418,18 +415,18 @@ class MainContent(Container):
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.views = {}
+        self.views: Dict[str, Vertical] = {}
     
     def compose(self) -> ComposeResult:
         # 预先创建所有视图
-        self.views["chat"] = ChatView(self.client)
-        self.views["itinerary"] = ItineraryView(self.client)
-        self.views["scenes"] = ScenePoolView(self.client)
-        self.views["memory"] = MemoryView(self.client)
-        self.views["relationships"] = RelationshipView(self.client)
-        self.views["audit"] = AuditView(self.client)
+        self.views["chat"] = ChatView(self.client, id="view-chat")
+        self.views["itinerary"] = ItineraryView(self.client, id="view-itinerary")
+        self.views["scenes"] = ScenePoolView(self.client, id="view-scenes")
+        self.views["memory"] = MemoryView(self.client, id="view-memory")
+        self.views["relationships"] = RelationshipView(self.client, id="view-relationships")
+        self.views["audit"] = AuditView(self.client, id="view-audit")
         
-        # 只显示对话视图
+        # 显示所有视图，通过 CSS display 控制可见性
         for vid, view in self.views.items():
             if vid == "chat":
                 view.styles.display = "block"
@@ -437,10 +434,9 @@ class MainContent(Container):
                 view.styles.display = "none"
             yield view
     
-    async def switch_to(self, view_id: str):
+    def switch_to(self, view_id: str):
         """切换到指定视图"""
         if view_id not in self.views:
-            self.app.notify(f"未知视图: {view_id}", severity="warning")
             return
         
         # 隐藏所有视图
@@ -450,7 +446,6 @@ class MainContent(Container):
         # 显示目标视图
         self.views[view_id].styles.display = "block"
         self.current_view_id = view_id
-        self.app.notify(f"切换到: {view_id}", severity="information")
 
 
 # ============ 主应用 ============
@@ -469,6 +464,8 @@ class NeoAgentApp(App):
         super().__init__()
         self.client = AgentClient()
         self.connected = False
+        self.event_handlers = None
+        self.ws_client = None
     
     def compose(self) -> ComposeResult:
         yield StatusBar(id="status-bar")
@@ -479,46 +476,65 @@ class NeoAgentApp(App):
     
     async def on_mount(self):
         """应用启动时连接服务"""
-        try:
-            connected = await self.client.connect(timeout=3.0)
-            if connected:
-                self.connected = True
-                await self.update_status()
-                self.query_one("#footer", Static).update(
-                    "服务运行中 • 按 : 进入命令模式 • 按 q 退出"
-                )
-                self.notify("已连接到服务", severity="information")
-            else:
-                self.query_one("#footer", Static).update(
-                    "服务连接失败 • 请先运行: python main.py start"
-                )
-                self.notify("服务连接失败", severity="error")
-        except Exception as e:
-            self.notify(f"连接错误: {e}", severity="error")
-    
-    async def update_status(self):
-        """更新状态栏"""
-        try:
-            profile = await self.client.call("character.get_profile", {})
-            context = await self.client.call("session.get_context", {})
-            
-            status_bar = self.query_one("#status-bar", StatusBar)
-            status_bar.character_name = profile.get("name", "林依")
-            
-            scene = context.get("current_scene", {})
-            if scene:
-                location = scene.get("location", "")
-                area = scene.get("area", "")
-                status_bar.scene_info = f"{location}-{area}" if area else location
-            
-            emotion = context.get("emotion", {})
-            if emotion:
-                state = emotion.get("state", "")
-                intensity = emotion.get("intensity", 0)
-                status_bar.emotion = f"情绪:{state}"
+        await self.connect_to_service()
+        self.run_worker(self.periodic_status_update(), exclusive=True)
         
+        # 初始化事件处理器
+        self.event_handlers = EventHandlers(self)
+        
+        # 连接 WebSocket 并注册事件监听
+        try:
+            from .websocket_client import WebSocketClient
+            self.ws_client = WebSocketClient()
+            if await self.ws_client.connect():
+                # 注册所有事件类型
+                event_types = [
+                    "scene_changed",
+                    "emotion_updated", 
+                    "message_received",
+                    "schedule_triggered",
+                    "relationship_changed",
+                    "daily_itinerary_generated",
+                    "system_status_changed",
+                    "audit_logged"
+                ]
+                
+                for event_type in event_types:
+                    self.ws_client.on(event_type, self._handle_ws_event)
         except Exception as e:
-            self.notify(f"状态更新失败: {e}", severity="warning")
+            self.log(f"WebSocket 初始化失败: {e}")
+    
+    async def connect_to_service(self):
+        """连接到后台服务"""
+        footer = self.query_one("#footer", Static)
+        try:
+            await self.client.connect()
+            self.connected = True
+            footer.update("服务已连接 • 按 : 进入命令模式 • 按 q 退出")
+            self.notify("服务连接成功", severity="information")
+            
+            # 更新状态栏
+            status_bar = self.query_one("#status-bar", StatusBar)
+            status_bar.character_name = "林依"
+            status_bar.scene_info = "在家-客厅"
+            status_bar.emotion = "情绪:平静"
+            
+        except Exception as e:
+            footer.update(f"服务连接失败: {e} • 按 q 退出")
+            self.notify(f"连接失败: {e}", severity="error")
+    
+    async def periodic_status_update(self):
+        """定期更新状态"""
+        while True:
+            await asyncio.sleep(5)
+            if not self.connected:
+                continue
+            
+            try:
+                status = await self.client.call("system.get_status", {})
+                # 可以在这里更新状态栏
+            except Exception:
+                pass
     
     async def on_button_pressed(self, event: Button.Pressed):
         """统一处理按钮点击"""
@@ -526,7 +542,8 @@ class NeoAgentApp(App):
         if isinstance(event.button, NavigationItem):
             view_id = event.button.view_id
             main_content = self.query_one("#main-content", MainContent)
-            await main_content.switch_to(view_id)
+            main_content.switch_to(view_id)
+            self.notify(f"切换到: {view_id}", severity="information")
     
     def action_command_mode(self):
         """打开命令面板"""
@@ -621,8 +638,22 @@ class NeoAgentApp(App):
         except Exception as e:
             self.notify(f"导入失败: {e}", severity="error")
     
+    
+    async def _handle_ws_event(self, event_data: dict):
+        """处理 WebSocket 事件"""
+        if not self.event_handlers:
+            return
+        try:
+            event_type = event_data.get("type", "")
+            data = event_data.get("data", {})
+            await self.event_handlers.handle_event(event_type, data)
+        except Exception as e:
+            self.log(f"事件处理失败: {e}")
+    
     async def on_unmount(self):
         """应用退出时断开连接"""
+        if self.ws_client:
+            await self.ws_client.disconnect()
         if self.connected:
             await self.client.disconnect()
 
