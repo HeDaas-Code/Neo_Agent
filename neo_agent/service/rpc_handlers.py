@@ -395,3 +395,14 @@ class RPCHandlers:
             return {"status": "success" if success else "error"}
         except Exception as e:
             return {"status": "error", "reason": str(e)}
+
+    async def relationship_list_all(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """列出所有关系"""
+        try:
+            # 目前只支持单个用户关系
+            status = await self.relationship_get_status({"entity": "user"})
+            relationships = [status] if status else []
+            
+            return {"relationships": relationships}
+        except Exception as e:
+            return {"relationships": []}

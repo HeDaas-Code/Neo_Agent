@@ -1,5 +1,9 @@
-"""Neo Agent TUI v2：现代控制台界面"""
-from .client import AgentClient
-from .app import NeoAgentApp, run_tui
+"""Neo Agent TUI v2 模块"""
 
-__all__ = ["AgentClient", "NeoAgentApp", "run_tui"]
+from .app import NeoAgentTUI, run
+
+# 兼容旧的导入名称
+NeoAgentApp = NeoAgentTUI
+run_tui = run
+
+__all__ = ['NeoAgentTUI', 'NeoAgentApp', 'run', 'run_tui']

@@ -136,6 +136,9 @@ class AutoCreationService:
 
         try:
             from langchain_core.messages import SystemMessage, HumanMessage
+            import time
+            print(f"[DEBUG] 关系提取 - 提示: {prompt[:200]}...")
+            start = time.time()
             response = self.model.invoke([
                 SystemMessage(content="你是一个精确的关系分析器，只输出 JSON。"),
                 HumanMessage(content=prompt)
@@ -147,7 +150,11 @@ class AutoCreationService:
                 return None
             
             data = json.loads(json_match.group())
+            print(f"[DEBUG] 关系提取 - LLM 响应: {content[:300]}")
+            print(f"[DEBUG] 关系提取 - 解析结果: {data}")
+            print(f"[DEBUG] 关系提取 - 耗时: {time.time() - start:.2f}s")
             if not data.get("has_signal"):
+                print(f"[DEBUG] 关系提取 - 无信号，跳过")
                 return None
 
             # 通过 RelationshipService 记录信号（自动处理持久化）
