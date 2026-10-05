@@ -1,5 +1,6 @@
-"""Neo Agent 守护进程：Unix socket 服务器 + JSON-RPC 2.0"""
+"""Neo Agent 守护进程：Unix socket 服务器 + JSON-RPC 2.0 + 后台调度器"""
 import asyncio
+import logging
 import json
 import os
 import signal
@@ -35,6 +36,11 @@ class AgentDaemon:
         self.store: Optional[DiskStore] = None
         self.broadcaster: Optional[EventBroadcaster] = None
         self.handlers: Optional[RPCHandlers] = None
+        
+        # ✨ 新增：后台调度器
+        self.scene_scheduler = None
+        self.daily_itinerary = None
+        self._background_tasks = []
         
         self._shutdown_requested = False
         
@@ -100,57 +106,21 @@ class AgentDaemon:
                 "result": result,
                 "id": req_id
             })
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except Exception as exc:
             return web.json_response({
                 "jsonrpc": "2.0",
                 "error": {
                     "code": -32603,
-                    "message": str(e)
+                    "message": str(exc),
+                    "data": {"type": type(exc).__name__}
                 },
                 "id": req_id
             }, status=500)
     
     async def _delayed_shutdown(self):
-        """延迟关闭（给响应时间）"""
+        """延迟关闭（允许响应返回）"""
         await asyncio.sleep(0.5)
         self._shutdown_requested = True
-    
-    def shutdown(self):
-        """请求关闭服务"""
-        if not self.is_running():
-            return False
-        
-        pid = self.get_pid()
-        if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                return False
-            
-            # 等待进程退出
-            for _ in range(20):
-                time.sleep(0.5)
-                if not self.is_running():
-                    return True
-            
-            # 强制杀死
-            try:
-                os.kill(pid, signal.SIGKILL)
-                time.sleep(0.5)
-            except ProcessLookupError:
-                pass
-        
-        return not self.is_running()
-    
-    async def _cleanup_services(self):
-        """清理服务资源"""
-        if self.broadcaster:
-            await self.broadcaster.stop()
-        
-        if self.store:
-            self.store.close()
     
     async def _setup_services(self):
         """初始化运行时服务"""
@@ -180,6 +150,76 @@ class AgentDaemon:
         
         # 初始化 RPC 处理器
         self.handlers = RPCHandlers(services)
+        
+        # ✨ 新增：初始化后台调度器
+        print("准备初始化后台调度器...", file=sys.stderr)
+        try:
+            await self._setup_schedulers()
+            print("后台调度器初始化完成", file=sys.stderr)
+        except Exception as e:
+            print(f"⚠ 调度器初始化失败: {e}", file=sys.stderr); import traceback; traceback.print_exc()
+    
+    async def _setup_schedulers(self):
+        """初始化后台调度器"""
+        print("开始初始化后台调度器...", file=sys.stderr)
+        from neo_agent.runtime.scene_scheduler import SceneScheduler
+        from neo_agent.runtime.daily_itinerary import DailyItineraryService
+        
+        # 场景调度器
+        self.scene_scheduler = SceneScheduler(self.store)
+        await self.scene_scheduler.start()
+        print("✓ 场景调度器已启动（每分钟检查场景切换）", file=sys.stderr)
+        
+        # 每日行程生成器
+        self.daily_itinerary = DailyItineraryService(self.store)
+        
+        # 将 daily_itinerary 注入到 RPC handlers 的 services 中
+        self.handlers.services["daily_itinerary"] = self.daily_itinerary
+        
+        # 启动每日检查任务（每小时检查一次，如果今天没生成则生成）
+        self._background_tasks.append(
+            asyncio.create_task(self._daily_itinerary_worker())
+        )
+        print("✓ 每日行程生成器已启动（每小时检查）", file=sys.stderr)
+    
+    async def _daily_itinerary_worker(self):
+        """每日行程生成 worker"""
+        while not self._shutdown_requested:
+            try:
+                # 启动时立即检查一次
+                if self.daily_itinerary.should_generate_today():
+                    print("📅 生成今日行程...", file=sys.stderr)
+                    plan = self.daily_itinerary.generate_today_itinerary()
+                    count = len(plan.get("schedule_items", []))
+                    print(f"✓ 今日行程已生成（{count} 个活动）", file=sys.stderr)
+                    
+                    # 广播事件
+                    if self.broadcaster:
+                        from neo_agent.service.events import ServiceEvent
+                        await self.broadcaster.emit(ServiceEvent(
+                            event_type="itinerary.generated",
+                            data={"date": plan.get("date"), "count": count}
+                        ))
+            except Exception as exc:
+                print(f"❌ 生成今日行程失败: {exc}", file=sys.stderr)
+            
+            # 每小时检查一次
+            await asyncio.sleep(3600)
+    
+    async def _cleanup_schedulers(self):
+        """清理调度器"""
+        if self.scene_scheduler:
+            await self.scene_scheduler.stop()
+            print("✓ 场景调度器已停止", file=sys.stderr)
+        
+        # 取消后台任务
+        for task in self._background_tasks:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        print("✓ 后台任务已清理", file=sys.stderr)
     
     async def _run_server(self):
         """运行 HTTP 服务器"""
@@ -211,80 +251,113 @@ class AgentDaemon:
         
         print("正在关闭服务...", file=sys.stderr)
         
+        # 清理调度器
+        await self._cleanup_schedulers()
+        
         # 清理
+        await self.broadcaster.stop()
+        await self.site.stop()
         await self.runner.cleanup()
-        await self._cleanup_services()
         
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+        self.store.close()
     
-    def start_foreground(self):
-        """前台启动（用于调试）"""
-        def signal_handler(signum, frame):
-            print("\nReceived shutdown signal", file=sys.stderr)
-            self._shutdown_requested = True
-        
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
-        
-        # 写入 PID
-        with open(self.pid_file, "w") as f:
-            f.write(str(os.getpid()))
-        
-        try:
-            asyncio.run(self._run_server())
-        finally:
-            if self.pid_file.exists():
-                self.pid_file.unlink()
+    def _signal_handler(self, signum, frame):
+        """信号处理器"""
+        self._shutdown_requested = True
     
-    def start_daemon(self):
-        """后台启动（守护进程）"""
+    def start(self, daemonize: bool = True):
+        """启动守护进程"""
         if self.is_running():
-            raise RuntimeError("Service is already running")
+            print("服务已在运行", file=sys.stderr)
+            return
         
-        # **关键修复**：保存当前环境变量，特别是 LLM 配置
-        preserved_env = {
-            key: value for key, value in os.environ.items()
-            if any(key.startswith(prefix) for prefix in [
-                'OPENAI_', 'SILICONFLOW_', 'MODEL_', 'PATH', 'HOME', 
-                'USER', 'LANG', 'LC_', 'PYTHONPATH'
-            ])
-        }
-        
-        # 守护进程上下文
-        pidfile = PIDLockFile(str(self.pid_file))
-        
-        with DaemonContext(
-            pidfile=pidfile,
-            working_directory=str(self.data_dir),
-            stdout=open(self.log_file, "a"),
-            stderr=open(self.log_file, "a"),
-            # **保留环境变量**
-            files_preserve=[],
-            # **信号处理**
-            signal_map={
-                signal.SIGTERM: lambda signum, frame: setattr(self, '_shutdown_requested', True),
-                signal.SIGINT: lambda signum, frame: setattr(self, '_shutdown_requested', True),
-            }
-        ):
-            # **恢复环境变量**
-            os.environ.update(preserved_env)
-            asyncio.run(self._run_server())
-
-    def print_status(self):
-        """打印服务状态"""
+        if daemonize:
+            context = DaemonContext(
+                working_directory=str(self.data_dir),
+                pidfile=PIDLockFile(str(self.pid_file)),
+                stdout=open(self.log_file, "a"),
+                stderr=open(self.log_file, "a"),
+                signal_map={
+                    signal.SIGTERM: self._signal_handler,
+                    signal.SIGINT: self._signal_handler,
+                }
+            )
+            
+            with context:
+                asyncio.run(self._run_server())
+        else:
+            # 前台模式（用于调试）
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            signal.signal(signal.SIGINT, self._signal_handler)
+            
+            # 写入 PID
+            with open(self.pid_file, "w") as f:
+                f.write(str(os.getpid()))
+            
+            try:
+                asyncio.run(self._run_server())
+            finally:
+                if self.pid_file.exists():
+                    self.pid_file.unlink()
+    
+    def stop(self):
+        """停止守护进程"""
         if not self.is_running():
-            print("Neo Agent 服务未运行")
+            print("服务未运行", file=sys.stderr)
             return
         
         pid = self.get_pid()
-        print(f"Neo Agent 服务正在运行")
-        print(f"  PID: {pid}")
-        print(f"  Socket: {self.socket_path}")
-        print(f"  日志: {self.log_file}")
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                print(f"已发送停止信号到进程 {pid}", file=sys.stderr)
+                
+                # 等待进程结束
+                for _ in range(30):
+                    time.sleep(0.5)
+                    if not self.is_running():
+                        print("✓ 服务已停止", file=sys.stderr)
+                        return
+                
+                print("服务未能在15秒内停止，强制终止", file=sys.stderr)
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                print("进程不存在", file=sys.stderr)
         
-        # 检查 socket 是否可访问
-        if self.socket_path.exists():
-            print(f"  状态: ✓ Socket 可用")
+        # 清理 PID 文件
+        if self.pid_file.exists():
+            self.pid_file.unlink()
+    
+    def status(self):
+        """检查服务状态"""
+        if self.is_running():
+            pid = self.get_pid()
+            print(f"✓ 服务运行中 (PID: {pid})", file=sys.stderr)
+            print(f"  Socket: {self.socket_path}", file=sys.stderr)
         else:
-            print(f"  状态: ⚠ Socket 文件不存在")
+            print("✗ 服务未运行", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    import sys
+    daemon = AgentDaemon()
+    
+    if len(sys.argv) < 2:
+        print("Usage: python -m neo_agent.service.agent_daemon [start|stop|restart|status]", file=sys.stderr)
+        sys.exit(1)
+    
+    command = sys.argv[1]
+    foreground = "--foreground" in sys.argv
+    
+    if command == "start":
+        daemon.start(daemonize=not foreground)
+    elif command == "stop":
+        daemon.stop()
+    elif command == "restart":
+        daemon.stop()
+        daemon.start(daemonize=not foreground)
+    elif command == "status":
+        daemon.status()
+    else:
+        print(f"Unknown command: {command}", file=sys.stderr)
+        sys.exit(1)

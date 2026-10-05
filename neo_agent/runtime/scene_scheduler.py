@@ -63,7 +63,7 @@ class SceneScheduler:
         
         # 获取所有 Agent 和共同活动的日程
         schedules = [
-            s for s in self.store.list_documents("schedules")
+            s for s in self.store.list_documents("itineraries")
             if s.get("category") in ("agent", "shared")
         ]
         

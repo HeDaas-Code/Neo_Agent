@@ -46,7 +46,7 @@ def start_daemon(foreground=False):
         print("Press Ctrl+C to stop\n")
         
         subprocess.run([
-            sys.executable, "-m", "neo_agent.service.daemon"
+            sys.executable, "-m", "neo_agent.service.agent_daemon"
         ])
     else:
         # 后台运行
@@ -54,7 +54,7 @@ def start_daemon(foreground=False):
         
         with open(LOG_FILE, "a") as log:
             process = subprocess.Popen(
-                [sys.executable, "-m", "neo_agent.service.daemon"],
+                [sys.executable, "-m", "neo_agent.service.agent_daemon"],
                 stdout=log,
                 stderr=log,
                 start_new_session=True

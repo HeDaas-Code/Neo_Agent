@@ -19,6 +19,18 @@ class RPCHandlers:
         """
         self.services = services
     
+    async def handle_rpc_call(self, method: str, params: Dict[str, Any]) -> Any:
+        """路由 JSON-RPC 方法调用"""
+        # 方法名格式：category.action，例如 session.send_message
+        method_name = method.replace(".", "_")
+        handler = getattr(self, method_name, None)
+        
+        if handler is None:
+            raise ValueError(f"Unknown method: {method}")
+        
+        return await handler(params)
+
+    
     # === 会话管理 ===
     
     async def session_send_message(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -290,3 +302,30 @@ class RPCHandlers:
     async def system_shutdown(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """关闭系统"""
         return {"status": "shutting_down"}
+
+    # === 调试方法 ===
+    
+    async def debug_generate_itinerary(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """调试：手动生成今日行程"""
+        daily_service = self.services.get("daily_itinerary")
+        
+        if daily_service is None:
+            return {"success": False, "error": "DailyItineraryService not initialized"}
+        
+        try:
+            from datetime import date
+            plan = daily_service.generate_today_itinerary()
+            count = len(plan.get("schedule_items", []))
+            
+            return {
+                "success": True,
+                "date": plan.get("date"),
+                "count": count,
+                "items": plan.get("schedule_items", [])
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "type": type(e).__name__
+            }

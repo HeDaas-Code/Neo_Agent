@@ -87,7 +87,7 @@ class DailyItineraryService:
 
         # 保存计划
         try:
-            self.store.write(f"daily_plans/{today_str}.json", json.dumps(plan, ensure_ascii=False, indent=2))
+            self.store.write_json(f"/daily_plans/{today_str}.json", plan)
         except Exception as e:
             print(f"保存每日计划失败: {e}")
 

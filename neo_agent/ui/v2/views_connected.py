@@ -261,6 +261,10 @@ class MemoryView(BaseView):
             results_container.mount(Static(f"[bold #D97757]✗ 搜索失败:[/] {e}"))
 
 
+    async def refresh_data(self):
+        """刷新数据（记忆视图保持当前搜索结果）"""
+        pass
+
 class RelationshipView(BaseView):
     """关系网络视图"""
     
