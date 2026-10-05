@@ -92,6 +92,12 @@ class ChatView(Vertical):
         log.write("[bold #E9A568]欢迎使用 Neo Agent！[/bold #E9A568]")
         log.write("[dim]正在加载历史消息...[/dim]")
         try:
+            # 等待客户端连接
+            if not self.client.connected:
+                await asyncio.sleep(0.5)  # 等待主应用连接
+            if not self.client.connected:
+                log.write("[dim red]等待服务连接...[/dim red]")
+                return
             history = await self.client.call("session.get_history", {"limit": 20})
             if history:
                 for msg in history:
@@ -156,6 +162,9 @@ class ItineraryView(Vertical):
         log = self.query_one("#itinerary-list", RichLog)
         date_label = self.query_one("#itinerary-date", Static)
         log.clear()
+        if not self.client.connected:
+            log.write("[dim red]等待服务连接...[/dim red]")
+            return
         date_label.update(f"[dim]{datetime.now().strftime('%Y年%m月%d日')}[/dim]")
         log.write("[dim]加载中...[/dim]")
         try:
@@ -218,6 +227,9 @@ class ScenePoolView(Vertical):
     async def load_scenes(self):
         log = self.query_one("#scene-list", RichLog)
         log.clear()
+        if not self.client.connected:
+            log.write("[dim red]等待服务连接...[/dim red]")
+            return
         log.write("[dim]加载中...[/dim]")
         try:
             scenes = await self.client.call("scene.list_pool", {})
@@ -283,6 +295,9 @@ class MemoryView(Vertical):
         query = search_input.value.strip()
         if not query:
             log.clear()
+        if not self.client.connected:
+            log.write("[dim red]等待服务连接...[/dim red]")
+            return
             log.write("[dim]请输入搜索关键词[/dim]")
             return
         log.clear()
@@ -333,6 +348,9 @@ class RelationshipView(Vertical):
     async def load_relationships(self):
         log = self.query_one("#relationship-list", RichLog)
         log.clear()
+        if not self.client.connected:
+            log.write("[dim red]等待服务连接...[/dim red]")
+            return
         log.write("[dim]加载中...[/dim]")
         try:
             relationships = await self.client.call("relationship.list_all", {})
@@ -445,6 +463,15 @@ class MainContent(Container):
             view.styles.display = "none"
         self.views[view_id].styles.display = "block"
         self.current_view_id = view_id
+    
+    async def refresh_current_view(self):
+        """刷新当前视图数据"""
+        if self.current_view_id not in self.views:
+            return
+        view = self.views[self.current_view_id]
+        # 调用视图的刷新方法
+        if hasattr(view, 'on_mount'):
+            await view.on_mount()
 
 
 class NeoAgentApp(App):
@@ -493,6 +520,9 @@ class NeoAgentApp(App):
             status_bar.character_name = "林依"
             status_bar.scene_info = "在家-客厅"
             status_bar.emotion = "情绪:平静"
+            # 连接成功后刷新当前视图
+            main_content = self.query_one("#main-content", MainContent)
+            await main_content.refresh_current_view()
         except Exception as e:
             footer.update(f"服务连接失败: {e} • 按 q 退出")
             self.notify(f"连接失败: {e}", severity="error")
