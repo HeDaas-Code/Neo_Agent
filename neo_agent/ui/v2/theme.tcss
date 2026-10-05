@@ -239,3 +239,13 @@ Footer > .footer--key {
 Footer > .footer--description {
     color: #C9B89A;
 }
+
+/* === 工具类 === */
+.hidden {
+    display: none;
+}
+
+.view {
+    width: 1fr;
+    height: 1fr;
+}
