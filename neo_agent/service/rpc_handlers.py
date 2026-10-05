@@ -54,7 +54,7 @@ class RPCHandlers:
         
         # 获取当前情绪和场景
         emotion = self.emotion_service.get_current_emotion() or {}
-        scene = self.scene_scheduler.get_current_scene() or {}
+        scene = self.scene_service.current() or {}
         
         result = {
             "reply": reply,
@@ -80,7 +80,7 @@ class RPCHandlers:
     
     async def session_get_context(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取当前会话上下文"""
-        current_scene = self.scene_scheduler.get_current_scene() or {}
+        current_scene = self.scene_service.current() or {}
         emotion = self.emotion_service.get_current_emotion() or {}
         character = self.role_service.active()
         
@@ -162,7 +162,7 @@ class RPCHandlers:
     async def scene_get_current(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取当前场景"""
         try:
-            scene = self.scene_scheduler.get_current_scene()
+            scene = self.scene_service.current()
             return scene if scene else {}
         except Exception as e:
             self._add_audit_log("scene_error", "low", f"获取场景失败: {str(e)}")
@@ -171,12 +171,19 @@ class RPCHandlers:
     async def scene_list_pool(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """获取场景池"""
         try:
-            scenes = self.scene_service.list_all_scenes()
-            return scenes if scenes else []
+            places = self.scene_service.places(visited_only=False)
+            result = []
+            for place in (places or []):
+                result.append({
+                    "location_id": place.get("place_id"),
+                    "name": place.get("name", "未命名"),
+                    "visited": place.get("layout_frozen", False),
+                    "area_count": len(self.scene_service.areas(place.get("place_id")) or [])
+                })
+            return result
         except Exception as e:
             self._add_audit_log("scene_error", "low", f"获取场景池失败: {str(e)}")
             return []
-    
     # ========== 知识与记忆 ==========
     
     async def memory_search(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:

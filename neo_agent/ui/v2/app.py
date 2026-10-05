@@ -409,7 +409,7 @@ class AuditView(Vertical):
         log.clear()
         log.write("[dim]加载中...[/dim]")
         try:
-            logs = await self.client.call("audit.get_recent", {"limit": 50})
+            logs = await self.client.call("system.get_audit_logs", {"limit": 50})
             log.clear()
             if logs and len(logs) > 0:
                 for entry in logs:
