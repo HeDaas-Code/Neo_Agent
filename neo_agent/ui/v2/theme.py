@@ -369,3 +369,65 @@ Button.-primary:hover {
     background: $accent-secondary;
 }
 """
+
+"""
+
+/* Navigation item styles - clickable */
+.nav-item {
+    height: 3;
+    padding: 1;
+    background: $surface-1;
+    color: $text-secondary;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.nav-item:hover {
+    background: $surface-2;
+    color: $text-primary;
+}
+
+.nav-item.active {
+    background: $surface-3;
+    color: $accent-primary;
+    border-left: thick $accent-primary;
+    text-style: bold;
+}
+
+/* Search styles */
+.search-container {
+    height: 3;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.search-input {
+    width: 80%;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    margin-right: 1;
+}
+
+.search-button {
+    width: 10;
+    background: $accent-muted;
+    color: $text-primary;
+}
+
+.search-button:hover {
+    background: $accent-secondary;
+}
+
+/* View logs */
+.memory-log,
+.relationships-log,
+.scenes-log,
+.audit-log {
+    height: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+"""

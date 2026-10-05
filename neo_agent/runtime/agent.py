@@ -17,6 +17,11 @@ from neo_agent.runtime.cognition import (
 )
 
 
+from neo_agent.runtime.auto_creation import AutoCreationService
+from neo_agent.runtime.daily_itinerary import DailyItineraryService
+from neo_agent.runtime.scene_generation import SceneGenerationService
+
+
 class AgentRuntime:
     """One character runtime with a hard boundary around tool execution.
 
@@ -178,6 +183,33 @@ class AgentRuntime:
         })
         for decision in pending_decisions:
             self.store.save_document("schedule_decisions", decision["id"], {"explanation_pending": False, "last_contextualized_at": __import__("datetime").datetime.now().astimezone().isoformat()})
+        
+        # 自动创作功能：根据对话自动创建实体
+        try:
+            auto_creation = AutoCreationService(self.store, self.model)
+            
+            # 提取并创建日程
+            schedules = auto_creation.extract_schedule_intent(
+                message, answer, {"current_scene": self.store.read_json("/runtime/scene/current.json", default={})}
+            )
+            if schedules:
+                self.store.append_event("agent.auto_creation.schedules", {
+                    "count": len(schedules),
+                    "activities": [s["activity"] for s in schedules]
+                })
+            
+            # 提取关系信号
+            rel_signal = auto_creation.extract_relationship_updates(message, answer, storage_id)
+            
+            # 提取知识条目
+            knowledge = auto_creation.maybe_create_knowledge_entry(message, answer)
+            
+        except Exception as exc:
+            self.store.append_event("agent.auto_creation.error", {
+                "error": type(exc).__name__,
+                "message": str(exc)
+            })
+
         return answer
 
     def _execute_tool(self, call: dict[str, Any]) -> ActionResult:

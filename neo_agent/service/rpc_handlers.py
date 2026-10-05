@@ -329,3 +329,52 @@ class RPCHandlers:
             raise ValueError(f"Unknown method: {method}")
         
         return await handler(params)
+
+    # ========== 每日行程与场景生成 ==========
+    
+    async def schedule_generate_daily_itinerary(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """生成今日行程"""
+        try:
+            from neo_agent.runtime.daily_itinerary import DailyItineraryService
+            itinerary_service = DailyItineraryService(self.store, self.model)
+            result = itinerary_service.generate_today_itinerary()
+            self._add_audit_log("schedule_generate", "low", f"生成今日行程: {result.get('status')}")
+            return result
+        except Exception as e:
+            self._add_audit_log("schedule_error", "low", f"生成今日行程失败: {str(e)}")
+            return {"status": "error", "reason": str(e)}
+    
+    async def scene_generate_for_activity(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """为活动生成场景"""
+        activity = params.get("activity", "")
+        purpose = params.get("purpose", "")
+        location_hint = params.get("location_hint", "")
+        
+        if not activity:
+            return {"status": "error", "reason": "缺少 activity 参数"}
+        
+        try:
+            from neo_agent.runtime.scene_generation import SceneGenerationService
+            scene_gen = SceneGenerationService(self.store, self.model)
+            result = scene_gen.generate_scene_for_activity(activity, purpose, location_hint)
+            self._add_audit_log("scene_generate", "medium", 
+                              f"生成场景: {result.get('place', {}).get('name', '未知')}")
+            return result
+        except Exception as e:
+            self._add_audit_log("scene_error", "low", f"生成场景失败: {str(e)}")
+            return {"status": "error", "reason": str(e)}
+    
+    async def scene_freeze_layout(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """固化场景布局"""
+        place_id = params.get("place_id", "")
+        
+        if not place_id:
+            return {"status": "error", "reason": "缺少 place_id 参数"}
+        
+        try:
+            from neo_agent.runtime.scene_generation import SceneGenerationService
+            scene_gen = SceneGenerationService(self.store, self.model)
+            success = scene_gen.freeze_scene_layout(place_id)
+            return {"status": "success" if success else "error"}
+        except Exception as e:
+            return {"status": "error", "reason": str(e)}

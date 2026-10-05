@@ -5,9 +5,10 @@ from typing import Optional, Dict
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Static, RichLog, Input, Button
+from textual.widgets import Static, RichLog, Input, Button, DataTable, Label
 from textual.reactive import reactive
 from textual.message import Message
+from textual import events
 
 from .client import AgentClient
 from .theme import FULL_THEME
@@ -44,12 +45,15 @@ class StatusBar(Static):
 
 
 class NavigationItem(Static):
-    """导航项"""
+    """导航项 - 使用 Static 但监听鼠标点击"""
+    
     def __init__(self, label: str, view_id: str, **kwargs):
         super().__init__(label, **kwargs)
         self.view_id = view_id
+        self.can_focus = True  # 使其可聚焦
     
-    def on_click(self):
+    def on_click(self, event: events.Click) -> None:
+        """处理点击事件"""
         self.post_message(self.NavClicked(self.view_id))
     
     class NavClicked(Message):
@@ -62,12 +66,12 @@ class Sidebar(Vertical):
     """左侧导航栏"""
     def compose(self) -> ComposeResult:
         yield Static("", classes="nav-section-header")
-        yield NavigationItem("💬 对话", "chat", id="nav-chat", classes="active")
-        yield NavigationItem("📅 今日行程", "itinerary", id="nav-itinerary")
-        yield NavigationItem("🌍 场景池", "scenes", id="nav-scenes")
-        yield NavigationItem("🧠 记忆与知识", "memory", id="nav-memory")
-        yield NavigationItem("💭 关系网络", "relationships", id="nav-relationships")
-        yield NavigationItem("🔍 审计日志", "audit", id="nav-audit")
+        yield NavigationItem("💬 对话", "chat", id="nav-chat", classes="nav-item active")
+        yield NavigationItem("📅 今日行程", "itinerary", id="nav-itinerary", classes="nav-item")
+        yield NavigationItem("🌍 场景池", "scenes", id="nav-scenes", classes="nav-item")
+        yield NavigationItem("🧠 记忆与知识", "memory", id="nav-memory", classes="nav-item")
+        yield NavigationItem("💭 关系网络", "relationships", id="nav-relationships", classes="nav-item")
+        yield NavigationItem("🔍 审计日志", "audit", id="nav-audit", classes="nav-item")
         yield Static("─── 设置 ───", classes="nav-section-header")
         yield Static(":config 全局配置", classes="nav-hint")
         yield Static(":debug  开发模式", classes="nav-hint")
@@ -92,9 +96,8 @@ class ChatView(Vertical):
         log.write("[bold #E9A568]欢迎使用 Neo Agent！[/bold #E9A568]")
         log.write("[dim]正在加载历史消息...[/dim]")
         try:
-            # 等待客户端连接
             if not self.client.connected:
-                await asyncio.sleep(0.5)  # 等待主应用连接
+                await asyncio.sleep(0.5)
             if not self.client.connected:
                 log.write("[dim red]等待服务连接...[/dim red]")
                 return
@@ -128,11 +131,11 @@ class ChatView(Vertical):
         log.write(f"[bold #F5E6D3]用户:[/bold #F5E6D3] {user_msg}")
         log.write("[dim]思考中...[/dim]")
         try:
-            response = await self.client.call("session.send_message", {"text": user_msg})
-            reply = response.get("reply", "")
+            result = await self.client.call("session.send_message", {"text": user_msg})
+            reply = result.get("reply", "")
             log.write(f"[bold #E9A568]林依:[/bold #E9A568] {reply}")
         except Exception as e:
-            log.write(f"[red]发送失败: {e}[/red]")
+            log.write(f"[dim red]发送失败: {e}[/dim red]")
 
 
 class ItineraryView(Vertical):
@@ -143,62 +146,41 @@ class ItineraryView(Vertical):
         self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
-        yield Static("📅 今日行程", classes="view-title")
-        yield Static("", id="itinerary-date", classes="view-subtitle")
-        yield ScrollableContainer(
-            RichLog(id="itinerary-list", classes="itinerary-log", wrap=False, markup=True),
-            classes="itinerary-container"
-        )
+        yield Static("今日行程", classes="view-title")
         yield Button("刷新", id="refresh-itinerary", classes="refresh-button")
+        yield RichLog(id="itinerary-log", classes="itinerary-log", wrap=True, markup=True)
     
     async def on_mount(self):
-        await self.load_itinerary()
+        await self.refresh_itinerary()
     
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "refresh-itinerary":
-            await self.load_itinerary()
+            await self.refresh_itinerary()
     
-    async def load_itinerary(self):
-        log = self.query_one("#itinerary-list", RichLog)
-        date_label = self.query_one("#itinerary-date", Static)
+    async def refresh_itinerary(self):
+        log = self.query_one("#itinerary-log", RichLog)
         log.clear()
-        if not self.client.connected:
-            log.write("[dim red]等待服务连接...[/dim red]")
-            return
-        date_label.update(f"[dim]{datetime.now().strftime('%Y年%m月%d日')}[/dim]")
-        log.write("[dim]加载中...[/dim]")
+        log.write("[dim]正在加载今日行程...[/dim]")
         try:
-            itinerary = await self.client.call("schedule.get_today_itinerary", {})
+            result = await self.client.call("schedule.get_today_itinerary", {})
+            itinerary = result.get("itinerary", [])
+            if not itinerary:
+                log.write("[dim]今日暂无行程[/dim]")
+                return
             log.clear()
-            if itinerary and len(itinerary) > 0:
-                for item in itinerary:
-                    time_str = item.get("time", "")
-                    activity = item.get("activity", "")
-                    location = item.get("location", "")
-                    category = item.get("category", "agent")
-                    is_current = item.get("is_current", False)
-                    if category == "user":
-                        icon, color = "📌", "#C9B89A"
-                    elif category == "shared":
-                        icon, color = "🤝", "#D4863C"
-                    else:
-                        icon, color = "✨", "#E9A568"
-                    if is_current:
-                        log.write(f"[bold {color}]▶ {icon} {time_str}[/bold {color}]")
-                        log.write(f"[bold {color}]  {activity}[/bold {color}]")
-                        if location:
-                            log.write(f"[bold {color}]  📍 {location}[/bold {color}]")
-                    else:
-                        log.write(f"[{color}]{icon} {time_str}[/{color}]")
-                        log.write(f"[dim]  {activity}[/dim]")
-                        if location:
-                            log.write(f"[dim]  📍 {location}[/dim]")
-                    log.write("")
-            else:
-                log.write("[dim]今天还没有安排[/dim]")
+            for item in itinerary:
+                time_str = item.get("time", "")
+                activity = item.get("activity", "")
+                location = item.get("location", "")
+                schedule_type = item.get("type", "personal")
+                type_label = {"personal": "个人", "user": "用户", "shared": "共同"}.get(schedule_type, "")
+                is_current = item.get("is_current", False)
+                marker = "▶" if is_current else " "
+                log.write(f"{marker} [bold #E9A568]{time_str}[/bold #E9A568] [{type_label}] {activity}")
+                if location:
+                    log.write(f"   📍 {location}")
         except Exception as e:
-            log.clear()
-            log.write(f"[red]加载失败: {e}[/red]")
+            log.write(f"[dim red]加载失败: {e}[/dim red]")
 
 
 class ScenePoolView(Vertical):
@@ -209,56 +191,40 @@ class ScenePoolView(Vertical):
         self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
-        yield Static("🌍 场景池", classes="view-title")
-        yield Static("已访问的场景", classes="view-subtitle")
-        yield ScrollableContainer(
-            RichLog(id="scene-list", classes="scene-log", wrap=True, markup=True),
-            classes="scene-container"
-        )
+        yield Static("场景池", classes="view-title")
         yield Button("刷新", id="refresh-scenes", classes="refresh-button")
+        yield RichLog(id="scenes-log", classes="scenes-log", wrap=True, markup=True)
     
     async def on_mount(self):
-        await self.load_scenes()
+        await self.refresh_scenes()
     
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "refresh-scenes":
-            await self.load_scenes()
+            await self.refresh_scenes()
     
-    async def load_scenes(self):
-        log = self.query_one("#scene-list", RichLog)
+    async def refresh_scenes(self):
+        log = self.query_one("#scenes-log", RichLog)
         log.clear()
-        if not self.client.connected:
-            log.write("[dim red]等待服务连接...[/dim red]")
-            return
-        log.write("[dim]加载中...[/dim]")
+        log.write("[dim]正在加载场景池...[/dim]")
         try:
-            scenes = await self.client.call("scene.list_pool", {})
-            current_scene = await self.client.call("scene.get_current", {})
-            current_location_id = current_scene.get("location_id", "") if current_scene else ""
+            result = await self.client.call("scene.list_pool", {})
+            scenes = result.get("scenes", [])
+            current_scene = result.get("current_scene", {})
+            if not scenes:
+                log.write("[dim]暂无已访问场景[/dim]")
+                return
             log.clear()
-            if scenes and len(scenes) > 0:
-                for scene in scenes:
-                    location_id = scene.get("location_id", "")
-                    name = scene.get("name", "")
-                    visited = scene.get("visited", False)
-                    area_count = scene.get("area_count", 0)
-                    is_current = location_id == current_location_id
-                    if is_current:
-                        log.write(f"[bold #E9A568]▶ 🌟 {name}[/bold #E9A568]")
-                        log.write(f"[bold #E9A568]  当前所在位置[/bold #E9A568]")
-                    else:
-                        log.write(f"[bold #F5E6D3]{name}[/bold #F5E6D3]")
-                    if visited:
-                        log.write(f"[dim]  ✓ 已访问 • {area_count} 个区域[/dim]")
-                    else:
-                        log.write(f"[dim]  待访问[/dim]")
-                    log.write("")
-            else:
-                log.write("[dim]还没有场景记录[/dim]")
-                log.write("[dim]随着日程进行，场景会自动生成并记录在这里[/dim]")
+            log.write(f"[bold #E9A568]当前场景:[/bold #E9A568] {current_scene.get('location', '未知')} - {current_scene.get('area', '未知')}\n")
+            log.write("[bold #C9B89A]已访问场景:[/bold #C9B89A]")
+            for scene in scenes:
+                name = scene.get("name", "")
+                visited = scene.get("visited", False)
+                frozen = scene.get("layout_frozen", False)
+                marker = "✓" if visited else " "
+                status = "(已固化)" if frozen else "(可编辑)"
+                log.write(f" {marker} {name} {status}")
         except Exception as e:
-            log.clear()
-            log.write(f"[red]加载失败: {e}[/red]")
+            log.write(f"[dim red]加载失败: {e}[/dim red]")
 
 
 class MemoryView(Vertical):
@@ -269,17 +235,11 @@ class MemoryView(Vertical):
         self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
-        yield Static("🧠 记忆与知识", classes="view-title")
-        with Horizontal(classes="search-bar"):
+        yield Static("记忆与知识", classes="view-title")
+        with Horizontal(classes="search-container"):
             yield Input(placeholder="搜索记忆...", id="memory-search", classes="search-input")
             yield Button("搜索", id="search-memory", classes="search-button")
-        yield ScrollableContainer(
-            RichLog(id="memory-results", classes="memory-log", wrap=True, markup=True),
-            classes="memory-container"
-        )
-    
-    async def on_mount(self):
-        self.query_one("#memory-results", RichLog).write("[dim]输入关键词搜索记忆和知识[/dim]")
+        yield RichLog(id="memory-log", classes="memory-log", wrap=True, markup=True)
     
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "search-memory":
@@ -290,36 +250,32 @@ class MemoryView(Vertical):
             await self.search_memory()
     
     async def search_memory(self):
-        search_input = self.query_one("#memory-search", Input)
-        log = self.query_one("#memory-results", RichLog)
-        query = search_input.value.strip()
+        input_widget = self.query_one("#memory-search", Input)
+        log = self.query_one("#memory-log", RichLog)
+        query = input_widget.value.strip()
         if not query:
             log.clear()
-        if not self.client.connected:
-            log.write("[dim red]等待服务连接...[/dim red]")
-            return
             log.write("[dim]请输入搜索关键词[/dim]")
             return
         log.clear()
-        log.write(f"[dim]搜索: {query}...[/dim]")
+        log.write(f"[dim]正在搜索: {query}...[/dim]")
         try:
-            results = await self.client.call("memory.search", {"query": query})
+            result = await self.client.call("memory.search", {"query": query})
+            memories = result.get("results", [])
+            if not memories:
+                log.write("[dim]未找到相关记忆[/dim]")
+                return
             log.clear()
-            if results and len(results) > 0:
-                log.write(f"[bold #E9A568]找到 {len(results)} 条相关记忆[/bold #E9A568]\n")
-                for idx, result in enumerate(results, 1):
-                    content = result.get("content", "")
-                    relevance = result.get("relevance", 0.0)
-                    timestamp = result.get("timestamp", "")
-                    log.write(f"[bold #F5E6D3]{idx}. [/bold #F5E6D3]")
-                    log.write(f"[dim]{content}[/dim]")
-                    log.write(f"[dim]  相关度: {relevance:.2f} • {timestamp}[/dim]")
-                    log.write("")
-            else:
-                log.write("[dim]没有找到相关记忆[/dim]")
+            log.write(f"[bold #E9A568]找到 {len(memories)} 条相关记忆:[/bold #E9A568]\n")
+            for idx, mem in enumerate(memories, 1):
+                content = mem.get("content", "")
+                relevance = mem.get("relevance", 0.0)
+                timestamp = mem.get("timestamp", "")
+                log.write(f"{idx}. [bold #C9B89A]相关度: {relevance:.2f}[/bold #C9B89A]")
+                log.write(f"   {content}")
+                log.write(f"   [dim]{timestamp}[/dim]\n")
         except Exception as e:
-            log.clear()
-            log.write(f"[red]搜索失败: {e}[/red]")
+            log.write(f"[dim red]搜索失败: {e}[/dim red]")
 
 
 class RelationshipView(Vertical):
@@ -330,55 +286,36 @@ class RelationshipView(Vertical):
         self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
-        yield Static("💭 关系网络", classes="view-title")
-        yield Static("与其他实体的关系状态", classes="view-subtitle")
-        yield ScrollableContainer(
-            RichLog(id="relationship-list", classes="relationship-log", wrap=True, markup=True),
-            classes="relationship-container"
-        )
+        yield Static("关系网络", classes="view-title")
         yield Button("刷新", id="refresh-relationships", classes="refresh-button")
+        yield RichLog(id="relationships-log", classes="relationships-log", wrap=True, markup=True)
     
     async def on_mount(self):
-        await self.load_relationships()
+        await self.refresh_relationships()
     
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "refresh-relationships":
-            await self.load_relationships()
+            await self.refresh_relationships()
     
-    async def load_relationships(self):
-        log = self.query_one("#relationship-list", RichLog)
+    async def refresh_relationships(self):
+        log = self.query_one("#relationships-log", RichLog)
         log.clear()
-        if not self.client.connected:
-            log.write("[dim red]等待服务连接...[/dim red]")
-            return
-        log.write("[dim]加载中...[/dim]")
+        log.write("[dim]正在加载关系网络...[/dim]")
         try:
-            relationships = await self.client.call("relationship.list_all", {})
+            result = await self.client.call("relationship.list_all", {})
+            relationships = result.get("relationships", [])
+            if not relationships:
+                log.write("[dim]暂无关系记录[/dim]")
+                return
             log.clear()
-            if relationships and len(relationships) > 0:
-                for rel in relationships:
-                    entity = rel.get("entity", "")
-                    score = rel.get("score", 0)
-                    last_update = rel.get("last_update", "")
-                    if score > 5:
-                        icon, color = "💖", "#E9A568"
-                    elif score > 0:
-                        icon, color = "😊", "#D4863C"
-                    elif score < -5:
-                        icon, color = "💔", "#D97757"
-                    elif score < 0:
-                        icon, color = "😐", "#8A7A66"
-                    else:
-                        icon, color = "👤", "#C9B89A"
-                    log.write(f"[bold {color}]{icon} {entity}[/bold {color}]")
-                    log.write(f"[dim]  关系值: {score:+d} • 更新于 {last_update}[/dim]")
-                    log.write("")
-            else:
-                log.write("[dim]还没有关系记录[/dim]")
-                log.write("[dim]随着交流进行，关系会自动建立[/dim]")
+            for rel in relationships:
+                entity = rel.get("entity", "")
+                score = rel.get("score", 0)
+                last_updated = rel.get("last_updated", "")
+                log.write(f"[bold #E9A568]{entity}[/bold #E9A568] - 分数: {score}")
+                log.write(f"  [dim]最后更新: {last_updated}[/dim]\n")
         except Exception as e:
-            log.clear()
-            log.write(f"[red]加载失败: {e}[/red]")
+            log.write(f"[dim red]加载失败: {e}[/dim red]")
 
 
 class AuditView(Vertical):
@@ -389,61 +326,49 @@ class AuditView(Vertical):
         self.add_class("view-container")
     
     def compose(self) -> ComposeResult:
-        yield Static("🔍 审计日志", classes="view-title")
-        yield Static("Agent 操作记录", classes="view-subtitle")
-        yield ScrollableContainer(
-            RichLog(id="audit-log", classes="audit-log", wrap=True, markup=True),
-            classes="audit-container"
-        )
+        yield Static("审计日志", classes="view-title")
         yield Button("刷新", id="refresh-audit", classes="refresh-button")
+        yield RichLog(id="audit-log", classes="audit-log", wrap=True, markup=True)
     
     async def on_mount(self):
-        await self.load_audit_logs()
+        await self.refresh_audit()
     
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "refresh-audit":
-            await self.load_audit_logs()
+            await self.refresh_audit()
     
-    async def load_audit_logs(self):
+    async def refresh_audit(self):
         log = self.query_one("#audit-log", RichLog)
         log.clear()
-        log.write("[dim]加载中...[/dim]")
+        log.write("[dim]正在加载审计日志...[/dim]")
         try:
-            logs = await self.client.call("system.get_audit_logs", {"limit": 50})
+            result = await self.client.call("audit.list_recent", {"limit": 50})
+            audits = result.get("audits", [])
+            if not audits:
+                log.write("[dim]暂无审计记录[/dim]")
+                return
             log.clear()
-            if logs and len(logs) > 0:
-                for entry in logs:
-                    timestamp = entry.get("timestamp", "")
-                    operation = entry.get("operation", "")
-                    risk_level = entry.get("risk_level", "low")
-                    status = entry.get("status", "success")
-                    details = entry.get("details", "")
-                    if risk_level == "high":
-                        icon, color = "🔴", "#D97757"
-                    elif risk_level == "medium":
-                        icon, color = "🟡", "#D4863C"
-                    else:
-                        icon, color = "🟢", "#A8C079"
-                    status_icon = "✓" if status == "success" else "✗"
-                    log.write(f"[dim]{timestamp}[/dim] [{color}]{icon}[/{color}] [bold #F5E6D3]{operation}[/bold #F5E6D3] {status_icon}")
-                    if details:
-                        log.write(f"  [dim]{details}[/dim]")
-                    log.write("")
-            else:
-                log.write("[dim]暂无日志[/dim]")
+            for audit in audits:
+                timestamp = audit.get("timestamp", "")
+                operation = audit.get("operation", "")
+                risk_level = audit.get("risk_level", "low")
+                details = audit.get("details", "")
+                risk_color = {"low": "#A8C079", "medium": "#E9A568", "high": "#D97757"}.get(risk_level, "#8A7A66")
+                log.write(f"[{risk_color}]●[/{risk_color}] [{timestamp}] {operation}")
+                if details:
+                    log.write(f"   {details}\n")
         except Exception as e:
-            log.clear()
-            log.write(f"[red]加载失败: {e}[/red]")
+            log.write(f"[dim red]加载失败: {e}[/dim red]")
 
 
 class MainContent(Container):
     """主内容区容器"""
-    current_view_id = reactive("chat")
     
     def __init__(self, client: AgentClient, **kwargs):
         super().__init__(**kwargs)
         self.client = client
-        self.views: Dict[str, Vertical] = {}
+        self.current_view = "chat"
+        self.views = {}
     
     def compose(self) -> ComposeResult:
         self.views["chat"] = ChatView(self.client, id="view-chat")
@@ -452,33 +377,35 @@ class MainContent(Container):
         self.views["memory"] = MemoryView(self.client, id="view-memory")
         self.views["relationships"] = RelationshipView(self.client, id="view-relationships")
         self.views["audit"] = AuditView(self.client, id="view-audit")
-        for vid, view in self.views.items():
-            view.styles.display = "block" if vid == "chat" else "none"
+        
+        for view_id, view in self.views.items():
+            if view_id != "chat":
+                view.display = False
             yield view
     
     def switch_to(self, view_id: str):
+        """切换到指定视图"""
         if view_id not in self.views:
             return
-        for view in self.views.values():
-            view.styles.display = "none"
-        self.views[view_id].styles.display = "block"
-        self.current_view_id = view_id
+        for vid, view in self.views.items():
+            view.display = (vid == view_id)
+        self.current_view = view_id
     
     async def refresh_current_view(self):
-        """刷新当前视图数据"""
-        if self.current_view_id not in self.views:
-            return
-        view = self.views[self.current_view_id]
-        # 调用视图的刷新方法
-        if hasattr(view, 'on_mount'):
-            await view.on_mount()
+        """刷新当前视图"""
+        current = self.views.get(self.current_view)
+        if hasattr(current, 'on_mount'):
+            await current.on_mount()
 
 
 class NeoAgentApp(App):
-    """Neo Agent 主应用"""
+    """Neo Agent TUI 主应用"""
+    
     CSS = FULL_THEME + COMMAND_PANEL_CSS
-    TITLE = "Neo Agent"
-    BINDINGS = [("q", "quit", "退出"), (":", "command_mode", "命令")]
+    BINDINGS = [
+        ("q", "quit", "退出"),
+        (":", "command_mode", "命令模式"),
+    ]
     
     def __init__(self):
         super().__init__()
@@ -491,23 +418,13 @@ class NeoAgentApp(App):
         yield StatusBar(id="status-bar")
         with Horizontal(id="main-layout"):
             yield Sidebar(id="sidebar", classes="sidebar")
-            yield MainContent(self.client, id="main-content")
-        yield Static("服务连接中... • 按 : 进入命令模式 • 按 q 退出", id="footer", classes="footer")
+            yield MainContent(self.client, id="main-content", classes="main-content")
+        yield Static("正在连接服务...", id="footer", classes="footer")
     
     async def on_mount(self):
-        await self.connect_to_service()
-        self.run_worker(self.periodic_status_update(), exclusive=True)
         self.event_handlers = EventHandlers(self)
-        try:
-            from .websocket_client import WebSocketClient
-            self.ws_client = WebSocketClient()
-            if await self.ws_client.connect():
-                for event_type in ["scene_changed", "emotion_updated", "message_received",
-                                   "schedule_triggered", "relationship_changed",
-                                   "daily_itinerary_generated", "system_status_changed", "audit_logged"]:
-                    self.ws_client.on(event_type, self._handle_ws_event)
-        except Exception as e:
-            self.log(f"WebSocket 初始化失败: {e}")
+        asyncio.create_task(self.connect_to_service())
+        asyncio.create_task(self.periodic_status_update())
     
     async def connect_to_service(self):
         footer = self.query_one("#footer", Static)
@@ -520,7 +437,6 @@ class NeoAgentApp(App):
             status_bar.character_name = "林依"
             status_bar.scene_info = "在家-客厅"
             status_bar.emotion = "情绪:平静"
-            # 连接成功后刷新当前视图
             main_content = self.query_one("#main-content", MainContent)
             await main_content.refresh_current_view()
         except Exception as e:
@@ -537,6 +453,7 @@ class NeoAgentApp(App):
                     pass
     
     def on_navigation_item_nav_clicked(self, message: NavigationItem.NavClicked):
+        """处理导航项点击"""
         view_id = message.view_id
         sidebar = self.query_one("#sidebar", Sidebar)
         for item in sidebar.query(NavigationItem):

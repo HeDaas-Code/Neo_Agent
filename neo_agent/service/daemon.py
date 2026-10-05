@@ -238,3 +238,30 @@ class AgentDaemon:
             }
         ):
             asyncio.run(self._run_server())
+
+    async def _daily_check_loop(self):
+        """每日行程检查循环，每小时检查一次。"""
+        while self.running:
+            try:
+                now = __import__('datetime').datetime.now()
+                
+                # 检查是否到了生成时间（每天 00:05）
+                if now.hour == 0 and now.minute >= 5 and now.minute < 10:
+                    # 避免重复生成
+                    today = now.date().isoformat()
+                    if self.last_daily_check != today:
+                        result = self.daily_itinerary.run_daily_check()
+                        self.store.append_event("daemon.daily_check", {
+                            "date": today,
+                            "result": result.get("status", "unknown")
+                        })
+                        self.last_daily_check = today
+                
+            except Exception as exc:
+                self.store.append_event("daemon.daily_check_error", {
+                    "error": type(exc).__name__,
+                    "message": str(exc)
+                })
+            
+            # 每小时检查一次
+            await asyncio.sleep(3600)
