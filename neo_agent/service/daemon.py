@@ -36,7 +36,7 @@ class AgentDaemon:
         self.broadcaster: Optional[EventBroadcaster] = None
         self.handlers: Optional[RPCHandlers] = None
         
-        self._shutdown_requested = False  # 线程安全的关闭标志
+        self._shutdown_requested = False
         
     def is_running(self) -> bool:
         """检查服务是否在运行"""
@@ -46,7 +46,7 @@ class AgentDaemon:
         try:
             with open(self.pid_file) as f:
                 pid = int(f.read().strip())
-            os.kill(pid, 0)  # 检查进程是否存在
+            os.kill(pid, 0)
             return True
         except (ValueError, ProcessLookupError, PermissionError):
             return False
@@ -101,6 +101,8 @@ class AgentDaemon:
                 "id": req_id
             })
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return web.json_response({
                 "jsonrpc": "2.0",
                 "error": {
@@ -187,7 +189,7 @@ class AgentDaemon:
         print(f"✓ Neo Agent 服务已启动", file=sys.stderr)
         print(f"  Socket: {self.socket_path}", file=sys.stderr)
         
-        # 等待关闭信号（轮询标志位）
+        # 等待关闭信号
         while not self._shutdown_requested:
             await asyncio.sleep(0.5)
         
@@ -224,6 +226,15 @@ class AgentDaemon:
         if self.is_running():
             raise RuntimeError("Service is already running")
         
+        # **关键修复**：保存当前环境变量，特别是 LLM 配置
+        preserved_env = {
+            key: value for key, value in os.environ.items()
+            if any(key.startswith(prefix) for prefix in [
+                'OPENAI_', 'SILICONFLOW_', 'MODEL_', 'PATH', 'HOME', 
+                'USER', 'LANG', 'LC_', 'PYTHONPATH'
+            ])
+        }
+        
         # 守护进程上下文
         pidfile = PIDLockFile(str(self.pid_file))
         
@@ -232,36 +243,14 @@ class AgentDaemon:
             working_directory=str(self.data_dir),
             stdout=open(self.log_file, "a"),
             stderr=open(self.log_file, "a"),
+            # **保留环境变量**
+            files_preserve=[],
+            # **信号处理**
             signal_map={
                 signal.SIGTERM: lambda signum, frame: setattr(self, '_shutdown_requested', True),
                 signal.SIGINT: lambda signum, frame: setattr(self, '_shutdown_requested', True),
             }
         ):
+            # **恢复环境变量**
+            os.environ.update(preserved_env)
             asyncio.run(self._run_server())
-
-    async def _daily_check_loop(self):
-        """每日行程检查循环，每小时检查一次。"""
-        while self.running:
-            try:
-                now = __import__('datetime').datetime.now()
-                
-                # 检查是否到了生成时间（每天 00:05）
-                if now.hour == 0 and now.minute >= 5 and now.minute < 10:
-                    # 避免重复生成
-                    today = now.date().isoformat()
-                    if self.last_daily_check != today:
-                        result = self.daily_itinerary.run_daily_check()
-                        self.store.append_event("daemon.daily_check", {
-                            "date": today,
-                            "result": result.get("status", "unknown")
-                        })
-                        self.last_daily_check = today
-                
-            except Exception as exc:
-                self.store.append_event("daemon.daily_check_error", {
-                    "error": type(exc).__name__,
-                    "message": str(exc)
-                })
-            
-            # 每小时检查一次
-            await asyncio.sleep(3600)

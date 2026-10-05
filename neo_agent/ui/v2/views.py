@@ -6,6 +6,8 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 from textual.app import ComposeResult
+from textual.message import Message
+from textual.message import Message
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Static, Button, Input, RichLog, DataTable, Label
 from textual.reactive import reactive
@@ -13,6 +15,92 @@ from rich.text import Text
 from rich.table import Table as RichTable
 
 from neo_agent.ui.v2.client import AgentClient
+
+
+class ChatView(Vertical):
+    """对话视图"""
+    
+    class ChatUpdated(Message):
+        """对话更新消息"""
+        def __init__(self, reply: str, emotion: dict, scene: dict):
+            super().__init__()
+            self.reply = reply
+            self.emotion = emotion
+            self.scene = scene
+    
+    def __init__(self, client: AgentClient, **kwargs):
+        super().__init__(**kwargs)
+        self.client = client
+        self.add_class("view-container")
+    
+    def compose(self) -> ComposeResult:
+        yield RichLog(id="chat-log", classes="chat-log", wrap=True, markup=True)
+        with Horizontal(classes="chat-input-container"):
+            yield Input(placeholder="输入消息... (Ctrl+Enter 发送)", id="chat-input", classes="chat-input")
+            yield Button("发送", variant="primary", id="send-button")
+    
+    async def on_mount(self):
+        """挂载时加载历史消息"""
+        log = self.query_one("#chat-log", RichLog)
+        log.write("[bold #E9A568]欢迎使用 Neo Agent！[/bold #E9A568]")
+        log.write("[dim]正在加载历史消息...[/dim]")
+        
+        try:
+            history = await self.client.call("session.get_history", {"limit": 20})
+            log.clear()
+            log.write("[bold #E9A568]═══ 对话历史 ═══[/bold #E9A568]\n")
+            
+            for msg in reversed(history):
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "user":
+                    log.write(f"[bold #F5E6D3]你[/bold #F5E6D3]: {content}")
+                else:
+                    log.write(f"[bold #E9A568]林依[/bold #E9A568]: {content}")
+            
+            log.write("\n[dim]─────────────────[/dim]\n")
+        except Exception as e:
+            log.clear()
+            log.write(f"[yellow]无法加载历史消息: {e}[/yellow]")
+    
+    async def on_button_pressed(self, event: Button.Pressed):
+        """发送按钮点击"""
+        if event.button.id == "send-button":
+            await self._send_message()
+    
+    async def on_input_submitted(self, event: Input.Submitted):
+        """输入框提交"""
+        if event.input.id == "chat-input":
+            await self._send_message()
+    
+    async def _send_message(self):
+        """发送消息到 Agent"""
+        input_widget = self.query_one("#chat-input", Input)
+        log = self.query_one("#chat-log", RichLog)
+        
+        message = input_widget.value.strip()
+        if not message:
+            return
+        
+        input_widget.value = ""
+        
+        log.write(f"\n[bold #F5E6D3]你[/bold #F5E6D3]: {message}")
+        log.write("[dim #8A6B4F]思考中...[/dim #8A6B4F]")
+        
+        try:
+            result = await self.client.call("session.send_message", {"text": message})
+            
+            reply = result.get("reply", "")
+            emotion = result.get("emotion", {})
+            scene = result.get("scene", {})
+            
+            log.write(f"[bold #E9A568]林依[/bold #E9A568]: {reply}")
+            
+            self.post_message(self.ChatUpdated(reply, emotion, scene))
+            
+        except Exception as e:
+            log.write(f"[bold red]错误[/bold red]: {str(e)}")
 
 
 class ItineraryView(Vertical):

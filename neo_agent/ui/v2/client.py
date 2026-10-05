@@ -55,6 +55,10 @@ class AgentClient:
         
         self._connected = False
     
+    async def close(self):
+        """关闭客户端（disconnect 的别名）"""
+        await self.disconnect()
+    
     async def call(self, method: str, params: Dict[str, Any], timeout: float = 30.0) -> Any:
         """调用 JSON-RPC 方法"""
         if not self._session:

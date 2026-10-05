@@ -1,9 +1,4 @@
-"""Neo Agent TUI v2 模块"""
+"""Neo Agent TUI v2 - 服务-客户端架构"""
+from .app import NeoAgentApp, run_tui
 
-from .app import NeoAgentTUI, run
-
-# 兼容旧的导入名称
-NeoAgentApp = NeoAgentTUI
-run_tui = run
-
-__all__ = ['NeoAgentTUI', 'NeoAgentApp', 'run', 'run_tui']
+__all__ = ["NeoAgentApp", "run_tui"]
