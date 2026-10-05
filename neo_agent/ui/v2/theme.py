@@ -81,24 +81,25 @@ Screen {
     text-align: center;
 }
 
-.nav-item {
+/* 导航项 - NavigationItem (Static) */
+NavigationItem {
+    height: 3;
+    padding: 1;
     background: $surface-1;
     color: $text-secondary;
-    height: 3;
     width: 100%;
     margin-bottom: 1;
-    border: none;
-    text-align: left;
 }
 
-.nav-item:hover {
+NavigationItem:hover {
     background: $surface-2;
-    color: $accent-primary;
+    color: $text-primary;
 }
 
-.nav-item:focus {
+NavigationItem.active {
     background: $surface-3;
     color: $accent-primary;
+    border-left: thick $accent-primary;
     text-style: bold;
 }
 
@@ -126,9 +127,15 @@ Screen {
 
 .view-title {
     height: 3;
-    content-align: center middle;
+    content-align: left middle;
     text-style: bold;
     color: $accent-primary;
+    margin-bottom: 1;
+}
+
+.view-subtitle {
+    height: 2;
+    color: $text-secondary;
     margin-bottom: 1;
 }
 
@@ -173,6 +180,112 @@ Screen {
     background: $accent-secondary;
 }
 
+/* ============ 行程视图 ============ */
+.itinerary-container {
+    height: 1fr;
+    overflow-y: scroll;
+}
+
+.itinerary-log {
+    height: auto;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
+.refresh-button {
+    width: 15;
+    height: 3;
+    background: $accent-muted;
+    color: $text-primary;
+    margin-top: 1;
+}
+
+.refresh-button:hover {
+    background: $accent-primary;
+}
+
+/* ============ 场景池视图 ============ */
+.scene-container {
+    height: 1fr;
+    overflow-y: scroll;
+}
+
+.scene-log {
+    height: auto;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
+/* ============ 记忆视图 ============ */
+.search-bar {
+    height: 3;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.search-input {
+    width: 1fr;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    margin-right: 1;
+}
+
+.search-button {
+    width: 10;
+    background: $accent-primary;
+    color: $surface-0;
+}
+
+.search-button:hover {
+    background: $accent-secondary;
+}
+
+.memory-container {
+    height: 1fr;
+    overflow-y: scroll;
+}
+
+.memory-log {
+    height: auto;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
+/* ============ 关系视图 ============ */
+.relationship-container {
+    height: 1fr;
+    overflow-y: scroll;
+}
+
+.relationship-log {
+    height: auto;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
+/* ============ 审计视图 ============ */
+.audit-container {
+    height: 1fr;
+    overflow-y: scroll;
+}
+
+.audit-log {
+    height: auto;
+    background: $surface-1;
+    color: $text-primary;
+    border: solid $surface-3;
+    padding: 1;
+}
+
 /* ============ 数据表格 ============ */
 .data-table {
     height: 1fr;
@@ -190,36 +303,6 @@ DataTable > .datatable--header {
 DataTable > .datatable--cursor {
     background: $surface-3;
     color: $text-primary;
-}
-
-/* ============ 搜索栏 ============ */
-.search-bar {
-    height: 3;
-    width: 100%;
-    margin-bottom: 1;
-}
-
-.search-input {
-    width: 1fr;
-    background: $surface-1;
-    color: $text-primary;
-    border: solid $surface-3;
-    margin-right: 1;
-}
-
-#search-memory {
-    width: 10;
-    background: $accent-primary;
-    color: $surface-0;
-}
-
-/* ============ 结果日志 ============ */
-.results-log {
-    height: 1fr;
-    background: $surface-1;
-    color: $text-primary;
-    border: solid $surface-3;
-    padding: 1;
 }
 
 /* ============ 详情面板 ============ */
@@ -252,19 +335,6 @@ DataTable > .datatable--cursor {
 
 .filter-bar Button {
     margin-right: 1;
-}
-
-/* ============ 操作按钮 ============ */
-.action-button {
-    width: 15;
-    height: 3;
-    background: $accent-muted;
-    color: $text-primary;
-    margin-top: 1;
-}
-
-.action-button:hover {
-    background: $accent-primary;
 }
 
 /* ============ 输入框通用 ============ */
